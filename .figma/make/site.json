@@ -1,0 +1,11 @@
+{
+  "title": "Mboa Trust",
+  "description": "Enables diaspora members to securely fund projects, hire verified contractors, and invest in verified land in Cameroon with milestone-based escrow protection.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,0 +1,258 @@
+import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useApp, fmt } from '../context'
+import { useMarketplace, MATERIALS, REGIONS, estimateMaterialPrice } from '../marketplace'
+import { C, FONT, AppShell, PillButton, Header } from '../components/MobileLayout'
+
+// ── Add certification ────────────────────────────────────────────────────────────
+export function AddCertificationScreen() {
+  const nav = useNavigate()
+  const { contractors } = useApp()
+  const { addCertification } = useMarketplace()
+  const self = contractors[0]
+
+  const [name, setName] = useState('')
+  const [issuer, setIssuer] = useState('')
+  const [uploaded, setUploaded] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+
+  const canSubmit = name.trim() !== '' && issuer.trim() !== '' && uploaded
+
+  const submit = () => {
+    if (!canSubmit) return
+    addCertification(self.id, name, issuer)
+    setSubmitted(true)
+  }
+
+  if (submitted) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#FFF7E6' }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect x="6" y="4" width="24" height="28" rx="2" stroke={C.amber} strokeWidth="2" />
+              <path d="M13 16L16 19L23 12" stroke={C.amber} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Certificate submitted</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            Your certificate is under review. This usually takes 24–48 hours before it shows as verified on your profile.
+          </p>
+          <PillButton onClick={() => nav('/contractor/profile')} fullWidth>Back to profile</PillButton>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Add Certification" back />
+
+      <div className="px-5 py-5 space-y-4 sm:mx-auto sm:max-w-2xl">
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Certificate name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Certified Electrician"
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+        </div>
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Issuing body</label>
+          <input value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="e.g. Cameroon Board of Engineers"
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+        </div>
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Certificate document</div>
+          <button
+            onClick={() => setUploaded(true)}
+            className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
+            style={{ borderColor: uploaded ? C.forest : C.parchmentDark, background: uploaded ? '#F0FDF4' : C.white }}
+          >
+            {uploaded ? (
+              <>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
+                  <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+                    <path d="M4 11L9 16L18 6" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <span style={{ fontFamily: FONT.sans, color: C.forest }} className="text-sm font-semibold">Document uploaded</span>
+              </>
+            ) : (
+              <>
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                  <rect x="6" y="4" width="20" height="24" rx="2" stroke={C.inkSubtle} strokeWidth="1.5" />
+                  <line x1="11" y1="11" x2="21" y2="11" stroke={C.inkSubtle} strokeWidth="1.3" />
+                  <line x1="11" y1="16" x2="21" y2="16" stroke={C.inkSubtle} strokeWidth="1.3" />
+                  <line x1="11" y1="21" x2="17" y2="21" stroke={C.inkSubtle} strokeWidth="1.3" />
+                </svg>
+                <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">Tap to upload certificate</span>
+                <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">JPG, PNG or PDF</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <PillButton onClick={submit} fullWidth disabled={!canSubmit}>Submit for verification</PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Material cost estimator ──────────────────────────────────────────────────────
+export function MaterialCostEstimatorScreen() {
+  const [material, setMaterial] = useState(MATERIALS[0].name)
+  const [region, setRegion] = useState(REGIONS[0])
+  const result = estimateMaterialPrice(material, region)
+
+  return (
+    <AppShell>
+      <Header title="Material Cost Estimator" back />
+
+      <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Material</label>
+          <div className="flex flex-wrap gap-2">
+            {MATERIALS.map((m) => (
+              <button key={m.name} onClick={() => setMaterial(m.name)}
+                className="px-3 py-1.5 rounded-full text-xs transition-all"
+                style={{ background: material === m.name ? C.forest : C.parchment, color: material === m.name ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
+                {m.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Region</label>
+          <div className="flex flex-wrap gap-2">
+            {REGIONS.map((r) => (
+              <button key={r} onClick={() => setRegion(r)}
+                className="px-3 py-1.5 rounded-full text-xs transition-all"
+                style={{ background: region === r ? C.forest : C.parchment, color: region === r ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Typical price range</div>
+          <div style={{ fontFamily: FONT.serif }} className="text-2xl font-bold text-white">{fmt(result.low)} – {fmt(result.high)}</div>
+          <div style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.7)' }} className="text-sm mt-2">{material} · {result.unit} · {region}</div>
+        </div>
+
+        <div className="rounded-xl border p-3" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
+            Mock reference prices for planning purposes only — actual costs vary by supplier, season, and availability.
+          </p>
+        </div>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Contractor availability calendar ─────────────────────────────────────────────
+function getMonthGrid(year: number, month: number) {
+  const startWeekday = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const cells: (number | null)[] = Array.from({ length: startWeekday }, () => null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+  return cells
+}
+
+export function AvailabilityCalendarScreen() {
+  const { contractorId } = useParams()
+  const { contractors } = useApp()
+  const { availability, toggleAvailability } = useMarketplace()
+  const contractor = contractorId ? (contractors.find((c) => c.id === contractorId) ?? contractors[0]) : contractors[0]
+  const readOnly = !!contractorId
+
+  const today = new Date()
+  const [viewYear, setViewYear] = useState(today.getFullYear())
+  const [viewMonth, setViewMonth] = useState(today.getMonth())
+
+  const cells = getMonthGrid(viewYear, viewMonth)
+  const contractorAvailability = availability[contractor.id] ?? {}
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+
+  const changeMonth = (delta: number) => {
+    let m = viewMonth + delta
+    let y = viewYear
+    if (m < 0) { m = 11; y -= 1 }
+    if (m > 11) { m = 0; y += 1 }
+    setViewMonth(m)
+    setViewYear(y)
+  }
+
+  const dateKey = (day: number) => `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+  return (
+    <AppShell>
+      <Header
+        title={readOnly ? `${contractor.name}'s Availability` : 'My Availability'}
+        subtitle={readOnly ? 'Read-only — visible to project owners' : 'Tap a date to mark it unavailable'}
+        back
+      />
+
+      <div className="px-5 py-5 sm:mx-auto sm:max-w-2xl">
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={() => changeMonth(-1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--color-parchment)]">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M9 3L5 7L9 11" stroke={C.ink} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            </button>
+            <span style={{ fontFamily: FONT.serif }} className="font-bold">{monthLabel}</span>
+            <button onClick={() => changeMonth(1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-[var(--color-parchment)]">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 3L9 7L5 11" stroke={C.ink} strokeWidth="1.5" strokeLinecap="round" /></svg>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+              <div key={i} style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-center text-[9px] uppercase">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, i) => {
+              if (day === null) return <div key={i} />
+              const key = dateKey(day)
+              const status = contractorAvailability[key] ?? 'available'
+              const isPast = new Date(viewYear, viewMonth, day) < startOfToday
+              const disabled = readOnly || isPast
+              return (
+                <button
+                  key={i}
+                  disabled={disabled}
+                  onClick={() => toggleAvailability(contractor.id, key)}
+                  className="aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
+                  style={{
+                    background: status === 'unavailable' ? '#FEE2E2' : '#F0FDF4',
+                    color: status === 'unavailable' ? '#991B1B' : '#166534',
+                    opacity: isPast ? 0.35 : 1,
+                    cursor: disabled ? 'default' : 'pointer',
+                  }}
+                >
+                  {day}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 mt-4">
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded" style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }} />
+            <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-wider">Available</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-3 rounded" style={{ background: '#FEE2E2', border: '1px solid #FECACA' }} />
+            <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-wider">Unavailable</span>
+          </div>
+        </div>
+      </div>
+    </AppShell>
+  )
+}

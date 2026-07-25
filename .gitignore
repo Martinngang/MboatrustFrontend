@@ -1,0 +1,27 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Misc tooling state
+.mimocode/.cron-lock

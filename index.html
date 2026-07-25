@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="<!-- figma:lang -->">
+  <head>
+    <!-- figma:head-start -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title><!-- figma:title --></title>
+
+    <!-- PWA: manifest link is auto-injected by vite-plugin-pwa; installability meta below -->
+    <meta name="theme-color" content="#1A4731" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121510" media="(prefers-color-scheme: dark)" />
+
+    <!-- iOS home screen support (Safari ignores the manifest for install behavior) -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Mboa Trust" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- figma:head-end -->
+  </head>
+  <body>
+    <!-- figma:body-start -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- figma:body-end -->
+  </body>
+</html>

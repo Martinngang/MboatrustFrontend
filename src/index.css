@@ -1,0 +1,150 @@
+@import 'tailwindcss';
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://static.figma.com/font/PlayfairDisplay_wght__1') format('woff2');
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('https://static.figma.com/font/PlayfairDisplay_wght__1') format('woff2');
+}
+
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://static.figma.com/font/PlayfairDisplay-Italic_wght__1') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('https://static.figma.com/font/Inter_1') format('woff2');
+}
+
+@font-face {
+  font-family: 'DM Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('https://static.figma.com/font/DMMono-Regular_1') format('woff2');
+}
+
+@theme {
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-serif: 'Playfair Display', Georgia, serif;
+  --font-mono: 'DM Mono', 'Courier New', monospace;
+
+  --color-forest: #1A4731;
+  --color-forest-light: #2D6B4A;
+  --color-forest-dark: #0F2B1E;
+  --color-amber: #E8A020;
+  --color-amber-light: #F5C060;
+  --color-parchment: #F9F6F0;
+  --color-parchment-dark: #EDE8DF;
+  --color-ink: #0F1A14;
+  --color-ink-muted: #4A5F53;
+  --color-ink-subtle: #8FA396;
+  --color-cream: #FAFAF8;
+  --color-seal: #C8341A;
+}
+
+/* ── Theme tokens ──────────────────────────────────────────────────────────────
+   The @theme block above sets the light-mode defaults (and generates Tailwind's
+   color utilities). Everything below adds the tokens @theme doesn't cover, plus
+   dark-mode overrides of the SAME custom-property names — every C.xxx reference
+   in the JS layer (MobileLayout.tsx) resolves through these variables, so this
+   is the single place that drives the whole app's theme. */
+:root {
+  --color-white: #FFFFFF;
+  --color-steel: #1E3A5F;
+  --color-moss: #2D4A2D;
+  --surface-glass-bg: rgba(255, 255, 255, 0.8);
+  --surface-glass-border: rgba(255, 255, 255, 0.6);
+  --nav-glass-bg: rgba(250, 250, 248, 0.85);
+  --nav-glass-border: rgba(15, 27, 20, 0.08);
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --color-forest: #3E9468;
+  --color-forest-light: #57C084;
+  --color-forest-dark: #1A4731;
+  --color-amber: #F0AC33;
+  --color-amber-light: #F8D080;
+  --color-parchment: #232821;
+  --color-parchment-dark: #333B32;
+  --color-ink: #F1F3ED;
+  --color-ink-muted: #B8C2B4;
+  --color-ink-subtle: #7E8A7A;
+  --color-cream: #121510;
+  --color-seal: #E35A3B;
+  --color-white: #1C1F19;
+  --color-steel: #3F6EA8;
+  --color-moss: #4A7A4A;
+  --surface-glass-bg: rgba(28, 31, 25, 0.78);
+  --surface-glass-border: rgba(255, 255, 255, 0.08);
+  --nav-glass-bg: rgba(18, 21, 16, 0.85);
+  --nav-glass-border: rgba(255, 255, 255, 0.08);
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-cream);
+}
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(var(--float-rot, 0deg)); }
+  50% { transform: translateY(-16px) rotate(var(--float-rot, 0deg)); }
+}
+.animate-float {
+  animation: float 7s ease-in-out infinite;
+}
+.animate-float-slow {
+  animation: float 9s ease-in-out infinite;
+  animation-delay: 1.5s;
+}
+
+@keyframes drift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(2%, -3%) scale(1.04); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+.animate-drift {
+  animation: drift 14s ease-in-out infinite;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 28s linear infinite;
+}

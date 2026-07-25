@@ -1,0 +1,665 @@
+import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { useApp, fmt } from '../context'
+import { C, FONT, AppShell, Card, StatusBadge, Stars, PillButton, Header } from '../components/MobileLayout'
+import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTimeline'
+import { LandFlagBadge } from '../components/LandFlagBadge'
+import { NeighboringListingsMap } from '../components/NeighboringListingsMap'
+import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
+
+// ── Browse land ────────────────────────────────────────────────────────────────
+export function BrowseLandScreen() {
+  const nav = useNavigate()
+  const { landListings } = useApp()
+  const [view, setView] = useState<'list' | 'map'>('list')
+  const [region, setRegion] = useState('All')
+  const regions = ['All', 'Centre', 'Littoral', 'West', 'South West']
+  const filtered = region === 'All' ? landListings : landListings.filter((l) => l.region === region)
+
+  return (
+    <AppShell>
+      <Header title="Land & Property" back action={
+        <div className="flex border rounded-lg overflow-hidden" style={{ borderColor: C.parchmentDark }}>
+          {(['list', 'map'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)}
+              className="px-3 py-1.5 text-xs font-semibold transition-all"
+              style={{ background: view === v ? C.forest : C.white, color: view === v ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
+              {v === 'list' ? '☰' : '⊕'} {v}
+            </button>
+          ))}
+        </div>
+      }>
+        <div className="flex items-center gap-2 border rounded-xl px-3 py-2.5 mb-4" style={{ borderColor: C.parchmentDark, background: C.cream }}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="6" cy="6" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
+            <line x1="9" y1="9" x2="12" y2="12" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
+          <input placeholder="Search by city, region, size..." className="flex-1 bg-transparent outline-none text-sm" style={{ fontFamily: FONT.sans, color: C.ink }} />
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {regions.map((r) => (
+            <button key={r} onClick={() => setRegion(r)}
+              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-all"
+              style={{ fontFamily: FONT.mono, background: region === r ? C.forest : C.parchment, color: region === r ? C.white : C.inkMuted }}>
+              {r}
+            </button>
+          ))}
+        </div>
+      </Header>
+
+      {view === 'map' ? (
+        <div className="flex-1 relative mx-5 my-4 rounded-2xl overflow-hidden bg-[#E8F0E9]" style={{ minHeight: '400px' }}>
+          <img
+            src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop&auto=format"
+            alt="Map of Cameroon"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'rgba(15,27,20,0.3)' }}>
+            <div className="text-center text-white">
+              <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">Map view</div>
+              <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-xs mt-1">Tap a pin to view listing</div>
+            </div>
+          </div>
+          {filtered.slice(0, 3).map((listing, i) => {
+            const positions = [{ x: '35%', y: '40%' }, { x: '55%', y: '55%' }, { x: '45%', y: '65%' }]
+            const { x, y } = positions[i]
+            return (
+              <button key={listing.id} onClick={() => nav(`/land/listing/${listing.id}`)}
+                className="absolute flex flex-col items-center" style={{ left: x, top: y, transform: 'translate(-50%, -100%)' }}>
+                <div className="rounded-full px-2 py-1 text-xs font-bold mb-1" style={{ background: listing.verified ? C.forest : C.amber, color: C.white, fontFamily: FONT.mono }}>
+                  {(listing.price / 1000000).toFixed(0)}M
+                </div>
+                <div className="w-2 h-2 rounded-full" style={{ background: listing.verified ? C.forest : C.amber }} />
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+          {filtered.map((l) => (
+            <Card key={l.id} onClick={() => nav(`/land/listing/${l.id}`)}>
+              <div className="relative">
+                <img src={l.image} alt={l.title} className="w-full h-36 object-cover rounded-t-xl" />
+                <div className="absolute top-3 right-3">
+                  {l.verified ? (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: C.forest }}>
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                      </svg>
+                      <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
+                    </div>
+                  ) : (
+                    <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
+                      <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[9px] uppercase tracking-wider">Pending</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="p-4">
+                <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-0.5">{l.title}</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{l.city}, {l.region} · {l.size}</div>
+                <div className="flex items-center justify-between">
+                  <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(l.price)}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{l.titleType}</div>
+                </div>
+                {(l.disputed || l.duplicateOfListingId) && (
+                  <div className="mt-2"><LandFlagBadge listing={l} compact /></div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </AppShell>
+  )
+}
+
+// ── Land listing detail ────────────────────────────────────────────────────────
+export function LandListingDetailScreen() {
+  const nav = useNavigate()
+  const { id } = useParams()
+  const { landListings, offers } = useApp()
+  const listing = landListings.find((l) => l.id === id) ?? landListings[0]
+  const listingOffers = offers.filter((o) => o.listingId === listing.id)
+  const [photoIdx, setPhotoIdx] = useState(0)
+  const [interested, setInterested] = useState(false)
+
+  const photos = [listing.image, listing.image.replace('w=400', 'w=400&crop=entropy')]
+
+  return (
+    <AppShell noNav>
+      {/* Photo carousel */}
+      <div className="relative h-56 sm:h-72 lg:h-96">
+        <img src={photos[photoIdx]} alt={listing.title} className="w-full h-full object-cover" />
+        <button onClick={() => nav(-1)} className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M10 3L5 8L10 13" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+        <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+          {photos.map((_, i) => (
+            <button key={i} onClick={() => setPhotoIdx(i)} className="w-1.5 h-1.5 rounded-full transition-all" style={{ background: i === photoIdx ? C.white : 'rgba(255,255,255,0.4)' }} />
+          ))}
+        </div>
+        {listing.verified ? (
+          <div className="absolute top-6 right-4 flex items-center gap-1.5 px-3 py-1.5 rounded-full" style={{ background: C.forest }}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[10px] uppercase tracking-wider">Verified listing</span>
+          </div>
+        ) : (
+          <div className="absolute top-6 right-4 px-3 py-1.5 rounded-full" style={{ background: C.amber }}>
+            <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[10px] uppercase tracking-wider">Under verification</span>
+          </div>
+        )}
+      </div>
+
+      <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-3xl">
+        {/* Title + price */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">{listing.city}, {listing.region} · {listing.size}</div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-xl font-bold mb-2">{listing.title}</h1>
+          <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-2xl font-bold">{fmt(listing.price)}</div>
+        </div>
+
+        {/* Key details */}
+        <div className="grid grid-cols-2 gap-3">
+          {[
+            { label: 'Plot size', value: listing.size },
+            { label: 'Title type', value: listing.titleType },
+            { label: 'Verification', value: listing.verified ? 'Complete' : 'In progress' },
+            { label: 'Disputes', value: listing.disputed ? 'Yes — flagged' : listing.duplicateOfListingId ? 'Duplicate flagged' : 'None found' },
+          ].map(({ label, value }) => (
+            <div key={label} className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
+              <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {(listing.disputed || listing.duplicateOfListingId) && <LandFlagBadge listing={listing} />}
+
+        {/* Description */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">About this plot</div>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">{listing.description}</p>
+        </div>
+
+        {/* Neighboring context */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Nearby listings & recent sales</div>
+          <NeighboringListingsMap listing={listing} />
+        </div>
+
+        {/* Document verification */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Document verification status</div>
+          <div className="space-y-2">
+            {listing.docs.map((doc, i) => {
+              const verified = listing.verified || i === 0
+              return (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: C.parchmentDark, background: verified ? '#F0FDF4' : '#FFF7E6' }}>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: verified ? C.forest : C.amber }}>
+                    {verified ? (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <circle cx="5" cy="5" r="3.5" stroke={C.forestDark} strokeWidth="1" />
+                        <line x1="5" y1="3" x2="5" y2="5.5" stroke={C.forestDark} strokeWidth="1" strokeLinecap="round" />
+                        <circle cx="5" cy="7" r="0.5" fill={C.forestDark} />
+                      </svg>
+                    )}
+                  </div>
+                  <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{doc}</span>
+                  <span style={{ fontFamily: FONT.mono, color: verified ? C.forest : '#92400E' }} className="text-[9px] ml-auto uppercase tracking-wider">
+                    {verified ? 'Verified' : 'Pending'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Site verification visit */}
+        {listing.verified && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Verification site visit</div>
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#F0FDF4' }}>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                  <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke={C.forest} strokeWidth="1.3" />
+                  <circle cx="9" cy="7" r="2" stroke={C.forest} strokeWidth="1.2" />
+                </svg>
+              </div>
+              <div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">Site inspected by local agent</div>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">
+                  "Plot boundaries match survey plan. Access road confirmed. Neighbouring plots clearly demarcated. No encroachments observed."
+                </p>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">Agent: Tabi R. · Inspected 14 Jul 2025</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Seller */}
+        {listing.seller && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Seller</div>
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                {listing.seller[0]}
+              </div>
+              <div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="font-semibold">{listing.seller}</div>
+                {listing.sellerRating && <Stars rating={listing.sellerRating} />}
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
+                  {listing.verified ? 'Identity verified' : 'Verification pending'}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!listing.verified && (
+          <div className="rounded-xl p-4 border" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
+            <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest mb-1">Verification in progress</div>
+            <p style={{ fontFamily: FONT.sans, color: '#78350F' }} className="text-xs leading-relaxed">
+              This listing's documents are currently being verified by our team. You can express interest but no funds will be accepted until verification is complete.
+            </p>
+          </div>
+        )}
+
+        {/* Activity */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Activity</div>
+          <ActivityTimeline events={[
+            { id: 'listed', label: 'Listing published', status: 'done' },
+            { id: 'docs', label: listing.verified ? 'Documents verified' : 'Documents under verification', status: listing.verified ? 'done' : 'current' },
+            ...listingOffers.map((o, i): TimelineEvent => ({
+              id: `offer-${i}`,
+              label: `Offer received from ${o.buyerName}`,
+              detail: `${fmt(o.amount)} · ${o.status}`,
+              status: o.status === 'pending' ? 'current' : 'done',
+            })),
+          ]} />
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-3xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        {!interested ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <PillButton onClick={() => nav(`/land/contact/${listing.id}`)} variant="secondary" fullWidth>Contact seller</PillButton>
+              {listing.verified ? (
+                <PillButton onClick={() => nav(`/land/offer/${listing.id}`)} fullWidth>Make an offer</PillButton>
+              ) : (
+                <PillButton onClick={() => setInterested(true)} fullWidth>Follow for updates</PillButton>
+              )}
+            </div>
+            {listing.verified && (
+              <PillButton onClick={() => nav('/land/schedule')} variant="ghost" fullWidth>Schedule verification visit</PillButton>
+            )}
+          </>
+        ) : (
+          <div className="rounded-xl border p-4 text-center" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+            <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">Interest registered</div>
+            <div style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs mt-1">The seller has been notified. You'll hear within 48 hours.</div>
+          </div>
+        )}
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Contact seller ─────────────────────────────────────────────────────────────
+export function ContactSellerScreen() {
+  const nav = useNavigate()
+  const { id } = useParams()
+  const { landListings } = useApp()
+  const listing = landListings.find((l) => l.id === id) ?? landListings[0]
+  const [revealed, setRevealed] = useState(false)
+  const [message, setMessage] = useState('')
+  const [sent, setSent] = useState(false)
+
+  if (sent) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: C.forest }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Message sent</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            {listing.seller} has been notified and will usually reply within 48 hours.
+          </p>
+          <PillButton onClick={() => nav(`/land/listing/${listing.id}`)} fullWidth>Back to listing</PillButton>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Contact Seller" subtitle={listing.title} back />
+
+      <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
+        <div className="rounded-2xl border p-4 flex items-center gap-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
+            {listing.seller[0]}
+          </div>
+          <div>
+            <div style={{ fontFamily: FONT.sans, color: C.ink }} className="font-semibold">{listing.seller}</div>
+            {listing.sellerRating && <Stars rating={listing.sellerRating} />}
+          </div>
+        </div>
+
+        <div className="rounded-xl border p-4" style={{ borderColor: C.parchmentDark, background: C.parchment }}>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Phone number</div>
+          {revealed ? (
+            <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm font-semibold">+237 6{Math.floor(10000000 + Math.random() * 89999999)}</div>
+          ) : (
+            <button onClick={() => setRevealed(true)} className="text-sm font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>Tap to reveal number →</button>
+          )}
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Send a message</label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4}
+            placeholder="Introduce yourself and ask any questions about the plot..."
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <PillButton onClick={() => setSent(true)} fullWidth disabled={!message.trim()}>Send message</PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Purchase / offer ────────────────────────────────────────────────────────────
+export function PurchaseOfferScreen() {
+  const nav = useNavigate()
+  const { id } = useParams()
+  const { landListings, addOffer } = useApp()
+  const listing = landListings.find((l) => l.id === id) ?? landListings[0]
+  const [amount, setAmount] = useState(String(listing.price))
+  const [financing, setFinancing] = useState<'cash' | 'financed'>('cash')
+  const [message, setMessage] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const { blocked: kycBlocked } = useKycGate(Number(amount) || 0)
+
+  const submit = () => {
+    addOffer({
+      listingId: listing.id,
+      buyerName: 'Marie-Claire N.',
+      amount: Number(amount) || listing.price,
+      message: `${financing === 'cash' ? 'Cash offer' : 'Financed offer'}. ${message}`.trim(),
+      status: 'pending',
+      date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    })
+    setSubmitted(true)
+  }
+
+  if (submitted) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: C.amber }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <path d="M8 18L15 25L28 11" stroke={C.forestDark} strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Offer submitted</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            Your offer of {fmt(Number(amount) || listing.price)} for {listing.title} has been sent to {listing.seller}. Funds only move once both parties agree and documents are confirmed.
+          </p>
+          <PillButton onClick={() => nav(`/land/listing/${listing.id}`)} fullWidth>Back to listing</PillButton>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Make an Offer" subtitle={listing.title} back />
+
+      <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
+        <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Asking price</div>
+          <div style={{ fontFamily: FONT.serif }} className="text-3xl font-bold text-white">{fmt(listing.price)}</div>
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Your offer (XAF)</label>
+          <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Payment plan</label>
+          <div className="grid grid-cols-2 gap-3">
+            {(['cash', 'financed'] as const).map((f) => (
+              <button key={f} onClick={() => setFinancing(f)}
+                className="py-3 rounded-xl text-sm font-semibold capitalize transition-all border-2"
+                style={{ borderColor: financing === f ? C.forest : C.parchmentDark, background: financing === f ? '#F0FDF4' : C.white, color: financing === f ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
+                {f === 'cash' ? 'Full cash' : 'Financing needed'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Note to seller (optional)</label>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3}
+            placeholder="Timeline, questions, or conditions for this offer..."
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+        </div>
+
+        <div className="rounded-xl border p-3" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">How this works</div>
+          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+            This is a non-binding offer. If the seller accepts, funds move into escrow and are only released once ownership documents are transferred and verified.
+          </p>
+        </div>
+
+        <KycGateBanner amount={Number(amount) || 0} />
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || kycBlocked}>Submit offer</PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Create listing screen ──────────────────────────────────────────────────────
+export function CreateListingScreen() {
+  const nav = useNavigate()
+  const { addListing } = useApp()
+  const [form, setForm] = useState({ title: '', region: '', city: '', size: '', price: '', titleType: '', description: '' })
+  const [step, setStep] = useState<'details' | 'documents' | 'done'>('details')
+  const [docCount, setDocCount] = useState(0)
+
+  const finish = () => {
+    addListing({
+      title: form.title || 'Untitled listing',
+      region: form.region,
+      city: form.city,
+      size: form.size,
+      price: Number(form.price) || 0,
+      verified: false,
+      titleType: form.titleType || 'Documents under verification',
+      seller: 'You',
+      sellerRating: null,
+      disputed: false,
+      image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
+      description: form.description,
+      docs: ['Purchase order', 'Local attestation (unverified)'].slice(0, Math.max(1, docCount)),
+    })
+    setStep('done')
+  }
+
+  if (step === 'done') {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#FFF7E6' }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect x="6" y="4" width="24" height="28" rx="2" stroke={C.amber} strokeWidth="2" />
+              <line x1="12" y1="12" x2="24" y2="12" stroke={C.amber} strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="12" y1="17" x2="24" y2="17" stroke={C.amber} strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="12" y1="22" x2="20" y2="22" stroke={C.amber} strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Listing submitted</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8 leading-relaxed">
+            Your land listing has been submitted for verification. Our team will review your documents and may contact you for the site visit. This usually takes 3–5 business days.
+          </p>
+          <PillButton onClick={() => nav('/land/my-listings')} fullWidth>View my listings</PillButton>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="New Land Listing" back>
+        <div className="flex gap-2">
+          {(['details', 'documents'] as const).map((s, i) => (
+            <div key={s} className="flex items-center gap-2 flex-1">
+              <div className="flex items-center gap-1.5">
+                <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                  style={{ background: i <= ['details', 'documents'].indexOf(step) ? C.forest : C.parchmentDark, color: i <= ['details', 'documents'].indexOf(step) ? C.white : C.inkSubtle, fontFamily: FONT.mono }}>
+                  {i + 1}
+                </div>
+                <span style={{ fontFamily: FONT.mono, color: i <= ['details', 'documents'].indexOf(step) ? C.forest : C.inkSubtle }} className="text-[10px] uppercase tracking-wide">{s}</span>
+              </div>
+              {i === 0 && <div className="flex-1 h-px" style={{ background: (step as string) === 'documents' || (step as string) === 'done' ? C.forest : C.parchmentDark }} />}
+            </div>
+          ))}
+        </div>
+      </Header>
+
+      <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
+        {step === 'details' ? (
+          <>
+            {[
+              { key: 'title', label: 'Listing title', placeholder: 'e.g. 800m² plot — Bastos, Yaoundé' },
+              { key: 'city', label: 'City', placeholder: 'e.g. Yaoundé' },
+              { key: 'region', label: 'Region', placeholder: 'e.g. Centre' },
+              { key: 'size', label: 'Plot size', placeholder: 'e.g. 800 m²' },
+              { key: 'price', label: 'Asking price (XAF)', placeholder: 'e.g. 28000000' },
+              { key: 'titleType', label: 'Title type', placeholder: 'e.g. Freehold title deed' },
+            ].map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">{label}</label>
+                <input value={form[key as keyof typeof form]} onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                  placeholder={placeholder}
+                  className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+                  style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+              </div>
+            ))}
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Description</label>
+              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                rows={3} placeholder="Describe the plot — access, utilities, neighbourhood..."
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+            </div>
+          </>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-xl p-4 border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
+              <div style={{ fontFamily: FONT.mono, color: '#1D4ED8' }} className="text-[10px] uppercase tracking-widest mb-1">Documents required</div>
+              <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+                All documents are verified by our team before the listing goes live. Required: title deed or ownership letter, land tax receipt, survey plan, and no-dispute certificate.
+              </p>
+            </div>
+            {['Title deed / ownership document', 'Land tax receipt (current year)', 'Survey plan (geo-referenced)', 'No-dispute / no-objection letter'].map((doc, i) => (
+              <button key={doc} onClick={() => setDocCount((n) => Math.max(n, i + 1))}
+                className="w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all"
+                style={{ borderColor: docCount > i ? C.forest : C.parchmentDark, background: docCount > i ? '#F0FDF4' : C.white }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: docCount > i ? C.forest : C.parchment }}>
+                  {docCount > i ? (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M3 7L5.5 9.5L11 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                      <path d="M4 7H10M7 4V10" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
+                    </svg>
+                  )}
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{doc}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{docCount > i ? 'Uploaded' : 'Tap to upload'}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <PillButton onClick={() => step === 'details' ? setStep('documents') : finish()} fullWidth>
+          {step === 'details' ? 'Next: Upload documents' : 'Submit listing for verification'}
+        </PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── My listings screen ─────────────────────────────────────────────────────────
+export function MyListingsScreen() {
+  const nav = useNavigate()
+  const { landListings, offers } = useApp()
+  const mine = landListings.slice(0, 2)
+
+  return (
+    <AppShell>
+      <Header title="My Listings" back action={
+        <button onClick={() => nav('/land/create')} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M7 3V11M3 7H11" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </button>
+      } />
+
+      <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+        {mine.map((l) => {
+          const listingOffers = offers.filter((o) => o.listingId === l.id)
+          return (
+            <Card key={l.id} onClick={() => nav(`/land/listing/${l.id}`)}>
+              <div className="flex gap-3 p-4">
+                <img src={l.image} alt={l.title} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-1 mb-1">
+                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight">{l.title}</div>
+                    <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mb-1">{l.size}</div>
+                  <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">{fmt(l.price)}</div>
+                  {listingOffers.length > 0 && (
+                    <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-[9px] uppercase tracking-wider mt-1">{listingOffers.length} pending offer{listingOffers.length > 1 ? 's' : ''}</div>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )
+        })}
+      </div>
+    </AppShell>
+  )
+}
