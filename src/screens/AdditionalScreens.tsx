@@ -7,6 +7,29 @@ import { useMarketplace } from '../marketplace'
 import { useCompliance } from '../compliance'
 import { RiskBadge } from '../components/RiskBadge'
 import { LandFlagBadge } from '../components/LandFlagBadge'
+import { ChipGroup } from '../components/Chip'
+import { Tabs } from '../components/Tabs'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+import { ConfirmDialog } from '../components/Modal'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
+import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask } from '../api/reputation'
+
+function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
+  return {
+    id: t._id,
+    type: t.targetType === 'land_listing' ? 'land' : 'milestone',
+    projectId: t.target?.projectId ?? t.targetId,
+    projectTitle: t.target?.title ?? 'Assignment',
+    milestoneTitle: t.target?.milestoneTitle,
+    location: t.target?.location ?? 'Unknown location',
+    // No due-date field on VerificationTask — shows when it was assigned
+    // rather than fabricating a deadline the backend doesn't track.
+    dueDate: `Assigned ${new Date(t.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+    status: t.status === 'assigned' ? 'pending' : t.status,
+    report: t.confirmedMatch !== null ? { match: !!t.confirmedMatch, notes: t.reportText, photos: t.reportPhotos.length, submittedAt: '' } : undefined,
+  }
+}
 
 // ── Contractor onboarding ─────────────────────────────────────────────────────
 export function ContractorOnboardingScreen() {
@@ -82,7 +105,7 @@ export function ContractorOnboardingScreen() {
             <button
               onClick={() => setIdUploaded(true)}
               className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? '#F0FDF4' : C.white }}
+              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? 'var(--status-success-bg)' : C.white }}
             >
               {idUploaded ? (
                 <>
@@ -118,7 +141,7 @@ export function ContractorOnboardingScreen() {
               {TRADES.map((t) => (
                 <button key={t} onClick={() => toggleSkill(t)}
                   className="px-3 py-2 rounded-xl text-xs font-semibold transition-all border-2"
-                  style={{ borderColor: skills.includes(t) ? C.forest : C.parchmentDark, background: skills.includes(t) ? '#F0FDF4' : C.white, color: skills.includes(t) ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
+                  style={{ borderColor: skills.includes(t) ? C.forest : C.parchmentDark, background: skills.includes(t) ? 'var(--status-success-bg)' : C.white, color: skills.includes(t) ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
                   {skills.includes(t) ? '✓ ' : ''}{t}
                 </button>
               ))}
@@ -135,7 +158,7 @@ export function ContractorOnboardingScreen() {
               {Array.from({ length: 4 }).map((_, i) => (
                 <button key={i} onClick={() => setPortfolioCount((n) => Math.max(n, i + 1))}
                   className="aspect-square rounded-2xl border-2 border-dashed flex items-center justify-center transition-all"
-                  style={{ borderColor: portfolioCount > i ? C.forest : C.parchmentDark, background: portfolioCount > i ? '#F0FDF4' : C.white }}>
+                  style={{ borderColor: portfolioCount > i ? C.forest : C.parchmentDark, background: portfolioCount > i ? 'var(--status-success-bg)' : C.white }}>
                   {portfolioCount > i ? (
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                       <rect x="3" y="5" width="18" height="14" rx="2" stroke={C.forest} strokeWidth="1.5" />
@@ -171,35 +194,45 @@ export function ContractorOnboardingScreen() {
 export function PostJobScreen() {
   const nav = useNavigate()
   const { addJob } = useApp()
+  const { show: showToast } = useToast()
   const [form, setForm] = useState({ title: '', description: '', category: '', budget: '', deadline: '', milestones: '3' })
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
 
   const canSubmit = form.title.trim() !== '' && form.category !== '' && Number(form.budget) > 0
 
-  const submit = () => {
-    addJob({
-      title: form.title,
-      category: form.category || 'General',
-      location: 'Cameroon',
-      budget: Number(form.budget) || 0,
-      deadline: form.deadline || 'TBD',
-      bids: 0,
-      milestones: Math.max(1, Number(form.milestones) || 1),
-      posted: 'Just now',
-      description: form.description,
-    })
-    setSubmitted(true)
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      await addJob({
+        title: form.title,
+        category: form.category || 'General',
+        location: 'Cameroon',
+        budget: Number(form.budget) || 0,
+        deadline: form.deadline || 'TBD',
+        bids: 0,
+        milestones: Math.max(1, Number(form.milestones) || 1),
+        posted: 'Just now',
+        description: form.description,
+        status: 'open',
+      })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to post job', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#EFF6FF' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <rect x="6" y="6" width="24" height="24" rx="3" stroke="#3B82F6" strokeWidth="2" />
-              <path d="M12 18L16 22L24 14" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" />
+              <rect x="6" y="6" width="24" height="24" rx="3" stroke="var(--status-info-text)" strokeWidth="2" />
+              <path d="M12 18L16 22L24 14" stroke="var(--status-info-text)" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Job posted</h1>
@@ -227,15 +260,7 @@ export function PostJobScreen() {
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Category</label>
-          <div className="flex flex-wrap gap-2">
-            {categories.map((c) => (
-              <button key={c} onClick={() => setForm({ ...form, category: c })}
-                className="px-3 py-1.5 rounded-full text-xs transition-all"
-                style={{ background: form.category === c ? C.forest : C.parchment, color: form.category === c ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-                {c}
-              </button>
-            ))}
-          </div>
+          <ChipGroup options={categories} value={form.category} onChange={(v) => setForm({ ...form, category: v as string })} />
         </div>
 
         <div>
@@ -269,16 +294,16 @@ export function PostJobScreen() {
             style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
         </div>
 
-        <div className="rounded-xl p-3 border" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+        <div className="rounded-xl p-3 border" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Escrow protection</div>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             The full budget is held in escrow before work begins. Contractors are paid per milestone after proof is verified.
           </p>
         </div>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!canSubmit}>Publish job</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!canSubmit || submitting}>{submitting ? 'Publishing…' : 'Publish job'}</PillButton>
       </div>
     </AppShell>
   )
@@ -479,12 +504,12 @@ export function LandScheduleVisitScreen() {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#EFF6FF' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <rect x="6" y="8" width="24" height="22" rx="2" stroke="#3B82F6" strokeWidth="2" />
-              <line x1="6" y1="14" x2="30" y2="14" stroke="#3B82F6" strokeWidth="1.5" />
-              <line x1="12" y1="6" x2="12" y2="10" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="24" y1="6" x2="24" y2="10" stroke="#3B82F6" strokeWidth="1.5" strokeLinecap="round" />
+              <rect x="6" y="8" width="24" height="22" rx="2" stroke="var(--status-info-text)" strokeWidth="2" />
+              <line x1="6" y1="14" x2="30" y2="14" stroke="var(--status-info-text)" strokeWidth="1.5" />
+              <line x1="12" y1="6" x2="12" y2="10" stroke="var(--status-info-text)" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="24" y1="6" x2="24" y2="10" stroke="var(--status-info-text)" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Visit scheduled</h1>
@@ -502,9 +527,9 @@ export function LandScheduleVisitScreen() {
       <Header title="Schedule Verification Visit" back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl p-4 border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
-          <div style={{ fontFamily: FONT.mono, color: '#1D4ED8' }} className="text-[10px] uppercase tracking-widest mb-1">What is a verification visit?</div>
-          <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl p-4 border" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+          <div style={{ fontFamily: FONT.mono, color: 'var(--status-info-text)' }} className="text-[10px] uppercase tracking-widest mb-1">What is a verification visit?</div>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
             A local agent visits the plot to confirm that the site matches the listing, boundaries are correct, and there are no visible disputes or encroachments.
           </p>
         </div>
@@ -594,7 +619,7 @@ export function VerifierRegistrationScreen() {
             <button
               onClick={() => setIdUploaded(true)}
               className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? '#F0FDF4' : C.white }}
+              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? 'var(--status-success-bg)' : C.white }}
             >
               {idUploaded ? (
                 <>
@@ -629,7 +654,10 @@ export function VerifierRegistrationScreen() {
 // ── Local verifier / agent dashboard ──────────────────────────────────────────
 export function VerifierDashboard() {
   const nav = useNavigate()
-  const { verifierTasks, verifierProfile } = useVerification()
+  const { verifierProfile } = useVerification()
+  const { devUserId } = useApp()
+  const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
+  const verifierTasks = (rawTasks ?? []).map(mapVerificationTask)
   const [view, setView] = useState<'list' | 'map'>('list')
 
   if (!verifierProfile) {
@@ -673,18 +701,18 @@ export function VerifierDashboard() {
 
         <div className="mt-6 flex items-center justify-between">
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Assignments</p>
-          <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: C.parchmentDark }}>
-            {(['list', 'map'] as const).map((v) => (
-              <button key={v} onClick={() => setView(v)} className="px-3 py-1.5 text-xs font-semibold transition-all"
-                style={{ background: view === v ? C.forest : C.white, color: view === v ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-                {v === 'list' ? '☰' : '⊕'} {v}
-              </button>
-            ))}
+          <div className="w-36">
+            <Tabs
+              tabs={[{ id: 'list', label: '☰ List' }, { id: 'map', label: '⊕ Map' }]}
+              value={view}
+              onChange={(v) => setView(v as 'list' | 'map')}
+              variant="pill"
+            />
           </div>
         </div>
 
         {view === 'map' ? (
-          <div className="relative mt-4 overflow-hidden rounded-2xl" style={{ minHeight: '320px', background: '#E8F0E9' }}>
+          <div className="relative mt-4 overflow-hidden rounded-2xl" style={{ minHeight: '320px', background: C.parchment }}>
             <img src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800&h=400&fit=crop&auto=format" alt="Map" className="absolute inset-0 h-full w-full object-cover" />
             <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.35)' }} />
             {mapPins.map((t, i) => (
@@ -706,18 +734,21 @@ export function VerifierDashboard() {
             <div className="space-y-6">
               <div>
                 <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Active assignments</p>
-                <div className="space-y-3">
-                  {active.length === 0 && <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No assignments right now.</div></Card>}
-                  {active.map((t) => <VerifierTaskCard key={t.id} task={t} onOpen={() => nav(`/verifier/task/${t.id}`)} />)}
-                </div>
+                {active.length === 0 ? (
+                  <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No assignments right now.</div></Card>
+                ) : (
+                  <StaggerList className="space-y-3">
+                    {active.map((t) => <StaggerItem key={t.id}><VerifierTaskCard task={t} onOpen={() => nav(`/verifier/task/${t.id}`)} /></StaggerItem>)}
+                  </StaggerList>
+                )}
               </div>
             </div>
             <div className="space-y-6">
               <div>
                 <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Submitted</p>
-                <div className="space-y-3">
-                  {submitted.map((t) => <VerifierTaskCard key={t.id} task={t} onOpen={() => nav(`/verifier/task/${t.id}`)} muted />)}
-                </div>
+                <StaggerList className="space-y-3">
+                  {submitted.map((t) => <StaggerItem key={t.id}><VerifierTaskCard task={t} onOpen={() => nav(`/verifier/task/${t.id}`)} muted /></StaggerItem>)}
+                </StaggerList>
               </div>
             </div>
           </div>
@@ -729,7 +760,7 @@ export function VerifierDashboard() {
 
 function VerifierTaskCard({ task, onOpen, muted }: { task: VerifierTask; onOpen: () => void; muted?: boolean }) {
   return (
-    <Card onClick={onOpen} className={muted ? 'opacity-70' : ''}>
+    <Card variant="interactive" onClick={onOpen} className={muted ? 'opacity-70' : ''}>
       <div className="p-4">
         <div className="flex items-start justify-between gap-2 mb-2">
           <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{task.projectTitle}</div>
@@ -748,16 +779,24 @@ function VerifierTaskCard({ task, onOpen, muted }: { task: VerifierTask; onOpen:
 export function VerifierTaskDetailScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { verifierTasks, startTask } = useVerification()
+  const { devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
+  const verifierTasks = (rawTasks ?? []).map(mapVerificationTask)
   const task = verifierTasks.find((t) => t.id === id) ?? verifierTasks[0]
+  const startMutation = useStartVerificationTaskMutation()
 
   const checklist = task.type === 'land'
     ? ['Plot boundaries match the survey plan', 'No visible encroachments or disputes', 'Access road and neighbouring plots confirmed']
     : ['Work matches the submitted photo/video proof', 'Location GPS confirmed on-site', 'Materials and quality are adequate']
 
-  const begin = () => {
-    startTask(task.id)
-    nav(`/verifier/report/${task.id}`)
+  const begin = async () => {
+    try {
+      await startMutation.mutateAsync(task.id)
+      nav(`/verifier/report/${task.id}`)
+    } catch (err) {
+      showToast({ title: 'Failed to start task', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   return (
@@ -797,9 +836,9 @@ export function VerifierTaskDetailScreen() {
         </div>
 
         {task.report && (
-          <div className="rounded-xl border p-4" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+          <div className="rounded-xl border p-4" style={{ background: 'var(--status-success-bg)', borderColor: 'var(--status-success-text)' }}>
             <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Already submitted</div>
-            <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">{task.report.notes}</p>
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">{task.report.notes}</p>
           </div>
         )}
       </div>
@@ -822,30 +861,42 @@ const VERIFIER_SAMPLE_PHOTOS = [
 export function VerifierReportScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { verifierTasks, submitTaskReport } = useVerification()
+  const { devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
+  const verifierTasks = (rawTasks ?? []).map(mapVerificationTask)
   const task = verifierTasks.find((t) => t.id === id) ?? verifierTasks.find((t) => t.status !== 'submitted') ?? verifierTasks[0]
+  const submitMutation = useSubmitVerificationReportMutation()
 
   const [photos, setPhotos] = useState<string[]>([])
   const [notes, setNotes] = useState('')
   const [decision, setDecision] = useState<'match' | 'mismatch' | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   const addPhoto = () => {
     const next = VERIFIER_SAMPLE_PHOTOS[photos.length % VERIFIER_SAMPLE_PHOTOS.length]
     setPhotos((p) => (p.includes(next) ? [...p, `${next}&v=${p.length}`] : [...p, next]))
   }
 
-  const submit = () => {
+  const submit = async () => {
     if (!decision) return
-    submitTaskReport(task.id, { match: decision === 'match', notes, photos: photos.length })
-    setSubmitted(true)
+    setSubmitting(true)
+    try {
+      await submitMutation.mutateAsync({ taskId: task.id, reportText: notes, reportPhotos: photos, confirmedMatch: decision === 'match' })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit report', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: decision === 'match' ? C.forest : '#DC2626' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: decision === 'match' ? C.forest : 'var(--status-error-text)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               {decision === 'match' ? (
                 <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
@@ -918,14 +969,14 @@ export function VerifierReportScreen() {
             <button
               onClick={() => setDecision('match')}
               className="py-4 rounded-xl border-2 text-sm font-bold transition-all"
-              style={{ borderColor: decision === 'match' ? C.forest : C.parchmentDark, background: decision === 'match' ? '#F0FDF4' : C.white, color: decision === 'match' ? C.forest : C.inkMuted, fontFamily: FONT.sans }}
+              style={{ borderColor: decision === 'match' ? C.forest : C.parchmentDark, background: decision === 'match' ? 'var(--status-success-bg)' : C.white, color: decision === 'match' ? C.forest : C.inkMuted, fontFamily: FONT.sans }}
             >
               ✓ Confirms match
             </button>
             <button
               onClick={() => setDecision('mismatch')}
               className="py-4 rounded-xl border-2 text-sm font-bold transition-all"
-              style={{ borderColor: decision === 'mismatch' ? '#DC2626' : C.parchmentDark, background: decision === 'mismatch' ? '#FEF2F2' : C.white, color: decision === 'mismatch' ? '#DC2626' : C.inkMuted, fontFamily: FONT.sans }}
+              style={{ borderColor: decision === 'mismatch' ? 'var(--status-error-text)' : C.parchmentDark, background: decision === 'mismatch' ? 'var(--status-error-bg)' : C.white, color: decision === 'mismatch' ? 'var(--status-error-text)' : C.inkMuted, fontFamily: FONT.sans }}
             >
               ⚑ Flag mismatch
             </button>
@@ -942,7 +993,7 @@ export function VerifierReportScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!decision || photos.length === 0}>Submit verification report</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!decision || photos.length === 0 || submitting}>{submitting ? 'Submitting…' : 'Submit verification report'}</PillButton>
       </div>
     </AppShell>
   )
@@ -1056,15 +1107,12 @@ export function AdminPanelScreen() {
   return (
     <AppShell>
       <Header title="Admin Panel" back>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {(['overview', 'verifications', 'disputes', 'users'] as const).map((t) => (
-            <button key={t} onClick={() => setTab(t)}
-              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-all capitalize"
-              style={{ fontFamily: FONT.mono, background: tab === t ? C.forest : C.parchment, color: tab === t ? C.white : C.inkMuted }}>
-              {t}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          tabs={[{ id: 'overview', label: 'Overview' }, { id: 'verifications', label: 'Verifications' }, { id: 'disputes', label: 'Disputes' }, { id: 'users', label: 'Users' }]}
+          value={tab}
+          onChange={(v) => setTab(v as typeof tab)}
+          variant="pill"
+        />
       </Header>
 
       <div className="px-5 py-4 sm:mx-auto sm:max-w-3xl">
@@ -1076,7 +1124,7 @@ export function AdminPanelScreen() {
                   <div className="p-3">
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest">{label}</div>
                     <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold mt-1">{value}</div>
-                    <div style={{ fontFamily: FONT.mono, color: change.startsWith('+') ? C.forest : '#DC2626' }} className="text-[10px] mt-0.5">{change} this month</div>
+                    <div style={{ fontFamily: FONT.mono, color: change.startsWith('+') ? C.forest : 'var(--status-error-text)' }} className="text-[10px] mt-0.5">{change} this month</div>
                   </div>
                 </Card>
               ))}
@@ -1084,7 +1132,7 @@ export function AdminPanelScreen() {
 
             <Card onClick={() => nav('/admin/fraud-analytics')}>
               <div className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#FEE2E2' }}>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-error-bg)' }}>
                   <span className="text-lg">⚠️</span>
                 </div>
                 <div className="flex-1">
@@ -1117,9 +1165,9 @@ export function AdminPanelScreen() {
         )}
 
         {tab === 'verifications' && (
-          <div className="space-y-3">
-            <div className="rounded-xl p-3 border" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
-              <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest">{openVerifications.length + pendingCertifications.length + pendingKyc.length} pending verifications</div>
+          <StaggerList className="space-y-3">
+            <div className="rounded-xl p-3 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
+              <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">{openVerifications.length + pendingCertifications.length + pendingKyc.length} pending verifications</div>
             </div>
             {pendingKyc.map((k) => (
               <Card key={k.id}>
@@ -1131,7 +1179,7 @@ export function AdminPanelScreen() {
                   <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">KYC / ID verification · Submitted {k.submittedDate}</div>
                   <div className="flex gap-2 mt-3">
                     <button onClick={() => decideKyc(k.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
-                    <button onClick={() => decideKyc(k.id, 'rejected', 'ID document did not pass review.')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: '#FECACA', color: '#DC2626', fontFamily: FONT.sans }}>Reject</button>
+                    <button onClick={() => decideKyc(k.id, 'rejected', 'ID document did not pass review.')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
                   </div>
                 </div>
               </Card>
@@ -1147,7 +1195,7 @@ export function AdminPanelScreen() {
                   {v.status === 'pending' && (
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => decide(v.name, 'approved')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
-                      <button onClick={() => decide(v.name, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: '#FECACA', color: '#DC2626', fontFamily: FONT.sans }}>Reject</button>
+                      <button onClick={() => decide(v.name, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
                     </div>
                   )}
                 </div>
@@ -1164,17 +1212,17 @@ export function AdminPanelScreen() {
                   {c.status === 'pending' && (
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => decideCertification(c.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
-                      <button onClick={() => decideCertification(c.id, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: '#FECACA', color: '#DC2626', fontFamily: FONT.sans }}>Reject</button>
+                      <button onClick={() => decideCertification(c.id, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
                     </div>
                   )}
                 </div>
               </Card>
             ))}
-          </div>
+          </StaggerList>
         )}
 
         {tab === 'disputes' && (
-          <div className="space-y-3">
+          <StaggerList className="space-y-3">
             {disputes.map((d, i) => (
               <Card key={i}>
                 <div className="p-4">
@@ -1192,11 +1240,11 @@ export function AdminPanelScreen() {
                 <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No open disputes</div>
               </div>
             )}
-          </div>
+          </StaggerList>
         )}
 
         {tab === 'users' && (
-          <div className="space-y-3">
+          <StaggerList className="space-y-3">
             {contractors.map((c) => (
               <Card key={c.id}>
                 <div className="flex items-center gap-3 p-4">
@@ -1209,7 +1257,7 @@ export function AdminPanelScreen() {
                 </div>
               </Card>
             ))}
-          </div>
+          </StaggerList>
         )}
       </div>
     </AppShell>
@@ -1217,59 +1265,93 @@ export function AdminPanelScreen() {
 }
 
 // ── Dispute resolution / support screen ───────────────────────────────────────
-export function DisputeResolutionScreen() {
-  const [disputes, setDisputes] = useState([
-    { id: 'd1', project: 'Borehole — Bamenda North', funder: 'Marie-Claire N.', recipient: 'Emmanuel Njang', issue: 'Proof does not match milestone', status: 'open', date: '18 Jul 2025', funds: 1400000 },
-    { id: 'd2', project: 'Clinic renovation — Limbe', funder: 'Théodore K.', recipient: 'Dr. Ngole Mbah', issue: 'Work appears incomplete', status: 'in_review', date: '15 Jul 2025', funds: 2000000 },
-  ])
-  const [contacted, setContacted] = useState<string[]>([])
+function disputeDisplay(d: BackendDispute) {
+  const project = typeof d.projectId === 'object' ? d.projectId : null
+  const owner = project && typeof project.ownerId === 'object' ? project.ownerId.fullName : 'Unknown'
+  const raisedBy = typeof d.raisedBy === 'object' ? d.raisedBy.fullName : 'Unknown'
+  return {
+    project: project?.title ?? 'Unknown project',
+    owner,
+    raisedBy,
+    funds: project?.totalAmount ?? 0,
+    date: new Date(d.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+  }
+}
 
-  const resolve = (id: string) => setDisputes((ds) => ds.filter((d) => d.id !== id))
+export function DisputeResolutionScreen() {
+  const { show: showToast } = useToast()
+  const { data: disputes, isLoading } = useDisputesQuery({ status: 'open' })
+  const resolveMutation = useResolveDisputeMutation()
+  const [contacted, setContacted] = useState<string[]>([])
+  const [resolvingId, setResolvingId] = useState<string | null>(null)
+  const resolveTarget = disputes?.find((d) => d._id === resolvingId)
+
+  const resolve = async (id: string) => {
+    try {
+      await resolveMutation.mutateAsync({ disputeId: id, status: 'resolved', resolutionNotes: 'Resolved by admin — evidence re-reviewed, milestone returned to review queue.' })
+    } catch (err) {
+      showToast({ title: 'Failed to resolve dispute', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
   const contact = (id: string) => setContacted((c) => [...c, id])
 
   return (
     <AppShell>
-      <Header title="Dispute Resolution" subtitle={`${disputes.length} active disputes`} back />
+      <Header title="Dispute Resolution" subtitle={isLoading ? 'Loading…' : `${disputes?.length ?? 0} active disputes`} back />
 
-      <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 sm:mx-auto sm:max-w-4xl">
-        {disputes.map((d) => (
-          <Card key={d.id}>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{d.project}</div>
-                <StatusBadge status={d.status === 'open' ? 'pending' : 'under_review'} />
+      <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 sm:mx-auto sm:max-w-4xl">
+        {(disputes ?? []).map((d) => {
+          const disp = disputeDisplay(d)
+          return (
+            <StaggerItem key={d._id}>
+            <Card>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{disp.project}</div>
+                  <StatusBadge status={d.status === 'open' ? 'pending' : 'under_review'} />
+                </div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{d.reason}</div>
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+                    <span>Project owner</span><span style={{ color: C.ink }}>{disp.owner}</span>
+                  </div>
+                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+                    <span>Raised by</span><span style={{ color: C.ink }}>{disp.raisedBy}</span>
+                  </div>
+                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+                    <span>Funds in escrow</span><span style={{ color: C.ink }}>{fmt(disp.funds)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+                    <span>Filed</span><span style={{ color: C.ink }}>{disp.date}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
+                  <button onClick={() => setResolvingId(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resolve</button>
+                  <button onClick={() => contact(d._id)} disabled={contacted.includes(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>
+                    {contacted.includes(d._id) ? 'Contacted ✓' : 'Contact parties'}
+                  </button>
+                </div>
               </div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{d.issue}</div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                  <span>Funder</span><span style={{ color: C.ink }}>{d.funder}</span>
-                </div>
-                <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                  <span>Recipient</span><span style={{ color: C.ink }}>{d.recipient}</span>
-                </div>
-                <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                  <span>Funds in escrow</span><span style={{ color: C.ink }}>{fmt(d.funds)}</span>
-                </div>
-                <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                  <span>Filed</span><span style={{ color: C.ink }}>{d.date}</span>
-                </div>
-              </div>
-              <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                <button onClick={() => resolve(d.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resolve</button>
-                <button onClick={() => contact(d.id)} disabled={contacted.includes(d.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>
-                  {contacted.includes(d.id) ? 'Contacted ✓' : 'Contact parties'}
-                </button>
-              </div>
-            </div>
-          </Card>
-        ))}
-        {disputes.length === 0 && (
+            </Card>
+            </StaggerItem>
+          )
+        })}
+        {!isLoading && (disputes?.length ?? 0) === 0 && (
           <div className="col-span-full text-center py-16">
             <div className="text-4xl mb-4">✅</div>
             <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No open disputes</div>
           </div>
         )}
-      </div>
+      </StaggerList>
+
+      <ConfirmDialog
+        open={!!resolveTarget}
+        onCancel={() => setResolvingId(null)}
+        onConfirm={() => { if (resolvingId) resolve(resolvingId); setResolvingId(null) }}
+        title="Mark this dispute as resolved?"
+        description={resolveTarget ? `This closes the dispute for ${disputeDisplay(resolveTarget).project} and returns the milestone to review. Make sure both parties have been informed of the outcome.` : undefined}
+        confirmLabel="Resolve dispute"
+      />
     </AppShell>
   )
 }
@@ -1293,14 +1375,16 @@ interface FlaggedPattern {
 export function AdminFraudAnalyticsScreen() {
   const nav = useNavigate()
   const { landListings, projects } = useApp()
-  const { evidenceMeta, disputeHistory } = useVerification()
   const { kycCases } = useCompliance()
+  const { data: riskFlags } = useRiskFlagsQuery()
+  const { data: openDisputesData } = useDisputesQuery({ status: 'open' })
   const [activePatternId, setActivePatternId] = useState<string | null>(null)
 
   const duplicateListings = landListings.filter((l) => l.duplicateOfListingId)
   const disputedListings = landListings.filter((l) => l.disputed)
-  const flaggedEvidence = Object.entries(evidenceMeta).filter(([, m]) => m.flagged)
-  const openDisputes = disputeHistory.filter((d) => d.outcome === 'Open')
+  const reusedEvidenceFlags = (riskFlags ?? []).filter((f) => f.flagType === 'reused_evidence')
+  const multipleDisputeFlags = (riskFlags ?? []).filter((f) => f.flagType === 'multiple_disputes')
+  const openDisputes = openDisputesData ?? []
   const kycIssues = kycCases.filter((k) => k.status === 'rejected' || k.status === 'pending')
 
   const patterns: FlaggedPattern[] = [
@@ -1321,18 +1405,29 @@ export function AdminFraudAnalyticsScreen() {
       })),
     },
     {
-      id: 'evidence', icon: '📸', title: 'Evidence integrity flags',
-      description: 'Submitted proof photos flagged for GPS, timestamp, or duplicate-image mismatches.',
-      cases: flaggedEvidence.map(([key, m]) => {
-        const [projectId] = key.split(':')
+      id: 'evidence', icon: '📸', title: 'Reused evidence flags',
+      description: 'Milestone proof photos whose file hash matches evidence already submitted elsewhere — a strong sign of reused, non-authentic proof.',
+      cases: reusedEvidenceFlags.map((f) => {
+        const projectId = String(f.detail.projectId ?? '')
         const project = projects.find((p) => p.id === projectId)
-        return { label: project?.title ?? key, sub: m.flagReason ?? 'Evidence flagged for review', onOpen: () => nav(`/funder/project/${projectId}`) }
+        return { label: project?.title ?? 'Unlinked project', sub: `Flagged ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined }
       }),
     },
     {
       id: 'disputes', icon: '🚩', title: 'Open milestone disputes',
-      description: 'Funder-raised disputes awaiting platform resolution.',
-      cases: openDisputes.map((d) => ({ label: d.project, sub: `${d.issue} — raised by ${d.raisedBy}`, onOpen: () => nav('/admin/disputes') })),
+      description: 'Disputes raised against a project, awaiting platform resolution.',
+      cases: openDisputes.map((d) => {
+        const disp = disputeDisplay(d)
+        return { label: disp.project, sub: `${d.reason} — raised by ${disp.raisedBy}`, onOpen: () => nav('/admin/disputes') }
+      }),
+    },
+    {
+      id: 'repeat-disputes', icon: '⚠️', title: 'Repeat dispute pattern',
+      description: 'Project owners who have accumulated enough disputes across their projects to be a pattern, not a one-off.',
+      cases: multipleDisputeFlags.map((f) => ({
+        label: typeof f.userId === 'object' ? f.userId.fullName : 'Unknown user',
+        sub: `${f.detail.disputeCount ?? '?'} disputes · ${f.severity} severity`,
+      })),
     },
     {
       id: 'kyc', icon: '🪪', title: 'Identity verification issues',
@@ -1348,9 +1443,10 @@ export function AdminFraudAnalyticsScreen() {
       <Header title="Fraud & Dispute Analytics" subtitle="Flagged patterns across the platform" back />
 
       <div className="px-5 py-5 space-y-3 sm:mx-auto sm:max-w-3xl">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <StaggerList className="grid gap-3 sm:grid-cols-2">
           {patterns.map((p) => (
-            <Card key={p.id} onClick={() => setActivePatternId(activePatternId === p.id ? null : p.id)} className={activePatternId === p.id ? 'ring-2' : ''}>
+            <StaggerItem key={p.id}>
+            <Card variant="interactive" onClick={() => setActivePatternId(activePatternId === p.id ? null : p.id)} className={activePatternId === p.id ? 'ring-2' : ''}>
               <div className="p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <span className="text-xl">{p.icon}</span>
@@ -1361,28 +1457,32 @@ export function AdminFraudAnalyticsScreen() {
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mt-3">{p.cases.length} flagged case{p.cases.length === 1 ? '' : 's'}</div>
               </div>
             </Card>
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerList>
 
         {activePattern && (
           <div className="pt-2">
             <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">{activePattern.title} — case detail</p>
-            <div className="space-y-2">
-              {activePattern.cases.length === 0 && (
-                <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No flagged cases in this category right now.</div></Card>
-              )}
-              {activePattern.cases.map((c, i) => (
-                <Card key={i} onClick={c.onOpen}>
-                  <div className="p-4 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{c.label}</div>
-                      <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{c.sub}</div>
-                    </div>
-                    {c.compactBadge}
-                  </div>
-                </Card>
-              ))}
-            </div>
+            {activePattern.cases.length === 0 ? (
+              <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No flagged cases in this category right now.</div></Card>
+            ) : (
+              <StaggerList className="space-y-2">
+                {activePattern.cases.map((c, i) => (
+                  <StaggerItem key={i}>
+                    <Card variant="interactive" onClick={c.onOpen}>
+                      <div className="p-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{c.label}</div>
+                          <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{c.sub}</div>
+                        </div>
+                        {c.compactBadge}
+                      </div>
+                    </Card>
+                  </StaggerItem>
+                ))}
+              </StaggerList>
+            )}
           </div>
         )}
       </div>

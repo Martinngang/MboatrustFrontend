@@ -57,8 +57,8 @@ export function AddCoSignerScreen() {
       <Header title="Add a Co-signer" subtitle={project.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl border p-3" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
             A community co-signer — a trusted local figure — reviews milestone evidence alongside you. Their approval or flag shows on the milestone timeline.
           </p>
         </div>
@@ -122,7 +122,7 @@ export function CoSignerApprovalScreen() {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: finalStatus === 'approved' ? C.forest : '#DC2626' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: finalStatus === 'approved' ? C.forest : 'var(--status-error-text)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               {finalStatus === 'approved' ? (
                 <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
@@ -145,9 +145,9 @@ export function CoSignerApprovalScreen() {
       <Header title="Community Review" subtitle={project.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-2xl border p-4" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+        <div className="rounded-2xl border p-4" style={{ background: 'var(--status-success-bg)', borderColor: 'var(--status-success-text)' }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">You've been invited as a co-signer</div>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             Hi {coSigner.name}, please review the evidence below for {project.title} and confirm it matches what you know about this project.
           </p>
         </div>
@@ -184,7 +184,7 @@ export function CoSignerApprovalScreen() {
         <button onClick={() => decide('approved')} className="w-full py-4 rounded-xl font-bold text-sm" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>
           ✓ Approve this milestone
         </button>
-        <button onClick={() => decide('flagged')} className="w-full py-3.5 rounded-xl font-semibold text-sm border" style={{ borderColor: '#FECACA', color: '#DC2626', background: '#FEF2F2', fontFamily: FONT.sans }}>
+        <button onClick={() => decide('flagged')} className="w-full py-3.5 rounded-xl font-semibold text-sm border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', background: 'var(--status-error-bg)', fontFamily: FONT.sans }}>
           Flag a concern
         </button>
       </div>

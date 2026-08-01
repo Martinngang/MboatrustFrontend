@@ -8,6 +8,14 @@ import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
 import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
 import { useVerification, type Approver } from '../verification'
 import { useFeeCalculation } from '../feeConfig'
+import { ChipGroup } from '../components/Chip'
+import { EmptyState } from '../components/EmptyState'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+import { Switch } from '../components/Switch'
+import { ConfirmDialog, Modal } from '../components/Modal'
+import { useTemplates } from '../templates'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
 
 interface DraftMilestone { id: number; title: string; amount: string; description: string; requiresMultiApproval?: boolean }
 
@@ -48,7 +56,15 @@ export function BrowseProjectsScreen() {
 
   return (
     <AppShell>
-      <Header title="Discover Projects" back>
+      <Header
+        title="Discover Projects"
+        back
+        action={
+          <button onClick={() => nav('/funder/create')} style={{ fontFamily: FONT.sans, color: C.forest }} className="whitespace-nowrap text-sm font-semibold">
+            + New project
+          </button>
+        }
+      >
         <div className="flex items-center gap-2 border rounded-xl px-3 py-2.5 mb-4" style={{ borderColor: C.parchmentDark, background: C.cream }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
@@ -62,31 +78,26 @@ export function BrowseProjectsScreen() {
             style={{ fontFamily: FONT.sans, color: C.ink }}
           />
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setFilter(c)}
-              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-all"
-              style={{ fontFamily: FONT.mono, background: filter === c ? C.forest : C.parchment, color: filter === c ? C.white : C.inkMuted }}
-            >
-              {c}
-            </button>
-          ))}
+        <div className="overflow-x-auto pb-1">
+          <ChipGroup options={categories} value={filter} onChange={(v) => setFilter(v as string)} />
         </div>
       </Header>
 
-      <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+      <div className="px-5 py-4">
         {filtered.length === 0 ? (
-          <div className="col-span-full text-center py-16">
-            <div className="text-4xl mb-4">🔍</div>
-            <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold mb-1">No projects found</div>
-            <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">Try a different search term or category.</div>
-          </div>
-        ) : filtered.map((p) => {
-          const pct = Math.round((p.raised / p.totalAmount) * 100)
-          return (
-            <Card key={p.id} onClick={() => nav(`/funder/project/${p.id}`)}>
+          <EmptyState
+            icon="🔍"
+            title="No projects found"
+            description="Try a different search term or category."
+            illustration="tilt"
+          />
+        ) : (
+          <StaggerList className="space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+            {filtered.map((p) => {
+              const pct = Math.round((p.raised / p.totalAmount) * 100)
+              return (
+                <StaggerItem key={p.id}>
+                  <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
               <img src={p.image} alt={p.title} className="w-full h-36 object-cover rounded-t-xl" />
               <div className="p-4">
                 <div className="flex items-start justify-between gap-2 mb-1">
@@ -114,9 +125,12 @@ export function BrowseProjectsScreen() {
                   </div>
                 </div>
               </div>
-            </Card>
-          )
-        })}
+                  </Card>
+                </StaggerItem>
+              )
+            })}
+          </StaggerList>
+        )}
       </div>
     </AppShell>
   )
@@ -183,7 +197,7 @@ export function ProjectDetailScreen() {
                 className="flex items-start gap-3 p-4 rounded-xl border"
                 style={{
                   borderColor: m.status === 'under_review' ? C.amber : C.parchmentDark,
-                  background: m.status === 'released' ? '#F0FDF4' : m.status === 'under_review' ? '#FFF7E6' : C.white,
+                  background: m.status === 'released' ? 'var(--status-success-bg)' : m.status === 'under_review' ? 'var(--status-warning-bg)' : C.white,
                 }}
               >
                 <div
@@ -283,7 +297,7 @@ export function RecipientProfileScreen() {
             { label: 'Received', value: fmt(totalReceived) },
             { label: 'Rating', value: anchor.recipientRating.toFixed(1) },
           ].map(({ label, value }) => (
-            <Card key={label}>
+            <Card key={label} variant="glass">
               <div className="p-3 text-center">
                 <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{label}</div>
@@ -294,19 +308,21 @@ export function RecipientProfileScreen() {
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Project history</p>
-          <div className="space-y-3">
+          <StaggerList className="space-y-3">
             {recipientProjects.map((p) => (
-              <Card key={p.id} onClick={() => nav(`/funder/project/${p.id}`)}>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{p.title}</div>
-                    <StatusBadge status={p.status} />
+              <StaggerItem key={p.id}>
+                <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{p.title}</div>
+                      <StatusBadge status={p.status} />
+                    </div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.location}</div>
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.location}</div>
-                </div>
-              </Card>
+                </Card>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerList>
         </div>
 
         <PillButton onClick={() => nav('/funder/rate-recipient')} variant="secondary" fullWidth>Rate this recipient</PillButton>
@@ -352,15 +368,7 @@ export function CreateProjectScreen() {
             </div>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Category</label>
-              <div className="flex flex-wrap gap-2">
-                {categories.map((c) => (
-                  <button key={c} onClick={() => setForm({ ...form, category: c })}
-                    className="px-3 py-1.5 rounded-full text-xs transition-all"
-                    style={{ background: form.category === c ? C.forest : C.parchment, color: form.category === c ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-                    {c}
-                  </button>
-                ))}
-              </div>
+              <ChipGroup options={categories} value={form.category} onChange={(v) => setForm({ ...form, category: v as string })} />
             </div>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Description</label>
@@ -430,6 +438,10 @@ export function MilestonesScreen() {
   const [milestones, setMilestones] = useState<DraftMilestone[]>([
     { id: 1, title: 'Site survey & permits', amount: '', description: '' },
   ])
+  const { templates, addTemplate } = useTemplates()
+  const { show: showToast } = useToast()
+  const [saveModalOpen, setSaveModalOpen] = useState(false)
+  const [templateName, setTemplateName] = useState('')
 
   const addMilestone = () => {
     setMilestones((ms) => [...ms, { id: Date.now(), title: '', amount: '', description: '' }])
@@ -443,6 +455,26 @@ export function MilestonesScreen() {
     setMilestones((ms) => ms.map((m) => (m.id === id ? { ...m, requiresMultiApproval: !m.requiresMultiApproval } : m)))
   }
 
+  const applyTemplate = (templateId: string) => {
+    const t = templates.find((x) => x.id === templateId)
+    if (!t) return
+    setMilestones(t.milestones.map((m, i) => ({ id: Date.now() + i, title: m.title, amount: String(m.amount), description: m.description })))
+    showToast({ title: 'Template applied', description: `${t.milestones.length} milestones filled in from "${t.name}"`, tone: 'success' })
+  }
+
+  const saveAsTemplate = () => {
+    const valid = milestones.filter((m) => m.title.trim() && Number(m.amount) > 0)
+    if (!templateName.trim() || valid.length === 0) return
+    addTemplate({
+      name: templateName.trim(),
+      category: draft.category || 'General',
+      milestones: valid.map((m) => ({ title: m.title, amount: Number(m.amount), description: m.description })),
+    })
+    showToast({ title: 'Template saved', description: `"${templateName.trim()}" is ready to reuse next time`, tone: 'success' })
+    setSaveModalOpen(false)
+    setTemplateName('')
+  }
+
   const proceed = () => {
     nav('/funder/fund', { state: { draft: { ...draft, milestones } } })
   }
@@ -454,18 +486,36 @@ export function MilestonesScreen() {
       </Header>
 
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-2xl border p-4" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+        <div className="rounded-2xl border p-4" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             Each milestone locks a portion of the escrow. Funds for each stage are released only when photo/video proof is submitted and independently verified.
           </p>
         </div>
+
+        {templates.length > 0 && (
+          <div>
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Start from a template</label>
+            <div className="flex flex-wrap gap-2">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => applyTemplate(t.id)}
+                  className="rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors"
+                  style={{ borderColor: C.parchmentDark, background: C.white, color: C.inkMuted, fontFamily: FONT.sans }}
+                >
+                  {t.name} · {t.milestones.length} steps
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {milestones.map((m, i) => (
           <div key={m.id} className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div className="flex items-center justify-between mb-3">
               <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: C.forest, fontFamily: FONT.mono }}>{i + 1}</div>
               {milestones.length > 1 && (
-                <button onClick={() => setMilestones((ms) => ms.filter((x) => x.id !== m.id))} style={{ color: '#EF4444', fontFamily: FONT.mono }} className="text-xs">Remove</button>
+                <button onClick={() => setMilestones((ms) => ms.filter((x) => x.id !== m.id))} style={{ color: 'var(--status-error-text)', fontFamily: FONT.mono }} className="text-xs">Remove</button>
               )}
             </div>
             {(['title', 'description', 'amount'] as const).map((field) => (
@@ -505,7 +555,33 @@ export function MilestonesScreen() {
           </svg>
           Add another milestone
         </button>
+
+        <button
+          onClick={() => setSaveModalOpen(true)}
+          disabled={!milestones.some((m) => m.title.trim() && Number(m.amount) > 0)}
+          className="w-full py-2.5 text-xs font-semibold disabled:opacity-40"
+          style={{ color: C.inkMuted, fontFamily: FONT.sans }}
+        >
+          Save this breakdown as a reusable template
+        </button>
       </div>
+
+      <Modal open={saveModalOpen} onClose={() => setSaveModalOpen(false)} title="Save as template">
+        <div className="space-y-4">
+          <div>
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Template name</label>
+            <input
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              placeholder="e.g. Borehole / water point"
+              autoFocus
+              className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+              style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
+            />
+          </div>
+          <PillButton onClick={saveAsTemplate} fullWidth disabled={!templateName.trim()}>Save template</PillButton>
+        </div>
+      </Modal>
 
       <div className="px-5 pb-8 pt-4 border-t" style={{ borderColor: C.parchmentDark, background: C.white }}>
         <PillButton onClick={proceed} fullWidth disabled={!milestones.some((m) => m.title.trim() && Number(m.amount) > 0)}>
@@ -520,9 +596,10 @@ export function MilestonesScreen() {
 export function FundProjectScreen() {
   const nav = useNavigate()
   const location = useLocation()
-  const { projects, addProject, fundProject } = useApp()
+  const { projects, phone, addProject, fundProject } = useApp()
   const { setMultiSigApprovers } = useVerification()
   const fees = useFeeCalculation()
+  const { show: showToast } = useToast()
   const state = (location.state as { draft?: DraftProject; projectId?: string } | null) ?? {}
   const draft = state.draft
   const existing = state.projectId ? projects.find((p) => p.id === state.projectId) : undefined
@@ -533,6 +610,7 @@ export function FundProjectScreen() {
   const [pin, setPin] = useState('')
   const [createdId, setCreatedId] = useState<string | null>(null)
   const [foreignCurrency, setForeignCurrency] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   const amount = draft
     ? (draft.milestones && draft.milestones.length > 0
@@ -544,44 +622,58 @@ export function FundProjectScreen() {
   const title = draft?.title ?? existing?.title ?? fallback.title
   const { blocked: kycBlocked } = useKycGate(amount)
 
-  const confirmPayment = () => {
-    if (draft) {
-      const milestones: Milestone[] = (draft.milestones ?? []).map((m, i) => ({
-        id: `m${i + 1}`,
-        title: m.title || `Milestone ${i + 1}`,
-        amount: Number(m.amount) || 0,
-        status: 'pending',
-        proof: false,
-      }))
-      const created = addProject({
-        title: draft.title,
-        category: draft.category || 'General',
-        location: draft.location,
-        totalAmount: draft.totalAmount || amount,
-        raised: amount,
-        status: 'active',
-        recipient: 'Awaiting recipient',
-        recipientRating: 0,
-        milestones,
-        image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
-        description: draft.description,
-        daysLeft: 90,
-      })
-      ;(draft.milestones ?? []).forEach((dm, i) => {
-        if (dm.requiresMultiApproval) {
-          const defaultApprovers: Approver[] = [
-            { name: 'You (Funder)', status: 'pending' },
-            { name: 'Community Co-signer', status: 'pending' },
-            { name: 'Independent Verifier', status: 'pending' },
-          ]
-          setMultiSigApprovers(`${created.id}:${milestones[i].id}`, defaultApprovers)
-        }
-      })
-      setCreatedId(created.id)
-    } else if (existing) {
-      fundProject(existing.id, amount)
+  const confirmPayment = async () => {
+    setSubmitting(true)
+    try {
+      if (draft) {
+        const milestones: Milestone[] = (draft.milestones ?? []).map((m, i) => ({
+          id: `m${i + 1}`,
+          title: m.title || `Milestone ${i + 1}`,
+          amount: Number(m.amount) || 0,
+          status: 'pending',
+          proof: false,
+        }))
+        const created = await addProject({
+          title: draft.title,
+          category: draft.category || 'General',
+          location: draft.location,
+          totalAmount: draft.totalAmount || amount,
+          raised: 0,
+          status: 'active',
+          recipient: 'Awaiting recipient',
+          recipientRating: 0,
+          milestones,
+          image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
+          description: draft.description,
+          daysLeft: 90,
+        })
+        ;(draft.milestones ?? []).forEach((dm, i) => {
+          if (dm.requiresMultiApproval) {
+            const defaultApprovers: Approver[] = [
+              { name: 'You (Funder)', status: 'pending' },
+              { name: 'Community Co-signer', status: 'pending' },
+              { name: 'Independent Verifier', status: 'pending' },
+            ]
+            setMultiSigApprovers(`${created.id}:${milestones[i].id}`, defaultApprovers)
+          }
+        })
+        await fundProject(created.id, amount, {
+          paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
+          payerPhoneNumber: phone || '+237677234891',
+        })
+        setCreatedId(created.id)
+      } else if (existing) {
+        await fundProject(existing.id, amount, {
+          paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
+          payerPhoneNumber: phone || '+237677234891',
+        })
+      }
+      setStep('success')
+    } catch (err) {
+      showToast({ title: 'Payment failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
     }
-    setStep('success')
   }
 
   if (step === 'success') {
@@ -668,15 +760,10 @@ export function FundProjectScreen() {
         )}
 
         {/* Foreign currency toggle */}
-        <label className="flex items-center justify-between rounded-xl border p-3 cursor-pointer" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <div className="flex items-center justify-between rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">Fund in a different currency</span>
-          <div
-            onClick={() => setForeignCurrency(!foreignCurrency)}
-            className={`w-11 h-6 rounded-full transition-all cursor-pointer ${foreignCurrency ? 'bg-[var(--color-forest)]' : 'bg-[var(--color-parchment-dark)]'}`}
-          >
-            <div className={`w-5 h-5 rounded-full bg-white shadow m-0.5 transition-all ${foreignCurrency ? 'translate-x-5' : 'translate-x-0'}`} />
-          </div>
-        </label>
+          <Switch checked={foreignCurrency} onChange={setForeignCurrency} />
+        </div>
         {foreignCurrency && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <CurrencyConverterWidget defaultAmount={Math.round(amount / fees.config.foreignCurrencies[0].xafRate)} />
@@ -687,9 +774,9 @@ export function FundProjectScreen() {
         )}
 
         {/* Escrow info */}
-        <div className="rounded-xl border p-3" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Escrow protection</div>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             This payment goes into a secured escrow account — not to the recipient. Funds are only released once you approve verified milestone evidence.
           </p>
         </div>
@@ -698,8 +785,8 @@ export function FundProjectScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => step === 'select' ? setStep('confirm') : confirmPayment()} fullWidth disabled={kycBlocked}>
-          {step === 'select' ? `Pay ${fmt(amount)} via ${method === 'momo' ? 'MTN MoMo' : 'Orange Money'}` : 'Confirm payment'}
+        <PillButton onClick={() => step === 'select' ? setStep('confirm') : confirmPayment()} fullWidth disabled={kycBlocked || submitting}>
+          {submitting ? 'Processing…' : step === 'select' ? `Pay ${fmt(amount)} via ${method === 'momo' ? 'MTN MoMo' : 'Orange Money'}` : 'Confirm payment'}
         </PillButton>
       </div>
     </AppShell>
@@ -712,11 +799,13 @@ export function MilestoneReviewScreen() {
   const { id } = useParams()
   const { projects, approveMilestone } = useApp()
   const { multiSigApprovers, approveAsApprover, videoCallRequests } = useVerification()
+  const { show: showToast } = useToast()
   const project = projects.find((p) => p.id === id)
     ?? projects.find((p) => p.milestones.some((m) => m.status === 'under_review'))
     ?? projects[0]
   const milestone = project.milestones.find((m) => m.status === 'under_review') ?? project.milestones[0]
   const [decision, setDecision] = useState<'approve' | 'dispute' | null>(null)
+  const [approving, setApproving] = useState(false)
 
   const sigKey = `${project.id}:${milestone.id}`
   const approvers = multiSigApprovers[sigKey]
@@ -727,18 +816,28 @@ export function MilestoneReviewScreen() {
   const videoKey = `${project.id}:${milestone.id}`
   const videoCall = videoCallRequests[videoKey]
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (requiresMultiSig && !allApproved) {
       const updated = approveAsApprover(sigKey, 'You (Funder)')
       if (updated.every((a) => a.status === 'approved')) {
-        approveMilestone(project.id, milestone.id)
-        setDecision('approve')
+        await runApproval()
       }
       // otherwise stay on screen — the approvers list re-renders with your sign-off recorded
       return
     }
-    approveMilestone(project.id, milestone.id)
-    setDecision('approve')
+    await runApproval()
+  }
+
+  const runApproval = async () => {
+    setApproving(true)
+    try {
+      await approveMilestone(project.id, milestone.id)
+      setDecision('approve')
+    } catch (err) {
+      showToast({ title: 'Approval failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setApproving(false)
+    }
   }
 
   if (decision === 'approve') {
@@ -770,8 +869,8 @@ export function MilestoneReviewScreen() {
 
       <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         {/* Milestone info */}
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.amber, background: '#FFF7E6' }}>
-          <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest mb-1">Awaiting your review</div>
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.amber, background: 'var(--status-warning-bg)' }}>
+          <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Awaiting your review</div>
           <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} to be released upon approval</div>
         </div>
@@ -795,17 +894,17 @@ export function MilestoneReviewScreen() {
               <button
                 onClick={() => nav(`/funder/video-verification/${project.id}/${milestone.id}`)}
                 className="w-full py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
-                style={{ borderColor: '#3B82F6', color: '#3B82F6', fontFamily: FONT.sans }}
+                style={{ borderColor: 'var(--status-info-text)', color: 'var(--status-info-text)', fontFamily: FONT.sans }}
               >
                 📹 Request live video check
               </button>
             </>
           ) : (
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#EFF6FF' }}>
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-info-bg)' }}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <rect x="2" y="4" width="10" height="8" rx="1.5" stroke="#3B82F6" strokeWidth="1.3" />
-                  <path d="M12 7L16 5V11L12 9" stroke="#3B82F6" strokeWidth="1.3" strokeLinejoin="round" />
+                  <rect x="2" y="4" width="10" height="8" rx="1.5" stroke="var(--status-info-text)" strokeWidth="1.3" />
+                  <path d="M12 7L16 5V11L12 9" stroke="var(--status-info-text)" strokeWidth="1.3" strokeLinejoin="round" />
                 </svg>
               </div>
               <div>
@@ -842,10 +941,10 @@ export function MilestoneReviewScreen() {
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Geo verification</div>
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#EFF6FF' }}>
+            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-info-bg)' }}>
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke="#3B82F6" strokeWidth="1.3" />
-                <circle cx="9" cy="7" r="2" stroke="#3B82F6" strokeWidth="1.2" />
+                <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke="var(--status-info-text)" strokeWidth="1.3" />
+                <circle cx="9" cy="7" r="2" stroke="var(--status-info-text)" strokeWidth="1.2" />
               </svg>
             </div>
             <div>
@@ -890,16 +989,17 @@ export function MilestoneReviewScreen() {
         ) : (
           <button
             onClick={handleApprove}
-            className="w-full py-4 rounded-xl font-bold text-sm"
+            disabled={approving}
+            className="w-full py-4 rounded-xl font-bold text-sm disabled:opacity-60"
             style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
           >
-            {requiresMultiSig ? `✓ Add your approval (${(approvers!.filter((a) => a.status === 'approved').length)}/${approvers!.length})` : `✓ Approve — release ${fmt(milestone.amount)}`}
+            {approving ? 'Releasing…' : requiresMultiSig ? `✓ Add your approval (${(approvers!.filter((a) => a.status === 'approved').length)}/${approvers!.length})` : `✓ Approve — release ${fmt(milestone.amount)}`}
           </button>
         )}
         <button
           onClick={() => setDecision('dispute')}
           className="w-full py-3.5 rounded-xl font-semibold text-sm border"
-          style={{ borderColor: '#FECACA', color: '#DC2626', background: '#FEF2F2', fontFamily: FONT.sans }}
+          style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', background: 'var(--status-error-bg)', fontFamily: FONT.sans }}
         >
           Raise a dispute
         </button>
@@ -939,10 +1039,10 @@ export function VideoVerificationScheduleScreen() {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#EFF6FF' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <rect x="4" y="8" width="20" height="16" rx="2" stroke="#3B82F6" strokeWidth="2" />
-              <path d="M24 14L32 10V22L24 18" stroke="#3B82F6" strokeWidth="2" strokeLinejoin="round" />
+              <rect x="4" y="8" width="20" height="16" rx="2" stroke="var(--status-info-text)" strokeWidth="2" />
+              <path d="M24 14L32 10V22L24 18" stroke="var(--status-info-text)" strokeWidth="2" strokeLinejoin="round" />
             </svg>
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Call scheduled</h1>
@@ -960,8 +1060,8 @@ export function VideoVerificationScheduleScreen() {
       <Header title="Schedule Live Video Check" subtitle={milestone.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl border p-3" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
             A live video call lets you walk the site with the recipient in real time — useful for high-value or complex milestones before releasing funds.
           </p>
         </div>
@@ -995,21 +1095,29 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
   const [type, setType] = useState('')
   const [notes, setNotes] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [confirming, setConfirming] = useState(false)
   const types = ['Proof does not match milestone', 'Wrong location / geotag', 'Work appears incomplete', 'Photos appear staged or old', 'Other']
 
-  const submit = () => {
-    disputeMilestone(projectId, milestoneId)
-    setSubmitted(true)
+  const { show: showToast } = useToast()
+  const submit = async () => {
+    try {
+      await disputeMilestone(projectId, milestoneId, notes ? `${type}: ${notes}` : type || 'Dispute raised from app')
+      setConfirming(false)
+      setSubmitted(true)
+    } catch (err) {
+      setConfirming(false)
+      showToast({ title: 'Failed to raise dispute', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   if (submitted) {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#FEE2E2' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-error-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <path d="M18 8V20" stroke="#DC2626" strokeWidth="2.5" strokeLinecap="round" />
-              <circle cx="18" cy="26" r="2" fill="#DC2626" />
+              <path d="M18 8V20" stroke="var(--status-error-text)" strokeWidth="2.5" strokeLinecap="round" />
+              <circle cx="18" cy="26" r="2" fill="var(--status-error-text)" />
             </svg>
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Dispute raised</h1>
@@ -1027,8 +1135,8 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
       <Header title="Raise a Dispute" back onBack={onBack} />
 
       <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl border p-3" style={{ background: '#FEF2F2', borderColor: '#FECACA' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#991B1B' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-error-bg)', borderColor: 'var(--status-error-bg)' }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs leading-relaxed">
             Funds will remain in escrow while the dispute is under review. Our team contacts both parties within 48 hours.
           </p>
         </div>
@@ -1041,10 +1149,10 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
                 key={t}
                 onClick={() => setType(t)}
                 className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-all"
-                style={{ borderColor: type === t ? '#DC2626' : C.parchmentDark, background: type === t ? '#FEF2F2' : C.white }}
+                style={{ borderColor: type === t ? 'var(--status-error-text)' : C.parchmentDark, background: type === t ? 'var(--status-error-bg)' : C.white }}
               >
-                <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: type === t ? '#DC2626' : C.inkSubtle }}>
-                  {type === t && <div className="w-2 h-2 rounded-full" style={{ background: '#DC2626' }} />}
+                <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: type === t ? 'var(--status-error-text)' : C.inkSubtle }}>
+                  {type === t && <div className="w-2 h-2 rounded-full" style={{ background: 'var(--status-error-text)' }} />}
                 </div>
                 <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{t}</span>
               </button>
@@ -1062,10 +1170,20 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!type}>
+        <PillButton onClick={() => setConfirming(true)} fullWidth disabled={!type}>
           Submit dispute
         </PillButton>
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        onCancel={() => setConfirming(false)}
+        onConfirm={submit}
+        title="Raise this dispute?"
+        description="Funds for this milestone stay frozen in escrow while our team reviews the evidence and contacts both parties — this cannot be undone from your side once submitted."
+        confirmLabel="Raise dispute"
+        danger
+      />
     </AppShell>
   )
 }
@@ -1101,37 +1219,39 @@ export function TransactionHistoryScreen() {
         </div>
       </Header>
 
-      <div className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+      <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
         {TRANSACTIONS.map((tx) => (
-          <Card key={tx.id}>
-            <div className="flex items-center gap-4 p-4">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                style={{ background: tx.amount > 0 ? '#EFF6FF' : '#F0FDF4' }}>
-                {tx.amount > 0 ? (
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 12V4M5 7L8 4L11 7" stroke="#3B82F6" strokeWidth="1.4" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 5L6 5L6 9" stroke="#16A34A" strokeWidth="1.4" strokeLinecap="round" />
-                    <path d="M2 5L6 9L14 4" stroke="#16A34A" strokeWidth="1.4" strokeLinecap="round" />
-                  </svg>
-                )}
-              </div>
-              <div className="flex-1">
-                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{tx.desc}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{tx.ref} · {tx.date}</div>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <div style={{ fontFamily: FONT.mono, color: tx.amount > 0 ? '#3B82F6' : C.forest }} className="text-sm font-bold">
-                  {tx.amount > 0 ? '+' : ''}{fmt(Math.abs(tx.amount))}
+          <StaggerItem key={tx.id}>
+            <Card variant="elevated">
+              <div className="flex items-center gap-4 p-4">
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: tx.amount > 0 ? 'var(--status-info-bg)' : 'var(--status-success-bg)' }}>
+                  {tx.amount > 0 ? (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 12V4M5 7L8 4L11 7" stroke="var(--status-info-text)" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M2 5L6 5L6 9" stroke="var(--status-success-text)" strokeWidth="1.4" strokeLinecap="round" />
+                      <path d="M2 5L6 9L14 4" stroke="var(--status-success-text)" strokeWidth="1.4" strokeLinecap="round" />
+                    </svg>
+                  )}
                 </div>
-                <StatusBadge status={tx.status} />
+                <div className="flex-1">
+                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{tx.desc}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{tx.ref} · {tx.date}</div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div style={{ fontFamily: FONT.mono, color: tx.amount > 0 ? 'var(--status-info-text)' : C.forest }} className="text-sm font-bold">
+                    {tx.amount > 0 ? '+' : ''}{fmt(Math.abs(tx.amount))}
+                  </div>
+                  <StatusBadge status={tx.status} />
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </StaggerItem>
         ))}
-      </div>
+      </StaggerList>
     </AppShell>
   )
 }
@@ -1172,7 +1292,7 @@ export function BidComparisonScreen() {
             key={c.id}
             onClick={() => setSelected(c.id)}
             className="w-full rounded-2xl border-2 p-4 text-left transition-all cursor-pointer"
-            style={{ borderColor: selected === c.id ? C.forest : C.parchmentDark, background: selected === c.id ? '#F0FDF4' : C.white }}
+            style={{ borderColor: selected === c.id ? C.forest : C.parchmentDark, background: selected === c.id ? 'var(--status-success-bg)' : C.white, boxShadow: selected === c.id ? C.shadowMd : C.shadowSm }}
           >
             <div className="flex items-start gap-3">
               <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
@@ -1250,7 +1370,7 @@ export function ContractTrackingScreen() {
             { label: 'Contract value', value: fmt(job.budget) },
             { label: 'Paid so far', value: fmt(paid) },
           ].map(({ label, value }) => (
-            <Card key={label}>
+            <Card key={label} variant="glass">
               <div className="p-3">
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
                 <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
@@ -1266,7 +1386,7 @@ export function ContractTrackingScreen() {
               <div key={i} className="flex items-start gap-3 p-4 rounded-xl border"
                 style={{
                   borderColor: m.status === 'under_review' ? C.amber : C.parchmentDark,
-                  background: m.status === 'released' ? '#F0FDF4' : m.status === 'under_review' ? '#FFF7E6' : C.white,
+                  background: m.status === 'released' ? 'var(--status-success-bg)' : m.status === 'under_review' ? 'var(--status-warning-bg)' : C.white,
                 }}>
                 <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{ background: m.status === 'released' ? C.forest : m.status === 'under_review' ? C.amber : C.parchmentDark }}>

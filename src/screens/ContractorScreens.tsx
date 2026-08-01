@@ -3,6 +3,10 @@ import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useMarketplace } from '../marketplace'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, Stars } from '../components/MobileLayout'
+import { ChipGroup } from '../components/Chip'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
 export function BrowseJobsScreen() {
@@ -17,7 +21,16 @@ export function BrowseJobsScreen() {
 
   return (
     <AppShell>
-      <Header title="Open Jobs" subtitle={`${filtered.length} available`} back>
+      <Header
+        title="Open Jobs"
+        subtitle={`${filtered.length} available`}
+        back
+        action={
+          <button onClick={() => nav('/contractor/bids')} style={{ fontFamily: FONT.sans, color: C.forest }} className="whitespace-nowrap text-sm font-semibold">
+            My bids →
+          </button>
+        }
+      >
         <div className="flex items-center gap-2 border rounded-xl px-3 py-2.5 mb-4" style={{ borderColor: C.parchmentDark, background: C.cream }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <circle cx="6" cy="6" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
@@ -29,43 +42,39 @@ export function BrowseJobsScreen() {
           </button>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {categories.map((c) => (
-            <button key={c} onClick={() => setFilter(c)}
-              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-all"
-              style={{ fontFamily: FONT.mono, background: filter === c ? C.forest : C.parchment, color: filter === c ? C.white : C.inkMuted }}>
-              {c}
-            </button>
-          ))}
+        <div className="overflow-x-auto pb-1">
+          <ChipGroup options={categories} value={filter} onChange={(v) => setFilter(v as string)} />
         </div>
       </Header>
 
-      <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+      <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         {filtered.map((job) => (
-          <Card key={job.id} onClick={() => nav(`/contractor/job/${job.id}`)}>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{job.title}</div>
-                <span style={{ fontFamily: FONT.mono, color: C.forest, background: '#E8F5EE' }} className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap">
-                  {job.bids} bids
-                </span>
-              </div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{job.location} · {job.category}</div>
-              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed mb-3 line-clamp-2">{job.description}</p>
-              <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                <div>
-                  <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{fmt(job.budget)}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Budget</div>
+          <StaggerItem key={job.id}>
+            <Card variant="interactive" onClick={() => nav(`/contractor/job/${job.id}`)}>
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{job.title}</div>
+                  <span style={{ fontFamily: FONT.mono, color: C.forest, background: 'var(--status-success-bg)' }} className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap">
+                    {job.bids} bids
+                  </span>
                 </div>
-                <div className="text-right">
-                  <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs">{job.milestones} milestones</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px]">Deadline {job.deadline}</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{job.location} · {job.category}</div>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed mb-3 line-clamp-2">{job.description}</p>
+                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
+                  <div>
+                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{fmt(job.budget)}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Budget</div>
+                  </div>
+                  <div className="text-right">
+                    <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs">{job.milestones} milestones</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px]">Deadline {job.deadline}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          </StaggerItem>
         ))}
-      </div>
+      </StaggerList>
     </AppShell>
   )
 }
@@ -135,9 +144,9 @@ export function JobDetailScreen() {
         </div>
 
         {/* How payment works */}
-        <div className="rounded-xl p-4 border" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+        <div className="rounded-xl p-4 border" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Payment protection</div>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             The full budget is held in escrow before work begins. You get paid for each milestone after submitting photo/video proof and approval. Zero chasing invoices.
           </p>
         </div>
@@ -156,33 +165,42 @@ export function SubmitBidScreen() {
   const nav = useNavigate()
   const { id } = useParams()
   const { jobs, addBid } = useApp()
+  const { show: showToast } = useToast()
   const job = jobs.find((j) => j.id === id) ?? jobs[0]
   const [form, setForm] = useState({ price: '', timeline: '', materials: '', notes: '' })
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
-  const submit = () => {
-    addBid({
-      jobId: job.id,
-      jobTitle: job.title,
-      contractorName: 'Fon Ayuk Construction',
-      price: Number(form.price) || Math.round(job.budget * 0.9),
-      timeline: form.timeline || '6 weeks',
-      materials: form.materials,
-      notes: form.notes,
-      status: 'pending',
-      submitted: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-    })
-    setSubmitted(true)
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      await addBid({
+        jobId: job.id,
+        jobTitle: job.title,
+        contractorName: 'Fon Ayuk Construction',
+        price: Number(form.price) || Math.round(job.budget * 0.9),
+        timeline: form.timeline || '6 weeks',
+        materials: form.materials,
+        notes: form.notes,
+        status: 'pending',
+        submitted: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit bid', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#EFF6FF' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-              <path d="M10 12H26M10 17H22M10 22H18" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" />
-              <rect x="5" y="5" width="26" height="26" rx="3" stroke="#3B82F6" strokeWidth="1.8" />
+              <path d="M10 12H26M10 17H22M10 22H18" stroke="var(--status-info-text)" strokeWidth="2" strokeLinecap="round" />
+              <rect x="5" y="5" width="26" height="26" rx="3" stroke="var(--status-info-text)" strokeWidth="1.8" />
             </svg>
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Bid submitted</h1>
@@ -244,16 +262,16 @@ export function SubmitBidScreen() {
           Not sure on pricing? Check the material cost estimator →
         </Link>
 
-        <div className="rounded-xl p-4 border" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
-          <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest mb-1">Bid terms</div>
-          <p style={{ fontFamily: FONT.sans, color: '#78350F' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
+          <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Bid terms</div>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
             Submitting a bid commits you to the proposed price and timeline if awarded. Payment is milestone-based via escrow. Platform fee of 3% applies.
           </p>
         </div>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!form.price}>Submit bid</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!form.price || submitting}>{submitting ? 'Submitting…' : 'Submit bid'}</PillButton>
       </div>
     </AppShell>
   )
@@ -278,37 +296,39 @@ export function MyBidsScreen() {
     <AppShell>
       <Header title="My Bids" back />
 
-      <div className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+      <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
         {rows.map((bid, i) => {
           const job = jobs.find((j) => j.id === bid.jobId)
           return (
-            <Card key={i} onClick={() => job && nav(`/contractor/job/${job.id}`)}>
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{bid.jobTitle}</div>
-                  <StatusBadge status={bid.status} />
-                </div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{job?.location}</div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold">{fmt(bid.price)}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Your bid</div>
+            <StaggerItem key={i}>
+              <Card variant="interactive" onClick={() => job && nav(`/contractor/job/${job.id}`)}>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{bid.jobTitle}</div>
+                    <StatusBadge status={bid.status} />
                   </div>
-                  <div className="text-right">
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">Submitted {bid.submitted}</div>
-                    {bid.status === 'accepted' && (
-                      <button onClick={(e) => { e.stopPropagation(); nav('/contractor/contract') }}
-                        className="text-xs font-semibold mt-1" style={{ color: C.forest, fontFamily: FONT.sans }}>
-                        View contract →
-                      </button>
-                    )}
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{job?.location}</div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold">{fmt(bid.price)}</div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Your bid</div>
+                    </div>
+                    <div className="text-right">
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">Submitted {bid.submitted}</div>
+                      {bid.status === 'accepted' && (
+                        <button onClick={(e) => { e.stopPropagation(); nav('/contractor/contract') }}
+                          className="text-xs font-semibold mt-1" style={{ color: C.forest, fontFamily: FONT.sans }}>
+                          View contract →
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </StaggerItem>
           )
         })}
-      </div>
+      </StaggerList>
     </AppShell>
   )
 }
@@ -336,7 +356,7 @@ export function ContractDetailScreen() {
             { label: 'Contract value', value: fmt(job.budget) },
             { label: 'Paid so far', value: fmt(300000) },
           ].map(({ label, value }) => (
-            <Card key={label}>
+            <Card key={label} variant="glass">
               <div className="p-3">
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
                 <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
@@ -353,7 +373,7 @@ export function ContractDetailScreen() {
               <div key={i} className="flex items-start gap-3 p-4 rounded-xl border"
                 style={{
                   borderColor: m.status === 'under_review' ? C.amber : C.parchmentDark,
-                  background: m.status === 'released' ? '#F0FDF4' : m.status === 'under_review' ? '#FFF7E6' : C.white,
+                  background: m.status === 'released' ? 'var(--status-success-bg)' : m.status === 'under_review' ? 'var(--status-warning-bg)' : C.white,
                 }}>
                 <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
                   style={{ background: m.status === 'released' ? C.forest : m.status === 'under_review' ? C.amber : C.parchmentDark }}>
@@ -379,9 +399,9 @@ export function ContractDetailScreen() {
 
         {/* CTA for pending milestone */}
         {milestones.some((m) => m.status === 'under_review') && (
-          <div className="rounded-2xl border-2 p-4" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
-            <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest mb-2">Proof under review</div>
-            <p style={{ fontFamily: FONT.sans, color: '#78350F' }} className="text-xs mb-3">
+          <div className="rounded-2xl border-2 p-4" style={{ background: 'var(--status-warning-bg)', borderColor: C.amber }}>
+            <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-2">Proof under review</div>
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs mb-3">
               Your milestone 2 proof is being reviewed by the verifier. Estimated approval: 20 Jul 2025.
             </p>
           </div>
@@ -414,23 +434,27 @@ export function EarningsScreen() {
       </Header>
 
       <div className="px-5 py-4 space-y-3 sm:mx-auto sm:max-w-2xl">
-        {earnings.map((e, i) => (
-          <Card key={i}>
-            <div className="flex items-center gap-4 p-4">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#F0FDF4' }}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <rect x="2" y="2" width="12" height="12" rx="1" stroke={C.forest} strokeWidth="1.2" />
-                  <path d="M8 5V11M5.5 8H10.5" stroke={C.forest} strokeWidth="1.2" strokeLinecap="round" />
-                </svg>
-              </div>
-              <div className="flex-1">
-                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{e.job}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{e.milestone} · {e.date}</div>
-              </div>
-              <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-sm font-bold">+{fmt(e.amount)}</div>
-            </div>
-          </Card>
-        ))}
+        <StaggerList className="space-y-3">
+          {earnings.map((e, i) => (
+            <StaggerItem key={i}>
+              <Card variant="elevated">
+                <div className="flex items-center gap-4 p-4">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-success-bg)' }}>
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="2" width="12" height="12" rx="1" stroke={C.forest} strokeWidth="1.2" />
+                      <path d="M8 5V11M5.5 8H10.5" stroke={C.forest} strokeWidth="1.2" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{e.job}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{e.milestone} · {e.date}</div>
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-sm font-bold">+{fmt(e.amount)}</div>
+                </div>
+              </Card>
+            </StaggerItem>
+          ))}
+        </StaggerList>
 
         <PillButton onClick={() => nav('/recipient/withdrawal')} fullWidth>Withdraw to MoMo / Orange Money</PillButton>
       </div>
@@ -468,7 +492,7 @@ export function ContractorProfileScreen() {
             { label: 'Rating', value: self.rating.toFixed(1) },
             { label: 'Status', value: self.verified ? 'Verified' : 'Pending' },
           ].map(({ label, value }) => (
-            <Card key={label}>
+            <Card key={label} variant="glass">
               <div className="p-3 text-center">
                 <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{value}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{label}</div>

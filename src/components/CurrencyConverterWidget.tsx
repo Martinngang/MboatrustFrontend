@@ -36,7 +36,7 @@ export function CurrencyConverterWidget({ defaultAmount, onResultChange }: {
             className="flex-1 rounded-xl border-2 py-2.5 text-sm font-semibold transition-all"
             style={{
               borderColor: currencyCode === c.code ? C.forest : C.parchmentDark,
-              background: currencyCode === c.code ? '#F0FDF4' : C.white,
+              background: currencyCode === c.code ? 'var(--status-success-bg)' : C.white,
               color: currencyCode === c.code ? C.forest : C.inkMuted,
               fontFamily: FONT.mono,
             }}

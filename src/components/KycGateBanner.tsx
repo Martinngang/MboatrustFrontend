@@ -21,12 +21,12 @@ export function KycGateBanner({ amount }: { amount: number }) {
   if (!blocked) return null
 
   return (
-    <div className="rounded-xl border p-4" style={{ background: '#FEF2F2', borderColor: '#FECACA' }}>
-      <div style={{ fontFamily: FONT.mono, color: '#991B1B' }} className="text-[10px] uppercase tracking-widest mb-1">Identity verification required</div>
-      <p style={{ fontFamily: FONT.sans, color: '#7F1D1D' }} className="text-xs leading-relaxed mb-3">
+    <div className="rounded-xl border p-4" style={{ background: 'var(--status-error-bg)', borderColor: 'var(--status-error-bg)' }}>
+      <div style={{ fontFamily: FONT.mono, color: 'var(--status-error-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Identity verification required</div>
+      <p style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs leading-relaxed mb-3">
         Transactions over {fmt(threshold)} require ID verification (KYC/AML) before they can proceed.
       </p>
-      <button onClick={() => nav('/compliance/kyc')} style={{ fontFamily: FONT.sans, color: '#991B1B' }} className="text-xs font-bold">
+      <button onClick={() => nav('/compliance/kyc')} style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs font-bold">
         Verify your identity →
       </button>
     </div>

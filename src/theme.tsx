@@ -7,7 +7,9 @@ const STORAGE_KEY = 'mboatrust-theme'
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'light' || stored === 'dark') return stored
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // Obsidian dark is the brand's default appearance — not gated on the
+  // visitor's OS color-scheme preference, unlike the old forest/amber theme.
+  return 'dark'
 }
 
 interface ThemeContextValue {

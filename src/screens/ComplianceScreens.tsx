@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fmt } from '../context'
 import { useCompliance, KYC_LARGE_TXN_THRESHOLD, type KycStatus } from '../compliance'
-import { C, FONT, AppShell, Header, PillButton, StepIndicator } from '../components/MobileLayout'
+import { C, FONT, AppShell, Header, PillButton, StepIndicator, STATUS_TONE_VARS, type StatusTone } from '../components/MobileLayout'
+import { ChipGroup } from '../components/Chip'
 
-const STATUS_META: Record<KycStatus, { label: string; bg: string; text: string }> = {
-  unverified: { label: 'Not verified', bg: '#F3F4F6', text: '#6B7280' },
-  pending: { label: 'Under review', bg: '#FEF3C7', text: '#92400E' },
-  verified: { label: 'Verified', bg: '#D1FAE5', text: '#065F46' },
-  rejected: { label: 'Rejected', bg: '#FEE2E2', text: '#991B1B' },
+const STATUS_META: Record<KycStatus, { label: string; tone: StatusTone }> = {
+  unverified: { label: 'Not verified', tone: 'neutral' },
+  pending: { label: 'Under review', tone: 'warning' },
+  verified: { label: 'Verified', tone: 'success' },
+  rejected: { label: 'Rejected', tone: 'error' },
 }
 
 // ── Explanatory screen + status ─────────────────────────────────────────────────
@@ -16,13 +17,14 @@ export function KycExplainerScreen() {
   const nav = useNavigate()
   const { myKyc } = useCompliance()
   const meta = STATUS_META[myKyc.status]
+  const toneVars = STATUS_TONE_VARS[meta.tone]
 
   return (
     <AppShell>
       <Header title="Identity Verification" back />
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-2xl border p-5 text-center" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <span className="inline-block rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest" style={{ background: meta.bg, color: meta.text, fontFamily: FONT.mono }}>
+          <span className="inline-block rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest" style={{ background: toneVars.bg, color: toneVars.text, fontFamily: FONT.mono }}>
             {meta.label}
           </span>
           {myKyc.status === 'pending' && (
@@ -96,7 +98,7 @@ export function KycVerifyScreen() {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#F59E0B' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: C.amber }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               <circle cx="18" cy="18" r="3" fill="white" />
               <circle cx="18" cy="18" r="10" stroke="white" strokeWidth="2" strokeDasharray="4 4" />
@@ -124,19 +126,11 @@ export function KycVerifyScreen() {
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">
               Choose your document type and upload a clear photo of a government-issued ID.
             </p>
-            <div className="flex flex-wrap gap-2">
-              {ID_TYPES.map((t) => (
-                <button key={t} onClick={() => setIdType(t)}
-                  className="px-3 py-2 rounded-xl text-xs font-semibold transition-all border-2"
-                  style={{ borderColor: idType === t ? C.forest : C.parchmentDark, background: idType === t ? '#F0FDF4' : C.white, color: idType === t ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
-                  {t}
-                </button>
-              ))}
-            </div>
+            <ChipGroup options={ID_TYPES} value={idType} onChange={(v) => setIdType(v as string)} />
             <button
               onClick={() => setIdUploaded(true)}
               className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? '#F0FDF4' : C.white }}
+              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? 'var(--status-success-bg)' : C.white }}
             >
               {idUploaded ? (
                 <>
@@ -171,7 +165,7 @@ export function KycVerifyScreen() {
             <button
               onClick={() => setSelfieDone(true)}
               className="w-full border-2 border-dashed rounded-2xl py-14 flex flex-col items-center gap-3 transition-all"
-              style={{ borderColor: selfieDone ? C.forest : C.parchmentDark, background: selfieDone ? '#F0FDF4' : C.white }}
+              style={{ borderColor: selfieDone ? C.forest : C.parchmentDark, background: selfieDone ? 'var(--status-success-bg)' : C.white }}
             >
               {selfieDone ? (
                 <>
@@ -213,8 +207,8 @@ export function KycVerifyScreen() {
                 <span style={{ fontFamily: FONT.sans, color: C.forest }} className="text-sm font-semibold">97% confidence</span>
               </div>
             </div>
-            <div className="rounded-xl p-4 border" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
-              <p style={{ fontFamily: FONT.sans, color: '#78350F' }} className="text-xs leading-relaxed">
+            <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
                 By submitting, you confirm this information is accurate and consent to it being checked against your uploaded document.
               </p>
             </div>

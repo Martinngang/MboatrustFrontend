@@ -1,4 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { api } from './api/client'
 
 // ── Mock monetization config ──────────────────────────────────────────────────
 // Everything here is a stand-in for values that will eventually come from a
@@ -63,11 +64,30 @@ interface FeeConfigContextValue {
 
 const FeeConfigContext = createContext<FeeConfigContextValue>({} as FeeConfigContextValue)
 
+interface BackendFeeConfig { feeType: string; value: number; isFlat: boolean }
+
 export function FeeConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG)
   const [contractorPlan, setContractorPlan] = useState<ContractorPlan>('free')
   const [contractorVerified, setContractorVerified] = useState(false)
   const [diasporaSubscribed, setDiasporaSubscribed] = useState(false)
+
+  // Only transactionFeeRate and landSuccessFeeRate correspond to real
+  // backend FeeConfig entries that actually get charged (milestone_release
+  // — every pillar's escrow release, funding/tender/land alike, uses this
+  // one rate; there's no separate land_sale rate applied in practice even
+  // though that FeeConfig entry exists). The other 9 fields here are
+  // decorative — no backend route reads or charges them — so they stay
+  // local. Fetched once so the fee *preview* a user sees before acting
+  // matches what actually gets charged, not a hand-maintained duplicate.
+  useEffect(() => {
+    api.get<{ data: BackendFeeConfig[] }>('/fee-config').then(({ data }) => {
+      const milestoneRelease = data.data.find((c) => c.feeType === 'milestone_release')
+      if (milestoneRelease) {
+        setConfig((c) => ({ ...c, transactionFeeRate: milestoneRelease.value, landSuccessFeeRate: milestoneRelease.value }))
+      }
+    }).catch((err) => console.error('[feeConfig] failed to load real fee rates', err))
+  }, [])
 
   const updateConfig = (patch: Partial<FeeConfig>) => setConfig((c) => ({ ...c, ...patch }))
   const resetConfig = () => setConfig(DEFAULT_FEE_CONFIG)

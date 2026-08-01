@@ -1,6 +1,11 @@
 import type { ReactNode } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppProvider, useApp } from './context'
+import { ActivityLogProvider } from './activityLog'
+import { TemplatesProvider } from './templates'
+import { CustomFieldsProvider } from './customFields'
+import { TeamProvider } from './team'
 import { FeeConfigProvider } from './feeConfig'
 import { VerificationProvider } from './verification'
 import { MessagingProvider } from './messaging'
@@ -12,6 +17,9 @@ import { ThemeProvider } from './theme'
 import { OfflineQueueProvider } from './offlineQueue'
 import { PWAInstallProvider } from './pwaInstall'
 import { C } from './components/MobileLayout'
+import { ToastProvider } from './components/Toast'
+import { CommandPaletteProvider } from './components/shell/CommandPalette'
+import { KeyboardShortcutsProvider } from './components/shell/KeyboardShortcuts'
 
 // Landing
 import { LandingScreen } from './screens/Landing'
@@ -53,6 +61,15 @@ import {
 } from './screens/AdditionalScreens'
 // Co-signer
 import { AddCoSignerScreen, CoSignerApprovalScreen } from './screens/CoSignerScreens'
+// Workspace (new management-app view-switcher demo)
+import { WorkspaceProjectsScreen } from './screens/WorkspaceProjectsScreen'
+import { WorkspaceJobsScreen } from './screens/WorkspaceJobsScreen'
+import { WorkspaceLandScreen } from './screens/WorkspaceLandScreen'
+import { TenderBidsScreen } from './screens/TenderBidsScreen'
+import { GlobalActivityScreen } from './screens/GlobalActivityScreen'
+import { TemplatesScreen } from './screens/TemplatesScreen'
+import { TeamManagementScreen } from './screens/TeamManagementScreen'
+import { NotificationPreferencesScreen } from './screens/NotificationPreferencesScreen'
 // PWA
 import { InstallModal } from './components/InstallModal'
 
@@ -60,8 +77,14 @@ import { InstallModal } from './components/InstallModal'
 function WebFrame({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen w-full" style={{ background: C.cream, color: C.ink }}>
-      {children}
-      <InstallModal />
+      <ToastProvider>
+        <CommandPaletteProvider>
+          <KeyboardShortcutsProvider>
+            {children}
+            <InstallModal />
+          </KeyboardShortcutsProvider>
+        </CommandPaletteProvider>
+      </ToastProvider>
     </div>
   )
 }
@@ -76,11 +99,20 @@ function P({ children }: { children: ReactNode }) {
   return <RequireAuth>{children}</RequireAuth>
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
+})
+
 export default function App() {
   return (
+    <QueryClientProvider client={queryClient}>
     <ThemeProvider>
     <PWAInstallProvider>
+    <ActivityLogProvider>
     <AppProvider>
+      <TemplatesProvider>
+      <CustomFieldsProvider>
+      <TeamProvider>
       <FeeConfigProvider>
         <VerificationProvider>
           <MessagingProvider>
@@ -105,6 +137,15 @@ export default function App() {
 
                       {/* Home (role-aware) */}
                       <Route path="/home" element={<P><HomeScreen /></P>} />
+
+                      {/* Workspace (new management-app view-switcher demo) */}
+                      <Route path="/workspace/projects" element={<P><WorkspaceProjectsScreen /></P>} />
+                      <Route path="/workspace/jobs" element={<P><WorkspaceJobsScreen /></P>} />
+                      <Route path="/workspace/land" element={<P><WorkspaceLandScreen /></P>} />
+                      <Route path="/activity" element={<P><GlobalActivityScreen /></P>} />
+                      <Route path="/funder/templates" element={<P><TemplatesScreen /></P>} />
+                      <Route path="/workspace/team" element={<P><TeamManagementScreen /></P>} />
+                      <Route path="/shared/notifications/preferences" element={<P><NotificationPreferencesScreen /></P>} />
         
                       {/* Funder */}
                       <Route path="/funder/browse" element={<P><BrowseProjectsScreen /></P>} />
@@ -120,6 +161,7 @@ export default function App() {
                       <Route path="/funder/contractors" element={<P><BidComparisonScreen /></P>} />
                       <Route path="/funder/contract-tracking" element={<P><ContractTrackingScreen /></P>} />
                       <Route path="/funder/post-job" element={<P><PostJobScreen /></P>} />
+                      <Route path="/funder/tender/:jobId/bids" element={<P><TenderBidsScreen /></P>} />
                       <Route path="/funder/contract-summary" element={<P><ContractSummaryScreen /></P>} />
                       <Route path="/funder/rate-contractor" element={<P><RateContractorScreen /></P>} />
                       <Route path="/funder/rate-recipient" element={<P><RateRecipientScreen /></P>} />
@@ -211,8 +253,13 @@ export default function App() {
           </MessagingProvider>
         </VerificationProvider>
       </FeeConfigProvider>
+      </TeamProvider>
+      </CustomFieldsProvider>
+      </TemplatesProvider>
     </AppProvider>
+    </ActivityLogProvider>
     </PWAInstallProvider>
     </ThemeProvider>
+    </QueryClientProvider>
   )
 }

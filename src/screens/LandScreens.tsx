@@ -6,6 +6,13 @@ import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTime
 import { LandFlagBadge } from '../components/LandFlagBadge'
 import { NeighboringListingsMap } from '../components/NeighboringListingsMap'
 import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
+import { ChipGroup } from '../components/Chip'
+import { Tabs } from '../components/Tabs'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
+import { useMakeOfferMutation } from '../api/land'
+import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
 
 // ── Browse land ────────────────────────────────────────────────────────────────
 export function BrowseLandScreen() {
@@ -19,14 +26,13 @@ export function BrowseLandScreen() {
   return (
     <AppShell>
       <Header title="Land & Property" back action={
-        <div className="flex border rounded-lg overflow-hidden" style={{ borderColor: C.parchmentDark }}>
-          {(['list', 'map'] as const).map((v) => (
-            <button key={v} onClick={() => setView(v)}
-              className="px-3 py-1.5 text-xs font-semibold transition-all"
-              style={{ background: view === v ? C.forest : C.white, color: view === v ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-              {v === 'list' ? '☰' : '⊕'} {v}
-            </button>
-          ))}
+        <div className="w-40">
+          <Tabs
+            tabs={[{ id: 'list', label: '☰ List' }, { id: 'map', label: '⊕ Map' }]}
+            value={view}
+            onChange={(v) => setView(v as 'list' | 'map')}
+            variant="pill"
+          />
         </div>
       }>
         <div className="flex items-center gap-2 border rounded-xl px-3 py-2.5 mb-4" style={{ borderColor: C.parchmentDark, background: C.cream }}>
@@ -37,19 +43,13 @@ export function BrowseLandScreen() {
           <input placeholder="Search by city, region, size..." className="flex-1 bg-transparent outline-none text-sm" style={{ fontFamily: FONT.sans, color: C.ink }} />
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {regions.map((r) => (
-            <button key={r} onClick={() => setRegion(r)}
-              className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-all"
-              style={{ fontFamily: FONT.mono, background: region === r ? C.forest : C.parchment, color: region === r ? C.white : C.inkMuted }}>
-              {r}
-            </button>
-          ))}
+        <div className="overflow-x-auto pb-1">
+          <ChipGroup options={regions} value={region} onChange={(v) => setRegion(v as string)} />
         </div>
       </Header>
 
       {view === 'map' ? (
-        <div className="flex-1 relative mx-5 my-4 rounded-2xl overflow-hidden bg-[#E8F0E9]" style={{ minHeight: '400px' }}>
+        <div className="flex-1 relative mx-5 my-4 rounded-2xl overflow-hidden" style={{ minHeight: '400px', background: C.parchment }}>
           <img
             src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=400&fit=crop&auto=format"
             alt="Map of Cameroon"
@@ -76,40 +76,42 @@ export function BrowseLandScreen() {
           })}
         </div>
       ) : (
-        <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+        <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
           {filtered.map((l) => (
-            <Card key={l.id} onClick={() => nav(`/land/listing/${l.id}`)}>
-              <div className="relative">
-                <img src={l.image} alt={l.title} className="w-full h-36 object-cover rounded-t-xl" />
-                <div className="absolute top-3 right-3">
-                  {l.verified ? (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: C.forest }}>
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                        <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
-                      </svg>
-                      <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
-                    </div>
-                  ) : (
-                    <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
-                      <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[9px] uppercase tracking-wider">Pending</span>
-                    </div>
+            <StaggerItem key={l.id}>
+              <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
+                <div className="relative">
+                  <img src={l.image} alt={l.title} className="w-full h-36 object-cover rounded-t-xl" />
+                  <div className="absolute top-3 right-3">
+                    {l.verified ? (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: C.forest }}>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                        </svg>
+                        <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
+                      </div>
+                    ) : (
+                      <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
+                        <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[9px] uppercase tracking-wider">Pending</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-0.5">{l.title}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{l.city}, {l.region} · {l.size}</div>
+                  <div className="flex items-center justify-between">
+                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(l.price)}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{l.titleType}</div>
+                  </div>
+                  {(l.disputed || l.duplicateOfListingId) && (
+                    <div className="mt-2"><LandFlagBadge listing={l} compact /></div>
                   )}
                 </div>
-              </div>
-              <div className="p-4">
-                <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-0.5">{l.title}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{l.city}, {l.region} · {l.size}</div>
-                <div className="flex items-center justify-between">
-                  <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(l.price)}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{l.titleType}</div>
-                </div>
-                {(l.disputed || l.duplicateOfListingId) && (
-                  <div className="mt-2"><LandFlagBadge listing={l} compact /></div>
-                )}
-              </div>
-            </Card>
+              </Card>
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerList>
       )}
     </AppShell>
   )
@@ -200,7 +202,7 @@ export function LandListingDetailScreen() {
             {listing.docs.map((doc, i) => {
               const verified = listing.verified || i === 0
               return (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: C.parchmentDark, background: verified ? '#F0FDF4' : '#FFF7E6' }}>
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: C.parchmentDark, background: verified ? 'var(--status-success-bg)' : 'var(--status-warning-bg)' }}>
                   <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: verified ? C.forest : C.amber }}>
                     {verified ? (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -215,7 +217,7 @@ export function LandListingDetailScreen() {
                     )}
                   </div>
                   <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{doc}</span>
-                  <span style={{ fontFamily: FONT.mono, color: verified ? C.forest : '#92400E' }} className="text-[9px] ml-auto uppercase tracking-wider">
+                  <span style={{ fontFamily: FONT.mono, color: verified ? C.forest : 'var(--status-warning-text)' }} className="text-[9px] ml-auto uppercase tracking-wider">
                     {verified ? 'Verified' : 'Pending'}
                   </span>
                 </div>
@@ -229,7 +231,7 @@ export function LandListingDetailScreen() {
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Verification site visit</div>
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#F0FDF4' }}>
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-success-bg)' }}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                   <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke={C.forest} strokeWidth="1.3" />
                   <circle cx="9" cy="7" r="2" stroke={C.forest} strokeWidth="1.2" />
@@ -266,9 +268,9 @@ export function LandListingDetailScreen() {
         )}
 
         {!listing.verified && (
-          <div className="rounded-xl p-4 border" style={{ background: '#FFF7E6', borderColor: '#F5DCA0' }}>
-            <div style={{ fontFamily: FONT.mono, color: '#92400E' }} className="text-[10px] uppercase tracking-widest mb-1">Verification in progress</div>
-            <p style={{ fontFamily: FONT.sans, color: '#78350F' }} className="text-xs leading-relaxed">
+          <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: C.amber }}>
+            <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Verification in progress</div>
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
               This listing's documents are currently being verified by our team. You can express interest but no funds will be accepted until verification is complete.
             </p>
           </div>
@@ -306,9 +308,9 @@ export function LandListingDetailScreen() {
             )}
           </>
         ) : (
-          <div className="rounded-xl border p-4 text-center" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+          <div className="rounded-xl border p-4 text-center" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
             <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">Interest registered</div>
-            <div style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs mt-1">The seller has been notified. You'll hear within 48 hours.</div>
+            <div style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs mt-1">The seller has been notified. You'll hear within 48 hours.</div>
           </div>
         )}
       </div>
@@ -320,11 +322,34 @@ export function LandListingDetailScreen() {
 export function ContactSellerScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { landListings } = useApp()
+  const { landListings, devUserId } = useApp()
+  const { show: showToast } = useToast()
   const listing = landListings.find((l) => l.id === id) ?? landListings[0]
   const [revealed, setRevealed] = useState(false)
   const [message, setMessage] = useState('')
   const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const startConversation = useStartConversationMutation(devUserId)
+  const sendMessage = useSendMessageMutation(devUserId)
+
+  const submit = async () => {
+    if (!listing.sellerId) {
+      showToast({ title: 'Cannot message this seller', description: 'This listing has no seller account attached.', tone: 'error' })
+      return
+    }
+    setSending(true)
+    try {
+      const conversation = await startConversation.mutateAsync({ contextType: 'land_listing', contextId: listing.id, otherUserId: listing.sellerId })
+      await sendMessage.mutateAsync({ conversationId: conversation.id, body: message.trim() })
+      setConversationId(conversation.id)
+      setSent(true)
+    } catch (err) {
+      showToast({ title: 'Failed to send message', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSending(false)
+    }
+  }
 
   if (sent) {
     return (
@@ -339,7 +364,12 @@ export function ContactSellerScreen() {
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
             {listing.seller} has been notified and will usually reply within 48 hours.
           </p>
-          <PillButton onClick={() => nav(`/land/listing/${listing.id}`)} fullWidth>Back to listing</PillButton>
+          {conversationId && (
+            <div className="w-full mb-3">
+              <PillButton onClick={() => nav(`/messages/${conversationId}`)} fullWidth>View conversation</PillButton>
+            </div>
+          )}
+          <PillButton onClick={() => nav(`/land/listing/${listing.id}`)} variant="secondary" fullWidth>Back to listing</PillButton>
         </div>
       </AppShell>
     )
@@ -379,7 +409,7 @@ export function ContactSellerScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => setSent(true)} fullWidth disabled={!message.trim()}>Send message</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!message.trim() || sending}>{sending ? 'Sending…' : 'Send message'}</PillButton>
       </div>
     </AppShell>
   )
@@ -389,24 +419,48 @@ export function ContactSellerScreen() {
 export function PurchaseOfferScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { landListings, addOffer } = useApp()
+  const { landListings, phone, addOffer } = useApp()
+  const { show: showToast } = useToast()
   const listing = landListings.find((l) => l.id === id) ?? landListings[0]
   const [amount, setAmount] = useState(String(listing.price))
   const [financing, setFinancing] = useState<'cash' | 'financed'>('cash')
   const [message, setMessage] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const { blocked: kycBlocked } = useKycGate(Number(amount) || 0)
+  const makeOffer = useMakeOfferMutation()
 
-  const submit = () => {
-    addOffer({
-      listingId: listing.id,
-      buyerName: 'Marie-Claire N.',
-      amount: Number(amount) || listing.price,
-      message: `${financing === 'cash' ? 'Cash offer' : 'Financed offer'}. ${message}`.trim(),
-      status: 'pending',
-      date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
-    })
-    setSubmitted(true)
+  // The architecture doc's data model has no separate offer/negotiation
+  // step before escrow — on a verified listing this directly starts a real
+  // purchase (land_purchase Project) and funds it. The local mock `offers`
+  // list is kept alongside purely for the existing "pending offers" display
+  // on MyListingsScreen/listing detail, which isn't backed by a real Offer
+  // collection (none exists in the architecture doc).
+  const submit = async () => {
+    setSubmitting(true)
+    try {
+      if (listing.verified) {
+        await makeOffer.mutateAsync({
+          listingId: listing.id,
+          amount: Number(amount) || listing.price,
+          paymentProvider: 'mtn_momo',
+          payerPhoneNumber: phone || '+237677234891',
+        })
+      }
+      addOffer({
+        listingId: listing.id,
+        buyerName: 'Marie-Claire N.',
+        amount: Number(amount) || listing.price,
+        message: `${financing === 'cash' ? 'Cash offer' : 'Financed offer'}. ${message}`.trim(),
+        status: 'pending',
+        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+      })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit offer', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
@@ -451,7 +505,7 @@ export function PurchaseOfferScreen() {
             {(['cash', 'financed'] as const).map((f) => (
               <button key={f} onClick={() => setFinancing(f)}
                 className="py-3 rounded-xl text-sm font-semibold capitalize transition-all border-2"
-                style={{ borderColor: financing === f ? C.forest : C.parchmentDark, background: financing === f ? '#F0FDF4' : C.white, color: financing === f ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
+                style={{ borderColor: financing === f ? C.forest : C.parchmentDark, background: financing === f ? 'var(--status-success-bg)' : C.white, color: financing === f ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
                 {f === 'cash' ? 'Full cash' : 'Financing needed'}
               </button>
             ))}
@@ -466,9 +520,9 @@ export function PurchaseOfferScreen() {
             style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
         </div>
 
-        <div className="rounded-xl border p-3" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-success-bg)', borderColor: 'var(--status-success-text)' }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">How this works</div>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             This is a non-binding offer. If the seller accepts, funds move into escrow and are only released once ownership documents are transferred and verified.
           </p>
         </div>
@@ -477,7 +531,7 @@ export function PurchaseOfferScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || kycBlocked}>Submit offer</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || kycBlocked || submitting}>{submitting ? 'Submitting…' : 'Submit offer'}</PillButton>
       </div>
     </AppShell>
   )
@@ -487,34 +541,47 @@ export function PurchaseOfferScreen() {
 export function CreateListingScreen() {
   const nav = useNavigate()
   const { addListing } = useApp()
+  const { show: showToast } = useToast()
   const [form, setForm] = useState({ title: '', region: '', city: '', size: '', price: '', titleType: '', description: '' })
   const [step, setStep] = useState<'details' | 'documents' | 'done'>('details')
   const [docCount, setDocCount] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
 
-  const finish = () => {
-    addListing({
-      title: form.title || 'Untitled listing',
-      region: form.region,
-      city: form.city,
-      size: form.size,
-      price: Number(form.price) || 0,
-      verified: false,
-      titleType: form.titleType || 'Documents under verification',
-      seller: 'You',
-      sellerRating: null,
-      disputed: false,
-      image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
-      description: form.description,
-      docs: ['Purchase order', 'Local attestation (unverified)'].slice(0, Math.max(1, docCount)),
-    })
-    setStep('done')
+  const finish = async () => {
+    setSubmitting(true)
+    try {
+      await addListing({
+        title: form.title || 'Untitled listing',
+        region: form.region,
+        city: form.city,
+        size: form.size,
+        price: Number(form.price) || 0,
+        verified: false,
+        titleType: form.titleType || 'Documents under verification',
+        seller: 'You',
+        sellerRating: null,
+        disputed: false,
+        image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
+        description: form.description,
+        // Document capture in this step is a tap-to-simulate counter, not a
+        // real file picker — real document upload happens via the separate
+        // addDocument endpoint once this screen gets one (needs Cloudinary
+        // credentials configured either way, same gap as evidence photos).
+        docs: ['Purchase order', 'Local attestation (unverified)'].slice(0, Math.max(1, docCount)),
+      })
+      setStep('done')
+    } catch (err) {
+      showToast({ title: 'Failed to submit listing', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (step === 'done') {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#FFF7E6' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-warning-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               <rect x="6" y="4" width="24" height="28" rx="2" stroke={C.amber} strokeWidth="2" />
               <line x1="12" y1="12" x2="24" y2="12" stroke={C.amber} strokeWidth="1.5" strokeLinecap="round" />
@@ -580,16 +647,16 @@ export function CreateListingScreen() {
           </>
         ) : (
           <div className="space-y-4">
-            <div className="rounded-xl p-4 border" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
-              <div style={{ fontFamily: FONT.mono, color: '#1D4ED8' }} className="text-[10px] uppercase tracking-widest mb-1">Documents required</div>
-              <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+            <div className="rounded-xl p-4 border" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+              <div style={{ fontFamily: FONT.mono, color: 'var(--status-info-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Documents required</div>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
                 All documents are verified by our team before the listing goes live. Required: title deed or ownership letter, land tax receipt, survey plan, and no-dispute certificate.
               </p>
             </div>
             {['Title deed / ownership document', 'Land tax receipt (current year)', 'Survey plan (geo-referenced)', 'No-dispute / no-objection letter'].map((doc, i) => (
               <button key={doc} onClick={() => setDocCount((n) => Math.max(n, i + 1))}
                 className="w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all"
-                style={{ borderColor: docCount > i ? C.forest : C.parchmentDark, background: docCount > i ? '#F0FDF4' : C.white }}>
+                style={{ borderColor: docCount > i ? C.forest : C.parchmentDark, background: docCount > i ? 'var(--status-success-bg)' : C.white }}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                   style={{ background: docCount > i ? C.forest : C.parchment }}>
                   {docCount > i ? (
@@ -613,8 +680,8 @@ export function CreateListingScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => step === 'details' ? setStep('documents') : finish()} fullWidth>
-          {step === 'details' ? 'Next: Upload documents' : 'Submit listing for verification'}
+        <PillButton onClick={() => step === 'details' ? setStep('documents') : finish()} fullWidth disabled={submitting}>
+          {step === 'details' ? 'Next: Upload documents' : submitting ? 'Submitting…' : 'Submit listing for verification'}
         </PillButton>
       </div>
     </AppShell>
@@ -637,29 +704,31 @@ export function MyListingsScreen() {
         </button>
       } />
 
-      <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+      <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         {mine.map((l) => {
           const listingOffers = offers.filter((o) => o.listingId === l.id)
           return (
-            <Card key={l.id} onClick={() => nav(`/land/listing/${l.id}`)}>
-              <div className="flex gap-3 p-4">
-                <img src={l.image} alt={l.title} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight">{l.title}</div>
-                    <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
+            <StaggerItem key={l.id}>
+              <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
+                <div className="flex gap-3 p-4">
+                  <img src={l.image} alt={l.title} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-1 mb-1">
+                      <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight">{l.title}</div>
+                      <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
+                    </div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mb-1">{l.size}</div>
+                    <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">{fmt(l.price)}</div>
+                    {listingOffers.length > 0 && (
+                      <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-[9px] uppercase tracking-wider mt-1">{listingOffers.length} pending offer{listingOffers.length > 1 ? 's' : ''}</div>
+                    )}
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mb-1">{l.size}</div>
-                  <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">{fmt(l.price)}</div>
-                  {listingOffers.length > 0 && (
-                    <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-[9px] uppercase tracking-wider mt-1">{listingOffers.length} pending offer{listingOffers.length > 1 ? 's' : ''}</div>
-                  )}
                 </div>
-              </div>
-            </Card>
+              </Card>
+            </StaggerItem>
           )
         })}
-      </div>
+      </StaggerList>
     </AppShell>
   )
 }

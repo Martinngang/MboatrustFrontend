@@ -5,6 +5,15 @@ import { useApp } from './context'
 
 const SYNC_TAG = 'sync-evidence'
 
+/** Queued evidence is stored as data URLs in IndexedDB (see db/evidenceQueue.ts)
+ * — converts the first one back into a real File for upload once we're back
+ * online and actually submitting to the backend. */
+async function dataUrlToFile(dataUrl: string, filename: string): Promise<File> {
+  const res = await fetch(dataUrl)
+  const blob = await res.blob()
+  return new File([blob], filename, { type: blob.type })
+}
+
 export interface EnqueueEvidenceInput {
   projectId: string
   projectTitle: string
@@ -49,7 +58,9 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
     const done = items.filter((i) => i.status === 'synced')
     if (done.length === 0) return
     for (const item of done) {
-      submitMilestoneProof(item.projectId, item.milestoneId)
+      const file = item.photos[0] ? await dataUrlToFile(item.photos[0], `evidence-${item.id}.jpg`) : undefined
+      const geotag = item.geotag ? { lat: item.geotag.lat, lng: item.geotag.lng } : null
+      await submitMilestoneProof(item.projectId, item.milestoneId, file, geotag)
       await deleteQueuedEvidence(item.id)
     }
     await refresh()

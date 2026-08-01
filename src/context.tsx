@@ -1,4 +1,14 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { useActivityLog } from './activityLog'
+import { resolveCurrentUserId, clearDevUserId } from './api/devAuth'
+import {
+  useProjectsQuery, useCreateProjectMutation, useFundProjectMutation,
+  useSubmitEvidenceMutation, useDecideApprovalMutation, useDisputeMilestoneMutation,
+} from './api/projects'
+import { useJobsQuery, useCreateJobMutation, useBidsQuery, useCreateBidMutation } from './api/tenders'
+import { useLandListingsQuery, useCreateListingMutation, useUpdateVerificationStatusMutation } from './api/land'
+import { useNotificationsQuery, useMarkNotificationReadMutation, useMarkAllNotificationsReadMutation } from './api/notifications'
 
 export type Role = 'funder' | 'recipient' | 'contractor' | 'seller' | null
 
@@ -39,6 +49,9 @@ export interface JobPosting {
   milestones: number
   posted: string
   description: string
+  status: string
+  /** Real backend User _id for the tender owner — needed to start a real conversation. */
+  ownerId?: string
 }
 
 export interface LandListing {
@@ -51,6 +64,8 @@ export interface LandListing {
   verified: boolean
   titleType: string
   seller: string
+  /** Real backend User _id for the seller — needed to start a real conversation. */
+  sellerId?: string
   sellerRating: number | null
   disputed: boolean
   disputeReason?: string
@@ -78,6 +93,8 @@ export interface Bid {
   jobId: string
   jobTitle: string
   contractorName: string
+  /** Real backend User _id for the contractor — needed to start a real conversation. */
+  contractorId?: string
   price: number
   timeline: string
   materials: string
@@ -106,6 +123,15 @@ export interface Rating {
   date: string
 }
 
+export interface AppNotification {
+  id: string
+  icon: string
+  title: string
+  body: string
+  time: string
+  unread: boolean
+}
+
 export interface AppState {
   role: Role
   roles: NonNullable<Role>[]
@@ -113,6 +139,10 @@ export interface AppState {
   phone: string
   name: string
   isLoggedIn: boolean
+  /** Real backend Mongo _id for the current dev-auth-bypass session (see
+   * api/devAuth.ts) — null until resolved after login. Screens that need to
+   * filter API results by "the current user" (e.g. my verification tasks) use this. */
+  devUserId: string | null
   setRole: (r: Role) => void
   setRoles: (r: NonNullable<Role>[]) => void
   setLang: (l: Lang) => void
@@ -121,24 +151,33 @@ export interface AppState {
   setLoggedIn: (v: boolean) => void
 
   projects: Project[]
-  addProject: (p: Omit<Project, 'id'>) => Project
-  fundProject: (id: string, amount: number) => void
-  submitMilestoneProof: (projectId: string, milestoneId: string) => void
-  approveMilestone: (projectId: string, milestoneId: string) => void
-  disputeMilestone: (projectId: string, milestoneId: string) => void
+  projectsLoading: boolean
+  addProject: (p: Omit<Project, 'id'>) => Promise<Project>
+  fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => Promise<{ paymentUrl?: string; status: string }>
+  submitMilestoneProof: (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => Promise<void>
+  approveMilestone: (projectId: string, milestoneId: string) => Promise<void>
+  disputeMilestone: (projectId: string, milestoneId: string, reason?: string) => Promise<void>
+  updateProjectStatus: (id: string, status: string) => void
 
   jobs: JobPosting[]
-  addJob: (j: Omit<JobPosting, 'id'>) => JobPosting
+  addJob: (j: Omit<JobPosting, 'id'>) => Promise<JobPosting>
+  updateJobStatus: (id: string, status: string) => void
   landListings: LandListing[]
-  addListing: (l: Omit<LandListing, 'id'>) => LandListing
+  addListing: (l: Omit<LandListing, 'id'>) => Promise<LandListing>
+  updateListingStatus: (id: string, status: 'pending' | 'verified' | 'disputed') => void
   contractors: Contractor[]
   addContractor: (c: Omit<Contractor, 'id'>) => Contractor
   bids: Bid[]
-  addBid: (b: Omit<Bid, 'id'>) => Bid
+  addBid: (b: Omit<Bid, 'id'>) => Promise<Bid>
   offers: Offer[]
   addOffer: (o: Omit<Offer, 'id'>) => Offer
   ratings: Rating[]
   addRating: (r: Omit<Rating, 'id'>) => Rating
+
+  notifications: AppNotification[]
+  unreadNotifications: number
+  markNotificationRead: (id: string) => void
+  markAllNotificationsRead: () => void
 }
 
 const AppContext = createContext<AppState>({} as AppState)
@@ -147,6 +186,7 @@ let idCounter = 1000
 const nextId = (prefix: string) => `${prefix}${idCounter++}`
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { logActivity } = useActivityLog()
   const [role, setRole] = useState<Role>(null)
   const [roles, setRoles] = useState<NonNullable<Role>[]>([])
   const [lang, setLang] = useState<Lang>('en')
@@ -154,67 +194,130 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [name, setName] = useState('')
   const [isLoggedIn, setLoggedIn] = useState(false)
 
-  const [projects, setProjects] = useState<Project[]>(MOCK_PROJECTS)
-  const [jobs, setJobs] = useState<JobPosting[]>(MOCK_JOBS)
-  const [landListings, setLandListings] = useState<LandListing[]>(MOCK_LAND)
+  const qc = useQueryClient()
+  const [devUserId, setDevUserIdState] = useState<string | null>(null)
+  // Resolves to the real signed-in Firebase user when one exists (real
+  // sign-in flows now live in Onboarding.tsx), otherwise falls back to the
+  // DEV_AUTH_BYPASS demo user for the picked role — see resolveCurrentUserId.
+  useEffect(() => {
+    if (isLoggedIn && role) {
+      resolveCurrentUserId(role).then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
+    } else {
+      clearDevUserId()
+      setDevUserIdState(null)
+    }
+  }, [isLoggedIn, role])
+
+  const projectsQuery = useProjectsQuery()
+  // Shows mock data instantly while the first real fetch is in flight, then
+  // swaps to real backend data — avoids every existing screen that assumes
+  // `projects[0]` exists needing a loading-state guard added for this pass.
+  const projects = projectsQuery.data ?? MOCK_PROJECTS
+  const createProjectMutation = useCreateProjectMutation()
+  const fundProjectMutation = useFundProjectMutation()
+  const submitEvidenceMutation = useSubmitEvidenceMutation()
+  const decideApprovalMutation = useDecideApprovalMutation()
+  const disputeMilestoneMutation = useDisputeMilestoneMutation()
+
+  const jobsQuery = useJobsQuery()
+  const jobs = jobsQuery.data ?? MOCK_JOBS
+  const createJobMutation = useCreateJobMutation()
+  const bidsQuery = useBidsQuery(devUserId ? { contractorId: devUserId } : {})
+  const bids = devUserId ? (bidsQuery.data ?? []) : []
+  const createBidMutation = useCreateBidMutation()
+
+  const landListingsQuery = useLandListingsQuery()
+  const landListings = landListingsQuery.data ?? MOCK_LAND
+  const createListingMutation = useCreateListingMutation()
+  const updateVerificationStatusMutation = useUpdateVerificationStatusMutation()
+
   const [contractors, setContractors] = useState<Contractor[]>(MOCK_CONTRACTORS)
-  const [bids, setBids] = useState<Bid[]>([])
   const [offers, setOffers] = useState<Offer[]>([])
   const [ratings, setRatings] = useState<Rating[]>([])
 
-  const addProject = (p: Omit<Project, 'id'>) => {
-    const created = { ...p, id: nextId('p') }
-    setProjects((ps) => [created, ...ps])
+  const notificationsQuery = useNotificationsQuery(Boolean(devUserId))
+  const notifications = isLoggedIn ? (notificationsQuery.data?.items ?? MOCK_NOTIFICATIONS) : []
+  const markNotificationReadMutation = useMarkNotificationReadMutation()
+  const markAllNotificationsReadMutation = useMarkAllNotificationsReadMutation()
+
+  const addProject = async (p: Omit<Project, 'id'>) => {
+    const created = await createProjectMutation.mutateAsync(p)
+    logActivity({ type: 'project_created', icon: '📁', title: 'Project created', detail: created.title, path: `/funder/project/${created.id}` })
     return created
   }
-  const fundProject = (id: string, amount: number) => {
-    setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, raised: Math.min(p.totalAmount, p.raised + amount) } : p)))
+  const fundProject = async (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => {
+    const p = projects.find((x) => x.id === id)
+    const result = await fundProjectMutation.mutateAsync({ id, amount, ...opts })
+    logActivity({ type: 'project_funded', icon: '🔒', title: 'Funds secured', detail: p ? `${fmt(amount)} moved into escrow for ${p.title}` : fmt(amount), path: `/funder/project/${id}` })
+    return result
   }
-  const submitMilestoneProof = (projectId: string, milestoneId: string) => {
-    setProjects((ps) => ps.map((p) => p.id !== projectId ? p : {
-      ...p,
-      milestones: p.milestones.map((m) => m.id === milestoneId ? { ...m, status: 'under_review', proof: true } : m),
-    }))
+  const submitMilestoneProof = async (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => {
+    await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag })
+    const p = projects.find((x) => x.id === projectId)
+    const m = p?.milestones.find((x) => x.id === milestoneId)
+    logActivity({ type: 'milestone_submitted', icon: '📸', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
   }
-  const approveMilestone = (projectId: string, milestoneId: string) => {
-    setProjects((ps) => ps.map((p) => {
-      if (p.id !== projectId) return p
-      const idx = p.milestones.findIndex((m) => m.id === milestoneId)
-      const milestones = p.milestones.map((m, i) => i === idx ? { ...m, status: 'released' } : (i === idx + 1 && m.status === 'pending' ? m : m))
-      const allReleased = milestones.every((m) => m.status === 'released')
-      return { ...p, milestones, status: allReleased ? 'completed' : p.status }
-    }))
+  const approveMilestone = async (projectId: string, milestoneId: string) => {
+    await decideApprovalMutation.mutateAsync({ projectId, milestoneId, status: 'approved' })
+    const p = projects.find((x) => x.id === projectId)
+    const m = p?.milestones.find((x) => x.id === milestoneId)
+    logActivity({ type: 'milestone_approved', icon: '✅', title: 'Milestone approved', detail: p && m ? `${m.title} — ${p.title} · ${fmt(m.amount)} released` : undefined, path: `/funder/project/${projectId}` })
   }
-  const disputeMilestone = (projectId: string, milestoneId: string) => {
-    setProjects((ps) => ps.map((p) => p.id !== projectId ? p : {
-      ...p,
-      milestones: p.milestones.map((m) => m.id === milestoneId ? { ...m, status: 'disputed' } : m),
-    }))
+  const disputeMilestone = async (projectId: string, milestoneId: string, reason = 'Disputed from app') => {
+    await disputeMilestoneMutation.mutateAsync({ projectId, milestoneId, reason })
+    const p = projects.find((x) => x.id === projectId)
+    const m = p?.milestones.find((x) => x.id === milestoneId)
+    logActivity({ type: 'milestone_disputed', icon: '🚩', title: 'Dispute raised', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
   }
-  const addJob = (j: Omit<JobPosting, 'id'>) => {
-    const created = { ...j, id: nextId('j') }
-    setJobs((js) => [created, ...js])
+  // No generic "set arbitrary status" backend endpoint exists (real
+  // transitions happen via fund/evidence/approval) — this stays a
+  // client-side-only patch for the Workspace Board/bulk-action demo view.
+  const updateProjectStatus = (id: string, status: string) => {
+    qc.setQueryData<Project[]>(['projects'], (ps) => (ps ?? projects).map((p) => (p.id === id ? { ...p, status } : p)))
+    const p = projects.find((x) => x.id === id)
+    logActivity({ type: 'project_status_changed', icon: '🔄', title: 'Project status changed', detail: p ? `${p.title} → ${status}` : status, path: `/funder/project/${id}` })
+  }
+  const addJob = async (j: Omit<JobPosting, 'id'>) => {
+    const created = await createJobMutation.mutateAsync({
+      title: j.title, category: j.category, location: j.location, budget: j.budget,
+      deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
+    })
+    logActivity({ type: 'project_created', icon: '📋', title: 'Tender posted', detail: created.title, path: `/contractor/job/${created.id}` })
     return created
   }
-  const addListing = (l: Omit<LandListing, 'id'>) => {
-    const created = { ...l, id: nextId('l') }
-    setLandListings((ls) => [created, ...ls])
+  // No generic "set arbitrary status" endpoint for tenders either (real
+  // transitions happen via bid accept/reject) — client-side-only patch for
+  // the Workspace Board/bulk-action demo view, same reasoning as projects.
+  const updateJobStatus = (id: string, status: string) => {
+    qc.setQueryData<JobPosting[]>(['jobs'], (js) => (js ?? jobs).map((j) => (j.id === id ? { ...j, status } : j)))
+  }
+  const addListing = async (l: Omit<LandListing, 'id'>) => {
+    const created = await createListingMutation.mutateAsync({
+      title: l.title, region: l.region, city: l.city, size: l.size, price: l.price, titleType: l.titleType, description: l.description,
+    })
+    logActivity({ type: 'listing_created', icon: '🏡', title: 'Land listing created', detail: created.title, path: `/land/listing/${created.id}` })
     return created
+  }
+  // Real admin/verifier-only endpoint (will 403 for any other role — correct
+  // RBAC, not a bug). 'disputed' maps to verificationStatus 'flagged'.
+  const updateListingStatus = (id: string, status: 'pending' | 'verified' | 'disputed') => {
+    const verificationStatus = status === 'disputed' ? 'flagged' : status;
+    updateVerificationStatusMutation.mutate({ listingId: id, verificationStatus })
   }
   const addContractor = (c: Omit<Contractor, 'id'>) => {
     const created = { ...c, id: nextId('c') }
     setContractors((cs) => [created, ...cs])
     return created
   }
-  const addBid = (b: Omit<Bid, 'id'>) => {
-    const created = { ...b, id: nextId('b') }
-    setBids((bs) => [created, ...bs])
-    setJobs((js) => js.map((j) => (j.id === b.jobId ? { ...j, bids: j.bids + 1 } : j)))
-    return created
+  const addBid = async (b: Omit<Bid, 'id'>) => {
+    const created = await createBidMutation.mutateAsync({ jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes })
+    logActivity({ type: 'bid_placed', icon: '📋', title: 'Bid placed', detail: `${fmt(b.price)} for ${b.jobTitle}`, path: `/contractor/job/${b.jobId}` })
+    return { ...created, jobTitle: b.jobTitle }
   }
   const addOffer = (o: Omit<Offer, 'id'>) => {
     const created = { ...o, id: nextId('o') }
     setOffers((os) => [created, ...os])
+    logActivity({ type: 'offer_made', icon: '🤝', title: 'Offer made', detail: fmt(o.amount), path: `/land/listing/${o.listingId}` })
     return created
   }
   const addRating = (r: Omit<Rating, 'id'>) => {
@@ -222,15 +325,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRatings((rs) => [created, ...rs])
     return created
   }
+  const markNotificationRead = (id: string) => {
+    markNotificationReadMutation.mutate(id)
+  }
+  const markAllNotificationsRead = () => {
+    markAllNotificationsReadMutation.mutate()
+  }
+  // Real unreadCount from the backend (a true total, not just this page's
+  // count) when logged in and loaded; falls back to counting the mock list.
+  const unreadNotifications = isLoggedIn && notificationsQuery.data
+    ? notificationsQuery.data.unreadCount
+    : notifications.filter((n) => n.unread).length
 
   return (
     <AppContext.Provider
       value={{
-        role, roles, lang, phone, name, isLoggedIn,
+        role, roles, lang, phone, name, isLoggedIn, devUserId,
         setRole, setRoles, setLang, setPhone, setName, setLoggedIn,
-        projects, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone,
-        jobs, addJob, landListings, addListing,
+        projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone, updateProjectStatus,
+        jobs, addJob, updateJobStatus, landListings, addListing, updateListingStatus,
         contractors, addContractor, bids, addBid, offers, addOffer, ratings, addRating,
+        notifications, unreadNotifications, markNotificationRead, markAllNotificationsRead,
       }}
     >
       {children}
@@ -354,6 +469,7 @@ export const MOCK_JOBS: JobPosting[] = [
     milestones: 3,
     posted: '3 days ago',
     description: 'Install a solar-powered water pump serving a community of 600 people. Full milestone-based payment via escrow.',
+    status: 'open',
   },
   {
     id: 'j2',
@@ -366,6 +482,7 @@ export const MOCK_JOBS: JobPosting[] = [
     milestones: 5,
     posted: '1 week ago',
     description: '3-room classroom block for Lycée Technique de Bafoussam. Architectural plans provided.',
+    status: 'awarded',
   },
   {
     id: 'j3',
@@ -378,6 +495,7 @@ export const MOCK_JOBS: JobPosting[] = [
     milestones: 2,
     posted: '5 days ago',
     description: 'Full electrical installation and solar panel wiring for a new health post. Must be licensed electrician.',
+    status: 'open',
   },
 ]
 
@@ -448,6 +566,15 @@ export const MOCK_LAND: LandListing[] = [
     description: 'Corner plot in Bastos neighbourhood, Yaoundé. Recently listed — please note this closely matches another active listing on the platform.',
     docs: ['Title deed (copy)', 'Land tax receipt 2024'],
   },
+]
+
+export const MOCK_NOTIFICATIONS: AppNotification[] = [
+  { id: 'n1', icon: '✅', title: 'Milestone approved', body: 'Drilling & casing — Borehole Bamenda was approved. XAF 1,400,000 released.', time: '2h ago', unread: true },
+  { id: 'n2', icon: '📋', title: 'New bid received', body: 'Fon Ayuk Construction submitted a bid of XAF 850,000 for Ngaoundéré pump job.', time: '5h ago', unread: true },
+  { id: 'n3', icon: '📸', title: 'Proof submitted', body: 'Emmanuel Njang submitted milestone 2 evidence for your review.', time: '1 day ago', unread: true },
+  { id: 'n4', icon: '🔒', title: 'Funds secured', body: 'XAF 1,200,000 moved into escrow for Clinic Renovation — Limbe.', time: '3 days ago', unread: false },
+  { id: 'n5', icon: '✅', title: 'Contractor verified', body: 'Ndongo Mechanical Works has been verified on the platform.', time: '5 days ago', unread: false },
+  { id: 'n6', icon: '🏡', title: 'Land listing verified', body: 'Bastos plot 800m² has completed document verification.', time: '1 week ago', unread: false },
 ]
 
 export function fmt(n: number) {

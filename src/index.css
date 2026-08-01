@@ -1,62 +1,28 @@
 @import 'tailwindcss';
 
-@font-face {
-  font-family: 'Playfair Display';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('https://static.figma.com/font/PlayfairDisplay_wght__1') format('woff2');
-}
-
-@font-face {
-  font-family: 'Playfair Display';
-  font-style: normal;
-  font-weight: 700;
-  font-display: swap;
-  src: url('https://static.figma.com/font/PlayfairDisplay_wght__1') format('woff2');
-}
-
-@font-face {
-  font-family: 'Playfair Display';
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url('https://static.figma.com/font/PlayfairDisplay-Italic_wght__1') format('woff2');
-}
-
-@font-face {
-  font-family: 'Inter';
-  font-style: normal;
-  font-weight: 400 600;
-  font-display: swap;
-  src: url('https://static.figma.com/font/Inter_1') format('woff2');
-}
-
-@font-face {
-  font-family: 'DM Mono';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('https://static.figma.com/font/DMMono-Regular_1') format('woff2');
-}
+/* Obsidian / gold / emerald rebrand — Fraunces (display serif) + Inter (sans)
+   + JetBrains Mono, replacing Playfair Display / Inter-via-Figma / DM Mono.
+   Loaded from Google Fonts as one variable-font request each (covers the
+   weight/optical-size/italic ranges the app actually uses). */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap');
 
 @theme {
   --font-sans: 'Inter', system-ui, sans-serif;
-  --font-serif: 'Playfair Display', Georgia, serif;
-  --font-mono: 'DM Mono', 'Courier New', monospace;
+  --font-serif: 'Fraunces', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Courier New', monospace;
 
-  --color-forest: #1A4731;
-  --color-forest-light: #2D6B4A;
-  --color-forest-dark: #0F2B1E;
-  --color-amber: #E8A020;
-  --color-amber-light: #F5C060;
-  --color-parchment: #F9F6F0;
-  --color-parchment-dark: #EDE8DF;
-  --color-ink: #0F1A14;
-  --color-ink-muted: #4A5F53;
-  --color-ink-subtle: #8FA396;
-  --color-cream: #FAFAF8;
-  --color-seal: #C8341A;
+  --color-forest: #0F7A52;
+  --color-forest-light: #17A36C;
+  --color-forest-dark: #0A5B3D;
+  --color-amber: #C9971E;
+  --color-amber-light: #E0B84D;
+  --color-parchment: #F7F5F1;
+  --color-parchment-dark: #EAE7E0;
+  --color-ink: #14171B;
+  --color-ink-muted: #565B62;
+  --color-ink-subtle: #8B9099;
+  --color-cream: #FCFBF9;
+  --color-seal: #B23A2E;
 }
 
 /* ── Theme tokens ──────────────────────────────────────────────────────────────
@@ -66,37 +32,92 @@
    in the JS layer (MobileLayout.tsx) resolves through these variables, so this
    is the single place that drives the whole app's theme. */
 :root {
-  --color-white: #FFFFFF;
+  /* Named --color-surface (not --color-white) so it never shadows Tailwind's
+     built-in --color-white — that one backs text-white/bg-white utilities
+     and must stay pure white in both themes; this one is our "card surface"
+     token, which intentionally goes near-black in dark mode. */
+  --color-surface: #FFFFFF;
   --color-steel: #1E3A5F;
   --color-moss: #2D4A2D;
   --surface-glass-bg: rgba(255, 255, 255, 0.8);
   --surface-glass-border: rgba(255, 255, 255, 0.6);
-  --nav-glass-bg: rgba(250, 250, 248, 0.85);
-  --nav-glass-border: rgba(15, 27, 20, 0.08);
+  --nav-glass-bg: rgba(252, 251, 249, 0.85);
+  --nav-glass-border: rgba(20, 23, 27, 0.08);
+  --border-bright: rgba(15, 122, 82, 0.35);
+  --glow-primary: rgba(15, 122, 82, 0.28);
+  --grain-opacity: 0.02;
   color-scheme: light;
+
+  /* Elevation scale — colored, soft, large-blur shadows tinted to ink,
+     replacing the ad hoc box-shadow strings hand-written per screen. */
+  --shadow-tint: 20, 23, 27;
+  --glow-primary-rgb: 15, 122, 82;
+  --glow-amber-rgb: 201, 151, 30;
+  --shadow-sm: 0 2px 8px rgba(var(--shadow-tint), 0.06);
+  --shadow-md: 0 8px 24px rgba(var(--shadow-tint), 0.08);
+  --shadow-lg: 0 20px 60px rgba(var(--shadow-tint), 0.10);
+  --shadow-xl: 0 30px 90px rgba(var(--shadow-tint), 0.14);
+
+  /* Named gradients — formalizes patterns already used inline in
+     DashboardHero/AppShell so new screens reuse instead of re-deriving. */
+  --gradient-primary: linear-gradient(135deg, var(--color-forest) 0%, var(--color-forest-light) 100%);
+  --gradient-surface: linear-gradient(135deg, var(--color-cream) 0%, var(--color-parchment) 100%);
+  --gradient-amber: linear-gradient(135deg, var(--color-amber) 0%, var(--color-amber-light) 100%);
+  --gradient-mesh: radial-gradient(circle at 15% 20%, rgba(var(--glow-primary-rgb), 0.10), transparent 55%),
+                   radial-gradient(circle at 85% 75%, rgba(var(--glow-amber-rgb), 0.10), transparent 55%);
+
+  /* Semantic status tones — StatusBadge/RiskBadge route their status
+     strings through these 5 tones instead of hardcoding hex per status. */
+  --status-success-bg: #D1FAE5; --status-success-text: #065F46;
+  --status-warning-bg: #FEF3C7; --status-warning-text: #92400E;
+  --status-error-bg:   #FEE2E2; --status-error-text:   #991B1B;
+  --status-info-bg:    #E0F2FE; --status-info-text:    #0369A1;
+  --status-neutral-bg: #F3F4F6; --status-neutral-text: #6B7280;
 }
 
+/* Obsidian dark mode (the primary/default theme) — a cool near-black base
+   (not the old warm forest-black) with emerald as the primary accent and
+   true gold as the secondary accent for CTAs and highlights. */
 [data-theme='dark'] {
-  --color-forest: #3E9468;
-  --color-forest-light: #57C084;
-  --color-forest-dark: #1A4731;
-  --color-amber: #F0AC33;
-  --color-amber-light: #F8D080;
-  --color-parchment: #232821;
-  --color-parchment-dark: #333B32;
-  --color-ink: #F1F3ED;
-  --color-ink-muted: #B8C2B4;
-  --color-ink-subtle: #7E8A7A;
-  --color-cream: #121510;
-  --color-seal: #E35A3B;
-  --color-white: #1C1F19;
+  --color-forest: #2FD996;
+  --color-forest-light: #6EEBC0;
+  --color-forest-dark: #1B8F63;
+  --color-amber: #D4AF37;
+  --color-amber-light: #E8CC72;
+  --color-parchment: #16171B;
+  --color-parchment-dark: #202227;
+  --color-ink: #EDEBE6;
+  --color-ink-muted: #9C9FA6;
+  --color-ink-subtle: #6C6F76;
+  --color-cream: #0A0A0D;
+  --color-seal: #E0503A;
+  --color-surface: #1B1C21;
   --color-steel: #3F6EA8;
   --color-moss: #4A7A4A;
-  --surface-glass-bg: rgba(28, 31, 25, 0.78);
-  --surface-glass-border: rgba(255, 255, 255, 0.08);
-  --nav-glass-bg: rgba(18, 21, 16, 0.85);
-  --nav-glass-border: rgba(255, 255, 255, 0.08);
+  --surface-glass-bg: rgba(20, 21, 25, 0.78);
+  --surface-glass-border: rgba(237, 235, 230, 0.08);
+  --nav-glass-bg: rgba(10, 10, 13, 0.72);
+  --nav-glass-border: rgba(237, 235, 230, 0.09);
+  --border-bright: rgba(110, 235, 192, 0.35);
+  --glow-primary: rgba(47, 217, 150, 0.35);
+  --grain-opacity: 0.035;
   color-scheme: dark;
+
+  /* Dark elevation reads as deliberately deep-black, not a lightened clone
+     of the light-mode shadow — pure black blur instead of ink-tinted. */
+  --shadow-tint: 0, 0, 0;
+  --glow-primary-rgb: 47, 217, 150;
+  --glow-amber-rgb: 212, 175, 55;
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 36px 100px rgba(0, 0, 0, 0.58);
+
+  --status-success-bg: rgba(52, 168, 115, 0.16); --status-success-text: #57D69A;
+  --status-warning-bg: rgba(201, 162, 39, 0.16); --status-warning-text: #E7C766;
+  --status-error-bg:   rgba(227, 90, 59, 0.16);  --status-error-text:   #F08A6F;
+  --status-info-bg:    rgba(63, 110, 168, 0.18); --status-info-text:    #8FB4E3;
+  --status-neutral-bg: rgba(243, 239, 230, 0.08); --status-neutral-text: #A9A79C;
 }
 
 html {
@@ -106,6 +127,20 @@ body {
   background: var(--color-cream);
   color: var(--color-ink);
   transition: background-color 0.2s ease, color 0.2s ease;
+  position: relative;
+}
+
+/* Subtle film-grain texture — barely-there in light mode, gives the dark
+   mode the same premium, tactile surface as print/seal-stamped paper. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  opacity: var(--grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  transition: opacity 0.3s ease;
 }
 
 * {
@@ -147,4 +182,149 @@ html {
 }
 .animate-marquee {
   animation: marquee 28s linear infinite;
+}
+
+/* ── Premium 3D / reveal primitives ────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes spin-reverse {
+  to { transform: rotate(-360deg); }
+}
+.animate-spin-slow {
+  animation: spin 34s linear infinite;
+}
+.animate-spin-slower {
+  animation: spin 50s linear infinite reverse;
+}
+/* Counter-rotation pair so orbit-node icons stay upright while their ring
+   spins — node rotation exactly cancels the parent ring's rotation. */
+.animate-orbit-node-1 {
+  animation: spin-reverse 34s linear infinite;
+}
+.animate-orbit-node-2 {
+  animation: spin 50s linear infinite;
+}
+/* Outer rings spin opposite their paired node so the node's counter-spin
+   keeps it upright relative to the ring underneath it. */
+.animate-orbit-ring-1 {
+  animation: spin 34s linear infinite;
+}
+.animate-orbit-ring-2 {
+  animation: spin-reverse 50s linear infinite;
+}
+
+@keyframes seal-stamp {
+  0%   { transform: scale(2.2) rotate(-14deg); opacity: 0; }
+  55%  { transform: scale(0.94) rotate(3deg); opacity: 1; }
+  75%  { transform: scale(1.04) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+.animate-seal-stamp {
+  animation: seal-stamp 1.1s cubic-bezier(.2,1.6,.35,1) .5s both;
+}
+
+@keyframes rotate-text {
+  to { transform: rotate(360deg); }
+}
+.animate-rotate-text {
+  animation: rotate-text 26s linear infinite;
+  transform-origin: center;
+}
+
+.reveal-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1);
+}
+.reveal-up.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.path-draw {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  transition: stroke-dashoffset 1.6s cubic-bezier(.2,.7,.2,1);
+}
+.path-draw.in {
+  stroke-dashoffset: 0;
+}
+
+/* 3D flip-in — checkpoints rotate in around the Y axis instead of a flat
+   scale, so the Trust Path visibly stamps into 3D space as it reveals. */
+.checkpoint-stamp {
+  opacity: 0;
+  transform: perspective(800px) rotateY(-100deg) scale(0.6);
+  transition: border-color .5s ease, box-shadow .5s ease;
+}
+.checkpoint-stamp.in {
+  animation: checkpoint-flip-in .75s cubic-bezier(.2,.8,.2,1) forwards;
+}
+@keyframes checkpoint-flip-in {
+  0%   { opacity: 0; transform: perspective(800px) rotateY(-100deg) scale(0.6); }
+  60%  { opacity: 1; transform: perspective(800px) rotateY(18deg) scale(1.06); }
+  100% { opacity: 1; transform: perspective(800px) rotateY(0deg) scale(1); }
+}
+
+/* Continuous coin-spin — a slow Y-axis rotation with real perspective
+   foreshortening, distinct from the flat in-plane rotating seal text. */
+@keyframes coin-spin {
+  to { transform: perspective(700px) rotateY(360deg); }
+}
+.animate-coin-spin {
+  animation: coin-spin 9s linear infinite;
+  transform-style: preserve-3d;
+}
+
+/* ── Onboarding micro-interactions ─────────────────────────────────────────── */
+@keyframes onboarding-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.onboarding-page-enter {
+  animation: onboarding-enter .5s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.5); }
+  70%  { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.animate-pop-in {
+  animation: pop-in .35s cubic-bezier(.2,1.4,.4,1) both;
+}
+
+@keyframes otp-pop {
+  0%   { transform: scale(0.82); }
+  55%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+.otp-box.filled {
+  animation: otp-pop .3s cubic-bezier(.2,1.4,.4,1);
+}
+
+/* ── Skeleton shimmer ──────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -120% 0; }
+  100% { background-position: 120% 0; }
+}
+.animate-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-parchment-dark) 30%,
+    var(--surface-glass-border) 50%,
+    var(--color-parchment-dark) 70%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

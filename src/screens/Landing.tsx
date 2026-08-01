@@ -1,17 +1,22 @@
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp, fmt, T, type Role } from '../context'
 import { C, FONT, Card, ProgressBar, Stars, PillButton, ThemeToggle } from '../components/MobileLayout'
 import { InstallButton } from '../components/InstallButton'
+import { Reveal } from '../components/Reveal'
+import { Tilt3D } from '../components/Tilt3D'
 
 export function LandingScreen() {
   return (
     <div style={{ background: C.cream, color: C.ink }}>
       <Nav />
       <Hero />
+      <TrustLedger />
       <StatsStrip />
       <CityMarquee />
       <HowItWorks />
       <RolesShowcase />
+      <VerificationDeepDive />
       <LiveProjects />
       <Testimonials />
       <FinalCTA />
@@ -42,6 +47,7 @@ function Nav() {
           {[
             { label: 'How it works', href: '#how-it-works' },
             { label: 'For everyone', href: '#for-everyone' },
+            { label: 'Verification', href: '#verification' },
             { label: 'Live projects', href: '#live-projects' },
           ].map((l) => (
             <a key={l.href} href={l.href} style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm font-medium transition-colors hover:text-[var(--color-forest)]">
@@ -145,11 +151,13 @@ function Hero() {
           </div>
         </div>
 
-        {/* Floating mock cards */}
-        <div className="relative mx-auto h-[380px] w-full max-w-md lg:h-[440px]">
+        {/* Floating mock cards — the whole panel tilts toward the cursor in real
+            3D (Tilt3D), and each card sits at its own translateZ depth inside
+            that tilted space, so they visibly shift apart as you move the mouse. */}
+        <Tilt3D max={9} glare={false} className="relative mx-auto h-[380px] w-full max-w-md lg:h-[440px]">
           <div
             className="animate-float absolute left-0 top-4 w-[78%] rounded-[24px] border border-white/15 p-4 shadow-2xl backdrop-blur-xl sm:top-8"
-            style={{ background: 'rgba(255,255,255,0.1)' }}
+            style={{ background: 'rgba(255,255,255,0.1)', transform: 'translateZ(30px)' }}
           >
             <img src="https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format" alt="" className="h-32 w-full rounded-2xl object-cover" />
             <div className="mt-3">
@@ -167,7 +175,7 @@ function Hero() {
 
           <div
             className="animate-float-slow absolute bottom-0 right-0 w-[62%] rounded-[22px] border p-4 shadow-2xl"
-            style={{ background: C.white, borderColor: C.parchmentDark, ['--float-rot' as string]: '-2deg' }}
+            style={{ background: C.white, borderColor: C.parchmentDark, ['--float-rot' as string]: '-2deg', transform: 'translateZ(60px)' }}
           >
             <div className="flex items-center gap-2">
               <div className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: '#F0FDF4' }}>
@@ -185,10 +193,134 @@ function Hero() {
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Verified · Released today</div>
             </div>
           </div>
-        </div>
+
+          {/* Rotating verification seal — stamps in on load, spins slowly on its
+              Y axis like a coin (real perspective, not a flat rotation), while
+              its inner ring text keeps turning in-plane. Floats highest (Z) of
+              the three layers so it visibly leads the parallax. */}
+          <div
+            className="animate-seal-stamp absolute -top-4 right-2 hidden h-[104px] w-[104px] sm:block lg:-top-2 lg:right-8"
+            style={{ filter: `drop-shadow(0 8px 24px ${C.glowPrimary})`, transform: 'translateZ(90px)' }}
+            aria-hidden="true"
+          >
+            <div className="animate-coin-spin h-full w-full">
+              <svg viewBox="0 0 128 128" className="h-full w-full">
+                <circle cx="64" cy="64" r="60" fill="rgba(52,168,115,0.08)" stroke="rgba(87,214,154,0.4)" strokeWidth="1.5" />
+                <circle cx="64" cy="64" r="48" fill="none" stroke="rgba(87,214,154,0.25)" strokeWidth="1" strokeDasharray="2 4" />
+                <g className="animate-rotate-text">
+                  <defs>
+                    <path id="heroSealPath" d="M 64,64 m -38,0 a 38,38 0 1,1 76,0 a 38,38 0 1,1 -76,0" />
+                  </defs>
+                  <text fontFamily="JetBrains Mono, monospace" fontSize="7" fill={C.amberLight} letterSpacing="2.5">
+                    <textPath href="#heroSealPath" startOffset="0%">VERIFIED · ESCROWED · RELEASED · VERIFIED · ESCROWED · RELEASED ·</textPath>
+                  </text>
+                </g>
+                <path d="M46 65 L58 77 L84 49" fill="none" stroke={C.forestLight} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+          </div>
+        </Tilt3D>
       </div>
     </section>
   )
+}
+
+// ── Trust ledger (before / after comparison) ──────────────────────────────────
+function TrustLedger() {
+  const before = [
+    'Funds handed over, no record of intended use',
+    'Workers chosen by word of mouth, no bidding',
+    'Progress reported by phone call or a single photo',
+    'No process when work stalls or a dispute arises',
+    'Land bought on documents no one verified in person',
+  ]
+  const after = [
+    'Funds held in escrow, released only per milestone',
+    'Contractors bid openly, ranked by verified track record',
+    'Geotagged, timestamped proof reviewed before release',
+    'Built-in dispute flow with optional local verifier visits',
+    'Land listings tied to verified ownership documents',
+  ]
+
+  return (
+    <section style={{ background: C.cream }}>
+      <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
+        <Reveal className="mb-14 max-w-2xl">
+          <div style={{ fontFamily: FONT.mono, color: C.seal }} className="text-xs uppercase tracking-[0.3em]">The trust gap</div>
+          <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">You can't be there. Now you don't have to guess.</h2>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-4 text-base leading-relaxed">
+            Money sent home for a project, a hire, or a plot of land usually depends on a phone call and a photo. Mboa Trust replaces that guesswork with proof.
+          </p>
+        </Reveal>
+
+        <Reveal
+          className="grid overflow-hidden rounded-[24px] border shadow-sm sm:grid-cols-2"
+          style={{ borderColor: C.parchmentDark }}
+        >
+          <div className="p-8 sm:p-10" style={{ background: C.white }}>
+            <span style={{ fontFamily: FONT.mono, color: C.seal }} className="text-[11px] font-semibold uppercase tracking-[0.15em]">Sent on trust alone</span>
+            <div className="mt-6">
+              {before.map((b, i) => (
+                <div
+                  key={b}
+                  className="flex gap-3 py-3.5 text-sm leading-relaxed"
+                  style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.parchmentDark}`, color: C.inkMuted, fontFamily: FONT.sans }}
+                >
+                  <span className="mt-0.5 flex-shrink-0 opacity-80" style={{ color: C.seal }}>✕</span>
+                  {b}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="border-t p-8 sm:border-l sm:border-t-0 sm:p-10" style={{ background: C.white, borderColor: C.parchmentDark }}>
+            <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[11px] font-semibold uppercase tracking-[0.15em]">Sent through Mboa Trust</span>
+            <div className="mt-6">
+              {after.map((a, i) => (
+                <div
+                  key={a}
+                  className="flex gap-3 py-3.5 text-sm font-medium leading-relaxed"
+                  style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.parchmentDark}`, color: C.ink, fontFamily: FONT.sans }}
+                >
+                  <span className="mt-0.5 flex-shrink-0" style={{ color: C.forest }}>✓</span>
+                  {a}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  )
+}
+
+// ── Animated stat number ───────────────────────────────────────────────────────
+function AnimatedStat({ value, prefix = '', suffix = '', duration = 1200 }: { value: number; prefix?: string; suffix?: string; duration?: number }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [display, setDisplay] = useState(prefix + '0' + suffix)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        obs.unobserve(el)
+        const start = performance.now()
+        function tick(now: number) {
+          const p = Math.min((now - start) / duration, 1)
+          const eased = 1 - Math.pow(1 - p, 3)
+          setDisplay(prefix + Math.round(eased * value).toLocaleString('fr-FR') + suffix)
+          if (p < 1) requestAnimationFrame(tick)
+        }
+        requestAnimationFrame(tick)
+      },
+      { threshold: 0.5 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [value, prefix, suffix, duration])
+
+  return <span ref={ref}>{display}</span>
 }
 
 // ── Stats strip ─────────────────────────────────────────────────────────────
@@ -199,10 +331,10 @@ function StatsStrip() {
   const verifiedLand = landListings.filter((l) => l.verified).length
 
   const stats = [
-    { value: fmt(totalEscrowed), label: 'Currently in escrow' },
-    { value: '2,800+', label: 'Diaspora members' },
-    { value: `${verifiedContractors + verifiedLand}+`, label: 'Verified contractors & listings' },
-    { value: '100%', label: 'Milestones photo-verified' },
+    { node: <AnimatedStat value={totalEscrowed} prefix="XAF " />, label: 'Currently in escrow' },
+    { node: <AnimatedStat value={2800} suffix="+" />, label: 'Diaspora members' },
+    { node: <AnimatedStat value={verifiedContractors + verifiedLand} suffix="+" />, label: 'Verified contractors & listings' },
+    { node: <AnimatedStat value={100} suffix="%" />, label: 'Milestones photo-verified' },
   ]
 
   return (
@@ -210,7 +342,7 @@ function StatsStrip() {
       <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-5 py-10 sm:px-8 md:grid-cols-4 md:gap-4 md:py-12">
         {stats.map((s) => (
           <div key={s.label} className="text-center md:border-l md:first:border-l-0" style={{ borderColor: C.parchmentDark }}>
-            <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-2xl font-bold sm:text-3xl">{s.value}</div>
+            <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-2xl font-bold tabular-nums sm:text-3xl">{s.node}</div>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-1.5 text-[10px] uppercase tracking-[0.15em] leading-snug sm:text-[11px]">{s.label}</div>
           </div>
         ))}
@@ -237,6 +369,87 @@ function CityMarquee() {
   )
 }
 
+// ── Trust path (Fund → Verify → Release, animated line + stamped checkpoints) ─
+function TrustPath() {
+  const stageRef = useRef<HTMLDivElement>(null)
+  const [lineIn, setLineIn] = useState(false)
+  const [checks, setChecks] = useState([false, false, false])
+
+  useEffect(() => {
+    const el = stageRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        obs.unobserve(el)
+        setLineIn(true)
+        ;[0, 1, 2].forEach((i) => setTimeout(() => setChecks((c) => { const n = [...c]; n[i] = true; return n }), 300 + i * 260))
+      },
+      { threshold: 0.3 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  const checkpoints = [
+    {
+      num: '01 — FUND',
+      title: 'Escrow, not a handout',
+      body: 'Diaspora funders commit money to clear milestones. Nothing moves until work does.',
+      icon: <path d="M12 2v20M2 12h20" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />,
+    },
+    {
+      num: '02 — VERIFY',
+      title: 'Proof, reviewed properly',
+      body: 'Geotagged photos, video and an optional local verifier confirm real progress.',
+      icon: <path d="M9 12l2 2 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />,
+    },
+    {
+      num: '03 — RELEASE',
+      title: "Paid the moment it's earned",
+      body: 'Funds release straight to MoMo or Orange Money, milestone by milestone.',
+      icon: <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />,
+    },
+  ]
+
+  return (
+    <div ref={stageRef} className="relative mx-auto mb-20 max-w-4xl">
+      <svg className="hidden w-full sm:block" viewBox="0 0 980 40" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="trustPathGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={C.forest} />
+            <stop offset="50%" stopColor={C.amber} />
+            <stop offset="100%" stopColor={C.forestLight} />
+          </linearGradient>
+        </defs>
+        <line x1="80" y1="20" x2="900" y2="20" stroke={C.parchmentDark} strokeWidth="2" />
+        <line x1="80" y1="20" x2="900" y2="20" stroke="url(#trustPathGradient)" strokeWidth="2.5" strokeLinecap="round" pathLength={1000} className={`path-draw ${lineIn ? 'in' : ''}`} />
+      </svg>
+
+      <div className="grid gap-10 sm:-mt-4 sm:grid-cols-3">
+        {checkpoints.map((c, i) => (
+          <div key={c.num} className="px-3 text-center">
+            <div
+              className={`checkpoint-stamp mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-full border ${checks[i] ? 'in' : ''}`}
+              style={{
+                background: C.white,
+                borderColor: checks[i] ? C.borderBright : C.parchmentDark,
+                boxShadow: checks[i] ? `0 0 0 6px ${C.glowPrimary}, 0 10px 24px -10px ${C.glowPrimary}` : 'none',
+                color: C.forest,
+              }}
+            >
+              <svg viewBox="0 0 24 24" fill="none" width="22" height="22">{c.icon}</svg>
+            </div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 text-[11px] uppercase tracking-[0.15em]">{c.num}</div>
+            <h4 style={{ fontFamily: FONT.serif }} className="mb-1.5 text-lg font-bold">{c.title}</h4>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mx-auto max-w-[240px] text-sm leading-relaxed">{c.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── How it works ─────────────────────────────────────────────────────────────
 function HowItWorks() {
   const steps = [
@@ -248,16 +461,31 @@ function HowItWorks() {
 
   return (
     <section id="how-it-works" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
-      <div className="mb-14 max-w-2xl">
+      <Reveal className="mb-16 max-w-2xl">
         <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">How it works</div>
-        <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">Four steps between your money and real, verified work.</h2>
-      </div>
+        <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">The Trust Path — the same three checkpoints, every time.</h2>
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-4 text-base leading-relaxed">A repair, a contract, a land purchase — every project on Mboa Trust moves through fund, verify, release.</p>
+      </Reveal>
 
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <Reveal>
+        <TrustPath />
+      </Reveal>
+
+      <Reveal className="mb-10 max-w-2xl">
+        <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-xs uppercase tracking-[0.3em]">Inside each milestone</div>
+        <h3 style={{ fontFamily: FONT.serif }} className="mt-3 text-2xl font-bold sm:text-3xl">Four steps between your money and real, verified work.</h3>
+      </Reveal>
+
+      <Reveal className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {steps.map((s, i) => (
-          <div key={s.n} className="relative rounded-[24px] border p-6 transition-all hover:-translate-y-1 hover:shadow-xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <Tilt3D key={s.n} max={6} className="group relative rounded-[24px] border p-6 shadow-sm" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.serif, color: C.parchmentDark }} className="absolute right-5 top-4 text-4xl font-bold">{s.n}</div>
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl" style={{ background: C.parchment }}>{s.icon}</div>
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
+              style={{ background: C.parchment, transformStyle: 'preserve-3d' }}
+            >
+              {s.icon}
+            </div>
             <h3 style={{ fontFamily: FONT.serif }} className="mt-5 text-lg font-bold">{s.title}</h3>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">{s.body}</p>
             {i < steps.length - 1 && (
@@ -267,9 +495,9 @@ function HowItWorks() {
                 </svg>
               </div>
             )}
-          </div>
+          </Tilt3D>
         ))}
-      </div>
+      </Reveal>
     </section>
   )
 }
@@ -316,41 +544,108 @@ function RolesShowcase() {
   return (
     <section id="for-everyone" style={{ background: C.parchment }} className="border-y" >
       <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28" style={{ borderColor: C.parchmentDark }}>
-        <div className="mb-14 max-w-2xl">
+        <Reveal className="mb-14 max-w-2xl">
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">For everyone</div>
           <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">Built for every side of the transaction.</h2>
-        </div>
+        </Reveal>
 
-        <div className="grid gap-5 md:grid-cols-2">
+        <Reveal className="grid gap-5 md:grid-cols-2">
           {ROLE_CARDS.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => nav('/language')}
-              className="group relative overflow-hidden rounded-[28px] p-7 text-left transition-all hover:-translate-y-1 hover:shadow-2xl sm:p-8"
-              style={{ background: r.bg }}
-            >
-              <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-10 transition-transform duration-500 group-hover:scale-125" style={{ background: C.white }} />
-              <div className="relative">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl" style={{ background: 'rgba(255,255,255,0.14)' }}>{r.icon}</div>
-                <h3 style={{ fontFamily: FONT.serif }} className="mt-5 text-xl font-bold text-white">{r.title}</h3>
-                <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.75)' }} className="mt-2 max-w-sm text-sm leading-relaxed">{r.body}</p>
-                <ul className="mt-5 space-y-2">
-                  {r.points.map((p) => (
-                    <li key={p} className="flex items-center gap-2">
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
-                        <path d="M3 7L5.5 9.5L11 4" stroke={C.amberLight} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="text-xs">{p}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-white">
-                  Get started <span className="transition-transform group-hover:translate-x-1">→</span>
+            <Tilt3D key={r.id} max={5} className="group overflow-hidden rounded-[28px]" style={{ boxShadow: '0 20px 50px -20px rgba(0,0,0,0.25)' }}>
+              <button
+                onClick={() => nav('/language')}
+                className="relative w-full p-7 text-left transition-shadow duration-300 hover:shadow-2xl sm:p-8"
+                style={{ background: r.bg }}
+              >
+                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-10 transition-transform duration-500 group-hover:scale-125" style={{ background: C.white }} />
+                <div className="relative">
+                  <div
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
+                    style={{ background: 'rgba(255,255,255,0.14)', transformStyle: 'preserve-3d' }}
+                  >
+                    {r.icon}
+                  </div>
+                  <h3 style={{ fontFamily: FONT.serif }} className="mt-5 text-xl font-bold text-white">{r.title}</h3>
+                  <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.75)' }} className="mt-2 max-w-sm text-sm leading-relaxed">{r.body}</p>
+                  <ul className="mt-5 space-y-2">
+                    {r.points.map((p) => (
+                      <li key={p} className="flex items-center gap-2">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
+                          <path d="M3 7L5.5 9.5L11 4" stroke={C.amberLight} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="text-xs">{p}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-6 inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+                    Get started <span className="transition-transform group-hover:translate-x-1">→</span>
+                  </div>
+                </div>
+              </button>
+            </Tilt3D>
+          ))}
+        </Reveal>
+      </div>
+    </section>
+  )
+}
+
+// ── Verification deep dive ──────────────────────────────────────────────────
+function VerificationDeepDive() {
+  const items = [
+    { num: '01', title: 'Live capture only', body: 'Evidence is shot in-app with location and timestamp attached — no gallery uploads, no reused photos.' },
+    { num: '02', title: 'Before-and-after comparison', body: 'Every milestone is checked against the previous one from the same angle, so progress is visible, not just claimed.' },
+    { num: '03', title: 'Optional human verifier', body: 'For higher-value milestones, a local verifier confirms the work in person and files a short report.' },
+    { num: '04', title: 'Reputation that follows', body: 'Recipients, contractors and sellers build a visible track record across every project on the platform.' },
+  ]
+
+  return (
+    <section id="verification" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
+      <div className="grid items-center gap-16 lg:grid-cols-2">
+        <Reveal className="relative order-2 mx-auto aspect-square w-full max-w-[420px] lg:order-1">
+          {/* Rests at a slight tilt so the scene reads as already-3D, then
+              follows the cursor for a much wider, freely-orbiting tilt on hover. */}
+          <Tilt3D className="absolute inset-0" style={{ position: 'absolute' }} max={16} restX={6} glare={false} scaleOnHover={false}>
+            <div className="animate-orbit-ring-1 absolute left-1/2 top-1/2 rounded-full border border-dashed" style={{ width: 210, height: 210, marginLeft: -105, marginTop: -105, borderColor: C.parchmentDark }}>
+              <div className="animate-orbit-node-1 absolute rounded-full border" style={{ width: 40, height: 40, marginLeft: -20, marginTop: -125, left: '50%', top: '50%', background: C.white, borderColor: C.borderBright }}>
+                <div className="flex h-full w-full items-center justify-center">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 2l3 6 6 .9-4.5 4.4 1 6.2L12 16.8 6.5 19.5l1-6.2L3 8.9 9 8z" stroke={C.amber} strokeWidth="1.4" strokeLinejoin="round" /></svg>
                 </div>
               </div>
-            </button>
-          ))}
-        </div>
+            </div>
+            <div className="animate-orbit-ring-2 absolute left-1/2 top-1/2 rounded-full border border-dashed" style={{ width: 320, height: 320, marginLeft: -160, marginTop: -160, borderColor: C.parchmentDark }}>
+              <div className="animate-orbit-node-2 absolute rounded-full border" style={{ width: 40, height: 40, marginLeft: -20, marginTop: -180, left: '50%', top: '50%', background: C.white, borderColor: C.borderBright }}>
+                <div className="flex h-full w-full items-center justify-center">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M12 21c-4-3-7-6.5-7-10.5A7 7 0 0 1 12 3a7 7 0 0 1 7 7.5C19 14.5 16 18 12 21z" stroke={C.amber} strokeWidth="1.4" /><circle cx="12" cy="10.5" r="2.3" stroke={C.amber} strokeWidth="1.4" /></svg>
+                </div>
+              </div>
+            </div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                className="flex h-24 w-24 items-center justify-center rounded-full"
+                style={{ background: `radial-gradient(circle at 35% 30%, ${C.amberLight}, ${C.amber} 60%, #7A611B 100%)`, boxShadow: `0 0 60px -8px ${C.glowPrimary}` }}
+              >
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><path d="M8 12.5l2.5 2.5L16 9" stroke="#16130A" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </div>
+            </div>
+          </Tilt3D>
+        </Reveal>
+
+        <Reveal className="order-1 lg:order-2">
+          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">How proof actually holds up</div>
+          <h2 style={{ fontFamily: FONT.serif }} className="mb-8 mt-3 text-3xl font-bold sm:text-4xl">No single photo has to carry all the trust.</h2>
+          <div className="flex flex-col gap-1">
+            {items.map((it, i) => (
+              <div key={it.num} className="flex gap-4 py-5" style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.parchmentDark}` }}>
+                <span style={{ fontFamily: FONT.mono, color: C.amber }} className="flex-shrink-0 pt-0.5 text-[13px]">{it.num}</span>
+                <div>
+                  <h4 style={{ fontFamily: FONT.serif }} className="mb-1.5 text-lg font-bold">{it.title}</h4>
+                  <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">{it.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Reveal>
       </div>
     </section>
   )
@@ -363,7 +658,7 @@ function LiveProjects() {
 
   return (
     <section id="live-projects" className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
-      <div className="mb-14 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      <Reveal className="mb-14 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div className="max-w-2xl">
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">Live on the platform</div>
           <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">Real projects, funded and verified right now.</h2>
@@ -371,36 +666,38 @@ function LiveProjects() {
         <button onClick={() => nav('/language')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-sm font-semibold whitespace-nowrap">
           Browse all projects →
         </button>
-      </div>
+      </Reveal>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <Reveal className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {projects.slice(0, 3).map((p) => {
           const pct = Math.round((p.raised / p.totalAmount) * 100)
           return (
-            <Card key={p.id} onClick={() => nav('/language')} className="overflow-hidden">
-              <img src={p.image} alt={p.title} className="h-44 w-full object-cover" />
-              <div className="p-5">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.location}</div>
-                <div style={{ fontFamily: FONT.serif }} className="mt-1.5 text-base font-bold">{p.title}</div>
-                <div className="mt-4">
-                  <ProgressBar pct={pct} />
-                  <div className="mt-2 flex justify-between">
-                    <span style={{ fontFamily: FONT.serif }} className="text-sm font-bold">{fmt(p.raised)}</span>
-                    <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs font-semibold">{pct}% funded</span>
+            <Tilt3D key={p.id} max={6} className="rounded-2xl">
+              <Card onClick={() => nav('/language')} className="overflow-hidden">
+                <img src={p.image} alt={p.title} className="h-44 w-full object-cover" />
+                <div className="p-5">
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.location}</div>
+                  <div style={{ fontFamily: FONT.serif }} className="mt-1.5 text-base font-bold">{p.title}</div>
+                  <div className="mt-4">
+                    <ProgressBar pct={pct} />
+                    <div className="mt-2 flex justify-between">
+                      <span style={{ fontFamily: FONT.serif }} className="text-sm font-bold">{fmt(p.raised)}</span>
+                      <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs font-semibold">{pct}% funded</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 border-t pt-4" style={{ borderColor: C.parchmentDark }}>
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                      {p.recipient[0]}
+                    </div>
+                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">{p.recipient}</span>
+                    <span className="ml-auto"><Stars rating={p.recipientRating} /></span>
                   </div>
                 </div>
-                <div className="mt-4 flex items-center gap-2 border-t pt-4" style={{ borderColor: C.parchmentDark }}>
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                    {p.recipient[0]}
-                  </div>
-                  <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">{p.recipient}</span>
-                  <span className="ml-auto"><Stars rating={p.recipientRating} /></span>
-                </div>
-              </div>
-            </Card>
+              </Card>
+            </Tilt3D>
           )
         })}
-      </div>
+      </Reveal>
     </section>
   )
 }
@@ -417,14 +714,14 @@ function Testimonials() {
     <section style={{ background: C.forestDark }} className="relative overflow-hidden">
       <div className="animate-drift absolute right-[-10%] top-[-20%] h-[380px] w-[380px] rounded-full opacity-10 blur-3xl" style={{ background: C.amber }} />
       <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-28">
-        <div className="mb-14 max-w-2xl">
+        <Reveal className="mb-14 max-w-2xl">
           <div style={{ fontFamily: FONT.mono, color: C.amberLight }} className="text-xs uppercase tracking-[0.3em]">Trusted by the community</div>
           <h2 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold text-white sm:text-4xl">Words from people already using it.</h2>
-        </div>
+        </Reveal>
 
-        <div className="grid gap-5 md:grid-cols-3">
+        <Reveal className="grid gap-5 md:grid-cols-3">
           {quotes.map((q) => (
-            <div key={q.name} className="rounded-[24px] border p-6" style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)' }}>
+            <Tilt3D key={q.name} max={4} className="rounded-[24px] border p-6" style={{ borderColor: 'rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.05)' }}>
               <div style={{ fontFamily: FONT.serif, color: C.amber }} className="text-4xl leading-none">"</div>
               <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="mt-2 text-sm leading-relaxed italic">{q.quote}</p>
               <div className="mt-6 flex items-center gap-3 border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
@@ -436,9 +733,9 @@ function Testimonials() {
                   <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.5)' }} className="text-[10px] uppercase tracking-wider">{q.role}</div>
                 </div>
               </div>
-            </div>
+            </Tilt3D>
           ))}
-        </div>
+        </Reveal>
       </div>
     </section>
   )
@@ -451,7 +748,7 @@ function FinalCTA() {
   return (
     <section className="relative overflow-hidden px-5 py-20 sm:px-8 sm:py-24" style={{ background: 'linear-gradient(120deg, #1A4731 0%, #0F2B1E 100%)' }}>
       <div className="animate-drift absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.08] blur-3xl" style={{ background: C.amber }} />
-      <div className="relative mx-auto max-w-3xl text-center">
+      <Reveal className="relative mx-auto max-w-3xl text-center">
         <h2 style={{ fontFamily: FONT.serif }} className="text-3xl font-bold text-white sm:text-4xl">Ready to fund with certainty?</h2>
         <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.75)' }} className="mx-auto mt-4 max-w-xl text-base leading-relaxed">
           Create your account in minutes. Every project, contractor and land listing is verified before your money ever moves.
@@ -476,7 +773,7 @@ function FinalCTA() {
             </div>
           ))}
         </div>
-      </div>
+      </Reveal>
     </section>
   )
 }

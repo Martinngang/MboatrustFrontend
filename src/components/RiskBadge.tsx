@@ -1,20 +1,22 @@
-import { FONT } from './MobileLayout'
+import { FONT, STATUS_TONE_VARS, type StatusTone } from './MobileLayout'
 import type { RiskLevel } from '../verification'
 
 /**
  * Trust signal shown on profiles wherever a funder is deciding whether to
- * commit money — mirrors StatusBadge's map-lookup pattern for consistency.
+ * commit money — mirrors StatusBadge's semantic-tone lookup for consistency
+ * (and dark-mode correctness — these used to hardcode light-only hex).
  */
 export function RiskBadge({ level }: { level: RiskLevel }) {
-  const map: Record<RiskLevel, { bg: string; text: string; label: string }> = {
-    new: { bg: '#EFF6FF', text: '#1D4ED8', label: 'New user' },
-    good_standing: { bg: '#D1FAE5', text: '#065F46', label: 'Good standing' },
-    flagged: { bg: '#FEE2E2', text: '#991B1B', label: 'Flagged' },
+  const map: Record<RiskLevel, { tone: StatusTone; label: string }> = {
+    new: { tone: 'info', label: 'New user' },
+    good_standing: { tone: 'success', label: 'Good standing' },
+    flagged: { tone: 'error', label: 'Flagged' },
   }
   const s = map[level]
+  const { bg, text } = STATUS_TONE_VARS[s.tone]
   return (
     <span
-      style={{ fontFamily: FONT.mono, background: s.bg, color: s.text }}
+      style={{ fontFamily: FONT.mono, background: bg, color: text }}
       className="inline-block text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full"
     >
       {s.label}

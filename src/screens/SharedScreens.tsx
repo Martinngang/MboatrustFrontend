@@ -1,64 +1,100 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 import { useCompliance } from '../compliance'
 import { useTheme } from '../theme'
 import { C, FONT, AppShell, Card, Header } from '../components/MobileLayout'
+import { Switch } from '../components/Switch'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+
+// ── Shared grouped-links list ─────────────────────────────────────────────────
+// One visual pattern for every "list of destinations" block — used by both
+// Settings (pure preferences) and the Menu hub (everything else), so the two
+// screens read as one consistent system instead of two different UIs.
+function GroupedLinks({ title, items, dashed }: {
+  title: string
+  items: { label: string; sub?: string; action: () => void; right?: ReactNode }[]
+  dashed?: boolean
+}) {
+  return (
+    <div>
+      {title && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">{title}</div>}
+      <div className={`rounded-2xl border overflow-hidden ${dashed ? 'border-dashed' : ''}`} style={{ borderColor: C.parchmentDark, boxShadow: dashed ? 'none' : C.shadowSm }}>
+        {items.map(({ label, sub, action, right }, i) => (
+          // A <div role="button"> rather than a real <button> — `right` may
+          // itself be an interactive control (e.g. Switch, which renders its
+          // own <button>), and a <button> can't legally contain one.
+          <div
+            key={label}
+            role="button"
+            tabIndex={0}
+            onClick={action}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); action() } }}
+            className="w-full flex items-center justify-between gap-3 px-4 py-4 text-left cursor-pointer hover:bg-[var(--color-parchment)] transition-colors"
+            style={{ borderBottom: i < items.length - 1 ? `1px solid ${C.parchmentDark}` : 'none', background: C.white }}
+          >
+            <div className="min-w-0">
+              <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{label}</div>
+              {sub && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{sub}</div>}
+            </div>
+            {right ?? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" className="flex-shrink-0">
+                <path d="M4 3L9 7L4 11" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
+              </svg>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Notifications ─────────────────────────────────────────────────────────────
-const NOTIFS = [
-  { id: 1, icon: '✅', title: 'Milestone approved', body: 'Drilling & casing — Borehole Bamenda was approved. XAF 1,400,000 released.', time: '2h ago', unread: true },
-  { id: 2, icon: '📋', title: 'New bid received', body: 'Fon Ayuk Construction submitted a bid of XAF 850,000 for Ngaoundéré pump job.', time: '5h ago', unread: true },
-  { id: 3, icon: '📸', title: 'Proof submitted', body: 'Emmanuel Njang submitted milestone 2 evidence for your review.', time: '1 day ago', unread: true },
-  { id: 4, icon: '🔒', title: 'Funds secured', body: 'XAF 1,200,000 moved into escrow for Clinic Renovation — Limbe.', time: '3 days ago', unread: false },
-  { id: 5, icon: '✅', title: 'Contractor verified', body: 'Ndongo Mechanical Works has been verified on the platform.', time: '5 days ago', unread: false },
-  { id: 6, icon: '🏡', title: 'Land listing verified', body: 'Bastos plot 800m² has completed document verification.', time: '1 week ago', unread: false },
-]
-
 export function NotificationsScreen() {
-  const [notifs, setNotifs] = useState(NOTIFS)
-  const unreadCount = notifs.filter((n) => n.unread).length
-
-  const markAllRead = () => setNotifs((ns) => ns.map((n) => ({ ...n, unread: false })))
+  const { notifications, unreadNotifications, markNotificationRead, markAllNotificationsRead } = useApp()
 
   return (
     <AppShell>
       <Header
         title="Notifications"
-        subtitle={unreadCount > 0 ? `${unreadCount} unread` : undefined}
+        subtitle={unreadNotifications > 0 ? `${unreadNotifications} unread` : undefined}
         back
-        action={unreadCount > 0 && (
-          <button onClick={markAllRead} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">
+        action={unreadNotifications > 0 && (
+          <button onClick={markAllNotificationsRead} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">
             Mark all read
           </button>
         )}
       />
 
-      <div className="divide-y sm:grid sm:grid-cols-2 sm:divide-y-0 sm:gap-3 sm:p-4" style={{ borderColor: C.parchmentDark }}>
-        {notifs.map((n) => (
-          <div
-            key={n.id}
-            className="flex gap-4 px-5 py-4 cursor-pointer hover:bg-[var(--color-parchment)] transition-colors sm:rounded-2xl sm:border sm:px-4"
-            style={{ background: n.unread ? '#F0FDF4' : 'transparent', borderColor: C.parchmentDark }}
-            onClick={() => setNotifs((ns) => ns.map((x) => x.id === n.id ? { ...x, unread: false } : x))}
-          >
-            <div className="text-xl flex-shrink-0 mt-0.5">{n.icon}</div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-2">
-                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{n.title}</div>
-                {n.unread && <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: C.forest }} />}
+      <StaggerList className="divide-y sm:grid sm:grid-cols-2 sm:divide-y-0 sm:gap-3 sm:p-4">
+        {notifications.map((n) => (
+          <StaggerItem key={n.id}>
+            <div
+              className="flex gap-4 px-5 py-4 cursor-pointer hover:bg-[var(--color-parchment)] transition-colors sm:rounded-2xl sm:border sm:px-4"
+              style={{ background: n.unread ? 'var(--status-success-bg)' : 'transparent', borderColor: C.parchmentDark }}
+              onClick={() => markNotificationRead(n.id)}
+            >
+              <div className="text-xl flex-shrink-0 mt-0.5">{n.icon}</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{n.title}</div>
+                  {n.unread && <div className="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style={{ background: C.forest }} />}
+                </div>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{n.body}</p>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1.5">{n.time}</div>
               </div>
-              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{n.body}</p>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1.5">{n.time}</div>
             </div>
-          </div>
+          </StaggerItem>
         ))}
-      </div>
+      </StaggerList>
     </AppShell>
   )
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
+// ── Settings — true preferences only ──────────────────────────────────────────
+// Appearance, account basics, security, and notification toggles. Everything
+// that isn't a personal preference (messaging, community, tools, staff
+// features) now lives in the Menu hub (ProfileScreen) instead of here.
 export function SettingsScreen() {
   const nav = useNavigate()
   const { lang, setLoggedIn, setRole } = useApp()
@@ -68,7 +104,7 @@ export function SettingsScreen() {
   const [notifOn, setNotifOn] = useState(true)
   const [biometric, setBiometric] = useState(false)
 
-  const sections = [
+  const sections: { title: string; items: { label: string; sub?: string; action: () => void; right?: ReactNode }[] }[] = [
     {
       title: 'Appearance',
       items: [
@@ -76,41 +112,30 @@ export function SettingsScreen() {
           label: 'Dark mode',
           sub: theme === 'dark' ? 'On' : 'Off',
           action: toggleTheme,
-          right: (
-            <div className={`w-11 h-6 rounded-full transition-all cursor-pointer ${theme === 'dark' ? 'bg-[var(--color-forest)]' : 'bg-[var(--color-parchment-dark)]'}`} onClick={toggleTheme}>
-              <div className={`w-5 h-5 rounded-full bg-white shadow m-0.5 transition-all ${theme === 'dark' ? 'translate-x-5' : 'translate-x-0'}`} />
-            </div>
-          ),
+          right: <Switch checked={theme === 'dark'} onChange={() => toggleTheme()} />,
         },
       ],
     },
     {
       title: 'Account',
       items: [
-        { label: 'Language', sub: lang === 'en' ? 'English' : 'Français', action: () => nav('/language'), right: null },
-        { label: 'Messages', sub: 'Chat with recipients, contractors & sellers', action: () => nav('/messages'), right: null },
-        { label: 'Recurring contributions', sub: 'Manage scheduled automatic funding', action: () => nav('/funder/recurring'), right: null },
-        { label: 'Currency converter', sub: 'Mock exchange rate & fee calculator', action: () => nav('/tools/currency-converter'), right: null },
-        { label: 'Linked MoMo account', sub: '+237 677 234 891 · MTN', action: () => {}, right: null },
-        { label: 'Linked Orange Money', sub: 'Not connected', action: () => {}, right: null },
-        { label: 'Switch role', sub: 'Change your primary role', action: () => nav('/role'), right: null },
+        { label: 'Language', sub: lang === 'en' ? 'English' : 'Français', action: () => nav('/language') },
+        { label: 'Linked MoMo account', sub: '+237 677 234 891 · MTN', action: () => {} },
+        { label: 'Linked Orange Money', sub: 'Not connected', action: () => {} },
+        { label: 'Switch role', sub: 'Change your primary role', action: () => nav('/role') },
       ],
     },
     {
       title: 'Security',
       items: [
-        { label: 'Change PIN', sub: 'Update your 4-digit transaction PIN', action: () => {}, right: null },
+        { label: 'Change PIN', sub: 'Update your 4-digit transaction PIN', action: () => {} },
         {
           label: 'Biometric login',
           sub: 'Face ID / fingerprint',
           action: () => setBiometric(!biometric),
-          right: (
-            <div className={`w-11 h-6 rounded-full transition-all cursor-pointer ${biometric ? 'bg-[var(--color-forest)]' : 'bg-[var(--color-parchment-dark)]'}`} onClick={() => setBiometric(!biometric)}>
-              <div className={`w-5 h-5 rounded-full bg-white shadow m-0.5 transition-all ${biometric ? 'translate-x-5' : 'translate-x-0'}`} />
-            </div>
-          ),
+          right: <Switch checked={biometric} onChange={setBiometric} />,
         },
-        { label: 'ID verification (KYC/AML)', sub: `Status: ${kycLabel[myKyc.status]}`, action: () => nav('/compliance/kyc'), right: null },
+        { label: 'ID verification (KYC/AML)', sub: `Status: ${kycLabel[myKyc.status]}`, action: () => nav('/compliance/kyc') },
       ],
     },
     {
@@ -120,41 +145,18 @@ export function SettingsScreen() {
           label: 'Push notifications',
           sub: 'Milestone updates, bids, approvals',
           action: () => setNotifOn(!notifOn),
-          right: (
-            <div className={`w-11 h-6 rounded-full transition-all cursor-pointer ${notifOn ? 'bg-[var(--color-forest)]' : 'bg-[var(--color-parchment-dark)]'}`} onClick={() => setNotifOn(!notifOn)}>
-              <div className={`w-5 h-5 rounded-full bg-white shadow m-0.5 transition-all ${notifOn ? 'translate-x-5' : 'translate-x-0'}`} />
-            </div>
-          ),
+          right: <Switch checked={notifOn} onChange={setNotifOn} />,
         },
-        { label: 'Email updates', sub: 'Weekly summary', action: () => {}, right: null },
-      ],
-    },
-    {
-      title: 'Community',
-      items: [
-        { label: 'Diaspora group dashboard', sub: 'Shared funding across your association', action: () => nav('/groups/dashboard'), right: null },
-        { label: 'Group members', sub: 'View & invite members', action: () => nav('/groups/members'), right: null },
-        { label: 'Refer a friend', sub: 'Earn rewards for invites', action: () => nav('/referrals'), right: null },
-        { label: 'Public project showcase', sub: 'Browse completed projects — no login', action: () => nav('/showcase'), right: null },
+        { label: 'Notification preferences', sub: 'Granular control per notification type', action: () => nav('/shared/notifications/preferences') },
       ],
     },
     {
       title: 'Support',
       items: [
-        { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help'), right: null },
-        { label: 'Contact support', sub: 'support@mboatrust.cm', action: () => {}, right: null },
-        { label: 'Privacy policy', sub: '', action: () => {}, right: null },
-        { label: 'Terms of service', sub: '', action: () => {}, right: null },
-      ],
-    },
-    {
-      title: 'Platform staff tools (demo)',
-      items: [
-        { label: 'Register as verifier', sub: 'Set up a verifier profile', action: () => nav('/verifier/register'), right: null },
-        { label: 'Verifier dashboard', sub: 'Review verification tasks', action: () => nav('/verifier/dashboard'), right: null },
-        { label: 'Admin panel', sub: 'Platform overview & management', action: () => nav('/admin'), right: null },
-        { label: 'Dispute resolution', sub: 'Manage open disputes', action: () => nav('/admin/disputes'), right: null },
-        { label: 'Fraud & dispute analytics', sub: 'Flagged patterns across the platform', action: () => nav('/admin/fraud-analytics'), right: null },
+        { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help') },
+        { label: 'Contact support', sub: 'support@mboatrust.cm', action: () => {} },
+        { label: 'Privacy policy', action: () => {} },
+        { label: 'Terms of service', action: () => {} },
       ],
     },
   ]
@@ -164,29 +166,9 @@ export function SettingsScreen() {
       <Header title="Settings" back />
 
       <div className="pb-8 sm:mx-auto sm:max-w-3xl sm:grid sm:grid-cols-2 sm:gap-6 sm:px-6">
-        {sections.map(({ title, items }) => (
-          <div key={title} className="mt-6 px-5 sm:px-0">
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">{title}</div>
-            <div className="rounded-2xl border overflow-hidden" style={{ borderColor: C.parchmentDark }}>
-              {items.map(({ label, sub, action, right }, i) => (
-                <button
-                  key={label}
-                  onClick={action}
-                  className="w-full flex items-center justify-between px-4 py-4 text-left hover:bg-[var(--color-parchment)] transition-colors"
-                  style={{ borderBottom: i < items.length - 1 ? `1px solid ${C.parchmentDark}` : 'none', background: C.white }}
-                >
-                  <div>
-                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{label}</div>
-                    {sub && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{sub}</div>}
-                  </div>
-                  {right ?? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M4 3L9 7L4 11" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  )}
-                </button>
-              ))}
-            </div>
+        {sections.map((section) => (
+          <div key={section.title} className="mt-6 px-5 sm:px-0">
+            <GroupedLinks {...section} />
           </div>
         ))}
 
@@ -195,7 +177,7 @@ export function SettingsScreen() {
           <button
             onClick={() => { setLoggedIn(false); setRole(null); nav('/') }}
             className="w-full py-3.5 rounded-2xl font-semibold text-sm border-2 transition-all"
-            style={{ borderColor: '#FECACA', color: '#DC2626', background: '#FEF2F2', fontFamily: FONT.sans }}
+            style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', background: 'var(--status-error-bg)', fontFamily: FONT.sans }}
           >
             Sign out
           </button>
@@ -301,10 +283,17 @@ export function HelpScreen() {
   )
 }
 
-// ── Profile screen (role-aware) ────────────────────────────────────────────────
+// ── Menu hub (role-aware) ──────────────────────────────────────────────────────
+// The 5th primary nav slot. Leads with identity (who you are, at a glance),
+// then groups everything else by how often it's actually used: your own
+// stats first, communication next (previously invisible — no nav entry at
+// all), community and tools after that, and the platform-administration
+// tier last, set apart rather than mixed into personal settings.
 export function ProfileScreen() {
   const nav = useNavigate()
-  const { name, role, projects, jobs, landListings, contractors } = useApp()
+  const { name, role, projects, jobs, landListings, contractors, unreadNotifications } = useApp()
+  const { myKyc } = useCompliance()
+  const kycLabel: Record<typeof myKyc.status, string> = { unverified: 'Not verified', pending: 'Under review', verified: 'Verified ✓', rejected: 'Rejected — action needed' }
 
   const roleLabel: Record<string, string> = {
     funder: 'Diaspora Funder',
@@ -336,18 +325,21 @@ export function ProfileScreen() {
     ],
   }
 
-  const roleLinks: Record<string, { label: string; path: string }[]> = {
-    funder: [{ label: '📊 Transaction history', path: '/funder/transactions' }],
-    recipient: [{ label: '⭐ My reputation', path: '/recipient/reputation' }],
-    contractor: [{ label: '🧰 Contractor profile', path: '/contractor/profile' }],
-    seller: [{ label: '🏡 My listings', path: '/land/my-listings' }],
+  const roleProfileLink: Record<string, { label: string; sub: string; path: string }> = {
+    funder: { label: 'Transaction history', sub: 'Every deposit, release and refund', path: '/funder/transactions' },
+    recipient: { label: 'My reputation', sub: 'Ratings from funders you\'ve worked with', path: '/recipient/reputation' },
+    contractor: { label: 'Contractor profile', sub: 'Certifications, availability & rate card', path: '/contractor/profile' },
+    seller: { label: 'My listings', sub: 'Manage everything you have for sale', path: '/land/my-listings' },
   }
 
   const key = role ?? 'funder'
+  const notifBadge = unreadNotifications > 0
+    ? <span className="rounded-full px-2 py-0.5 text-[10px] font-bold flex-shrink-0" style={{ background: C.seal, color: '#fff', fontFamily: FONT.mono }}>{unreadNotifications}</span>
+    : undefined
 
   return (
     <AppShell>
-      <Header title="Profile" back tone="dark" background={C.forest}>
+      <Header title="Menu" back tone="dark" background={C.forest}>
         <div className="text-center">
           <div className="w-20 h-20 rounded-full flex items-center justify-center text-white text-3xl font-bold mx-auto mb-3" style={{ background: 'rgba(255,255,255,0.2)', fontFamily: FONT.serif }}>
             {name ? name[0] : 'M'}
@@ -365,10 +357,10 @@ export function ProfileScreen() {
         </div>
       </Header>
 
-      <div className="px-5 py-5 space-y-4 sm:mx-auto sm:max-w-2xl">
+      <div className="px-5 py-6 space-y-7 sm:mx-auto sm:max-w-3xl">
         <div className="grid grid-cols-3 gap-3">
           {roleStats[key].map(({ label, value }) => (
-            <Card key={label}>
+            <Card key={label} variant="glass">
               <div className="p-3 text-center">
                 <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{value}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{label}</div>
@@ -377,23 +369,69 @@ export function ProfileScreen() {
           ))}
         </div>
 
-        <div className="space-y-2">
-          {[
-            ...roleLinks[key],
-            { label: '⚙️ Settings', path: '/shared/settings' },
-            { label: '🔔 Notifications', path: '/shared/notifications' },
-            { label: '❓ How Mboa Trust works', path: '/shared/help' },
-          ].map(({ label, path }) => (
-            <button key={label} onClick={() => nav(path)}
-              className="w-full flex items-center justify-between px-4 py-4 rounded-xl border text-left"
-              style={{ background: C.white, borderColor: C.parchmentDark }}>
-              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{label}</span>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M4 3L9 7L4 11" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
-            </button>
-          ))}
+        <GroupedLinks
+          title="Your account"
+          items={[
+            { label: roleProfileLink[key].label, sub: roleProfileLink[key].sub, action: () => nav(roleProfileLink[key].path) },
+            { label: 'ID verification (KYC/AML)', sub: kycLabel[myKyc.status], action: () => nav('/compliance/kyc') },
+            { label: 'Switch role', sub: 'Change or add a primary role', action: () => nav('/role') },
+          ]}
+        />
+
+        <GroupedLinks
+          title="Communication"
+          items={[
+            { label: 'Messages', sub: 'Chat with recipients, contractors & sellers', action: () => nav('/messages') },
+            { label: 'Notifications', sub: unreadNotifications > 0 ? `${unreadNotifications} unread` : 'You\'re all caught up', action: () => nav('/shared/notifications'), right: notifBadge },
+            { label: 'Activity log', sub: 'Full audit trail across your account', action: () => nav('/activity') },
+          ]}
+        />
+
+        <GroupedLinks
+          title="Community"
+          items={[
+            { label: 'Diaspora group dashboard', sub: 'Shared funding across your association', action: () => nav('/groups/dashboard') },
+            { label: 'Group members', sub: 'View & invite members', action: () => nav('/groups/members') },
+            { label: 'Refer a friend', sub: 'Earn rewards for invites', action: () => nav('/referrals') },
+            { label: 'Public project showcase', sub: 'Browse completed projects — no login', action: () => nav('/showcase') },
+          ]}
+        />
+
+        <GroupedLinks
+          title="Financial tools"
+          items={[
+            ...(key === 'funder' ? [
+              { label: 'Recurring contributions', sub: 'Manage scheduled automatic funding', action: () => nav('/funder/recurring') },
+              { label: 'Project templates', sub: 'Reusable milestone breakdowns', action: () => nav('/funder/templates') },
+              { label: 'Team & permissions', sub: 'Who can fund, approve, or view', action: () => nav('/workspace/team') },
+            ] : []),
+            { label: 'Currency converter', sub: 'Mock exchange rate & fee calculator', action: () => nav('/tools/currency-converter') },
+          ]}
+        />
+
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Platform administration</div>
+          <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs mb-2 leading-relaxed">Staff tooling for verifiers and platform admins — not part of your personal account.</p>
+          <GroupedLinks
+            title=""
+            dashed
+            items={[
+              { label: 'Register as verifier', sub: 'Set up a verifier profile', action: () => nav('/verifier/register') },
+              { label: 'Verifier dashboard', sub: 'Review verification tasks', action: () => nav('/verifier/dashboard') },
+              { label: 'Admin panel', sub: 'Platform overview & management', action: () => nav('/admin') },
+              { label: 'Dispute resolution', sub: 'Manage open disputes', action: () => nav('/admin/disputes') },
+              { label: 'Fraud & dispute analytics', sub: 'Flagged patterns across the platform', action: () => nav('/admin/fraud-analytics') },
+            ]}
+          />
         </div>
+
+        <GroupedLinks
+          title="Preferences & support"
+          items={[
+            { label: 'Settings', sub: 'Appearance, security, linked accounts', action: () => nav('/shared/settings') },
+            { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help') },
+          ]}
+        />
       </div>
     </AppShell>
   )

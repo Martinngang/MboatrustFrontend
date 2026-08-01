@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useMarketplace, MATERIALS, REGIONS, estimateMaterialPrice } from '../marketplace'
 import { C, FONT, AppShell, PillButton, Header } from '../components/MobileLayout'
+import { ChipGroup } from '../components/Chip'
 
 // ── Add certification ────────────────────────────────────────────────────────────
 export function AddCertificationScreen() {
@@ -28,7 +29,7 @@ export function AddCertificationScreen() {
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: '#FFF7E6' }}>
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-warning-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               <rect x="6" y="4" width="24" height="28" rx="2" stroke={C.amber} strokeWidth="2" />
               <path d="M13 16L16 19L23 12" stroke={C.amber} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -66,7 +67,7 @@ export function AddCertificationScreen() {
           <button
             onClick={() => setUploaded(true)}
             className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-            style={{ borderColor: uploaded ? C.forest : C.parchmentDark, background: uploaded ? '#F0FDF4' : C.white }}
+            style={{ borderColor: uploaded ? C.forest : C.parchmentDark, background: uploaded ? 'var(--status-success-bg)' : C.white }}
           >
             {uploaded ? (
               <>
@@ -113,28 +114,12 @@ export function MaterialCostEstimatorScreen() {
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Material</label>
-          <div className="flex flex-wrap gap-2">
-            {MATERIALS.map((m) => (
-              <button key={m.name} onClick={() => setMaterial(m.name)}
-                className="px-3 py-1.5 rounded-full text-xs transition-all"
-                style={{ background: material === m.name ? C.forest : C.parchment, color: material === m.name ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-                {m.name}
-              </button>
-            ))}
-          </div>
+          <ChipGroup options={MATERIALS.map((m) => m.name)} value={material} onChange={(v) => setMaterial(v as string)} />
         </div>
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Region</label>
-          <div className="flex flex-wrap gap-2">
-            {REGIONS.map((r) => (
-              <button key={r} onClick={() => setRegion(r)}
-                className="px-3 py-1.5 rounded-full text-xs transition-all"
-                style={{ background: region === r ? C.forest : C.parchment, color: region === r ? C.white : C.inkMuted, fontFamily: FONT.mono }}>
-                {r}
-              </button>
-            ))}
-          </div>
+          <ChipGroup options={[...REGIONS]} value={region} onChange={(v) => setRegion(v as string)} />
         </div>
 
         <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
@@ -229,8 +214,8 @@ export function AvailabilityCalendarScreen() {
                   onClick={() => toggleAvailability(contractor.id, key)}
                   className="aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
                   style={{
-                    background: status === 'unavailable' ? '#FEE2E2' : '#F0FDF4',
-                    color: status === 'unavailable' ? '#991B1B' : '#166534',
+                    background: status === 'unavailable' ? 'var(--status-error-bg)' : 'var(--status-success-bg)',
+                    color: status === 'unavailable' ? 'var(--status-error-text)' : 'var(--status-success-text)',
                     opacity: isPast ? 0.35 : 1,
                     cursor: disabled ? 'default' : 'pointer',
                   }}
@@ -244,11 +229,11 @@ export function AvailabilityCalendarScreen() {
 
         <div className="flex items-center gap-4 mt-4">
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded" style={{ background: '#F0FDF4', border: '1px solid #86EFAC' }} />
+            <div className="w-3 h-3 rounded" style={{ background: 'var(--status-success-bg)', border: `1px solid ${C.forestLight}` }} />
             <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-wider">Available</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded" style={{ background: '#FEE2E2', border: '1px solid #FECACA' }} />
+            <div className="w-3 h-3 rounded" style={{ background: 'var(--status-error-bg)', border: '1px solid var(--status-error-text)' }} />
             <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-wider">Unavailable</span>
           </div>
         </div>

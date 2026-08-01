@@ -7,6 +7,9 @@ import { C, FONT, AppShell, Header, Card, PillButton, StatusBadge, ThemeToggle }
 import { ContactPicker, type PickedContact } from '../components/ContactPicker'
 import { BeforeAfterComparison } from '../components/BeforeAfterComparison'
 import { InstallButton } from '../components/InstallButton'
+import { EmptyState } from '../components/EmptyState'
+import { ChipGroup } from '../components/Chip'
+import { StaggerList, StaggerItem } from '../components/Stagger'
 
 // ── Diaspora group: organization profile setup ────────────────────────────────
 export function GroupSetupScreen() {
@@ -112,24 +115,26 @@ export function GroupMembersScreen() {
           </div>
         )}
 
-        <div className="space-y-2">
+        <StaggerList className="space-y-2">
           {groupMembers.map((m) => (
-            <Card key={m.id}>
-              <div className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                  {m.name[0]}
+            <StaggerItem key={m.id}>
+              <Card>
+                <div className="p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                    {m.name[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{m.name}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{m.phone} · Joined {m.joinedDate}</div>
+                  </div>
+                  {m.role === 'admin' && (
+                    <span className="rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning-text)', fontFamily: FONT.mono }}>Admin</span>
+                  )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{m.name}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{m.phone} · Joined {m.joinedDate}</div>
-                </div>
-                {m.role === 'admin' && (
-                  <span className="rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: '#FEF3C7', color: '#92400E', fontFamily: FONT.mono }}>Admin</span>
-                )}
-              </div>
-            </Card>
+              </Card>
+            </StaggerItem>
           ))}
-        </div>
+        </StaggerList>
       </div>
     </AppShell>
   )
@@ -199,44 +204,49 @@ export function GroupDashboardScreen() {
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Per-member contribution</p>
-          <div className="space-y-2">
+          <StaggerList className="space-y-2">
             {memberContributions.map(({ member, total, projectCount }) => (
-              <Card key={member.id}>
-                <div className="p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 text-sm" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                      {member.name[0]}
+              <StaggerItem key={member.id}>
+                <Card>
+                  <div className="p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0 text-sm" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                        {member.name[0]}
+                      </div>
+                      <div className="min-w-0">
+                        <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{member.name}</div>
+                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{projectCount} project{projectCount === 1 ? '' : 's'} funded</div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{member.name}</div>
-                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{projectCount} project{projectCount === 1 ? '' : 's'} funded</div>
-                    </div>
+                    <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold flex-shrink-0">{fmt(total)}</span>
                   </div>
-                  <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold flex-shrink-0">{fmt(total)}</span>
-                </div>
-              </Card>
+                </Card>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerList>
         </div>
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Projects the group has funded</p>
-          <div className="space-y-2">
-            {fundedProjects.length === 0 && (
-              <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">No projects funded by group members yet.</p>
-            )}
-            {fundedProjects.map((p) => (
-              <Card key={p.id} onClick={() => nav(`/funder/project/${p.id}`)}>
-                <div className="p-4 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{p.title}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.location}</div>
-                  </div>
-                  <StatusBadge status={p.status} />
-                </div>
-              </Card>
-            ))}
-          </div>
+          {fundedProjects.length === 0 ? (
+            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">No projects funded by group members yet.</p>
+          ) : (
+            <StaggerList className="space-y-2">
+              {fundedProjects.map((p) => (
+                <StaggerItem key={p.id}>
+                  <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
+                    <div className="p-4 flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{p.title}</div>
+                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.location}</div>
+                      </div>
+                      <StatusBadge status={p.status} />
+                    </div>
+                  </Card>
+                </StaggerItem>
+              ))}
+            </StaggerList>
+          )}
         </div>
       </div>
     </AppShell>
@@ -246,9 +256,14 @@ export function GroupDashboardScreen() {
 function EmptyGroupState() {
   const nav = useNavigate()
   return (
-    <div className="px-5 py-16 text-center sm:mx-auto sm:max-w-md">
-      <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-4">You haven't set up a diaspora group yet.</p>
-      <PillButton onClick={() => nav('/groups/create')}>Create a group</PillButton>
+    <div className="px-5 sm:mx-auto sm:max-w-md">
+      <EmptyState
+        icon="👥"
+        title="No diaspora group yet"
+        description="Set up a shared account so members can pool contributions and track every project you fund together."
+        illustration="tilt"
+        action={<PillButton onClick={() => nav('/groups/create')}>Create a group</PillButton>}
+      />
     </div>
   )
 }
@@ -287,13 +302,13 @@ export function ReferralScreen() {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Card>
+          <Card variant="glass">
             <div className="p-4 text-center">
               <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">{referrals.length}</div>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">Total referred</div>
             </div>
           </Card>
-          <Card>
+          <Card variant="glass">
             <div className="p-4 text-center">
               <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-lg font-bold">{fmt(totalRewards)}</div>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">Rewards earned</div>
@@ -312,19 +327,21 @@ export function ReferralScreen() {
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Your referrals</p>
-          <div className="space-y-2">
+          <StaggerList className="space-y-2">
             {referrals.map((r) => (
-              <Card key={r.id}>
-                <div className="p-4 flex items-center justify-between">
-                  <div>
-                    <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{r.name}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.date}{r.status === 'rewarded' ? ` · +${fmt(REFERRAL_REWARD_XAF)}` : ''}</div>
+              <StaggerItem key={r.id}>
+                <Card>
+                  <div className="p-4 flex items-center justify-between">
+                    <div>
+                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{r.name}</div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.date}{r.status === 'rewarded' ? ` · +${fmt(REFERRAL_REWARD_XAF)}` : ''}</div>
+                    </div>
+                    <StatusBadge status={REFERRAL_STATUS_MAP[r.status]} />
                   </div>
-                  <StatusBadge status={REFERRAL_STATUS_MAP[r.status]} />
-                </div>
-              </Card>
+                </Card>
+              </StaggerItem>
             ))}
-          </div>
+          </StaggerList>
         </div>
       </div>
     </AppShell>
@@ -426,51 +443,36 @@ export function PublicShowcaseScreen() {
           </p>
         </div>
 
-        <div className="mb-3 flex flex-wrap gap-2">
-          {categories.map((c) => (
-            <button
-              key={c}
-              onClick={() => setCategory(c)}
-              className="rounded-full px-4 py-2 text-xs font-semibold transition-all"
-              style={{ fontFamily: FONT.sans, background: category === c ? C.forest : C.white, color: category === c ? C.white : C.inkMuted, border: `1px solid ${category === c ? C.forest : C.parchmentDark}` }}
-            >
-              {c}
-            </button>
-          ))}
+        <div className="mb-3">
+          <ChipGroup options={categories} value={category} onChange={(v) => setCategory(v as string)} />
         </div>
-        <div className="mb-8 flex flex-wrap gap-2">
-          {regions.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRegion(r)}
-              className="rounded-full px-4 py-2 text-xs font-semibold transition-all"
-              style={{ fontFamily: FONT.sans, background: region === r ? C.amber : C.white, color: region === r ? C.white : C.inkMuted, border: `1px solid ${region === r ? C.amber : C.parchmentDark}` }}
-            >
-              {r}
-            </button>
-          ))}
+        <div className="mb-8">
+          <ChipGroup options={regions} value={region} onChange={(v) => setRegion(v as string)} tone="amber" />
         </div>
 
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((p) => (
-            <div key={p.id} className="rounded-[24px] border overflow-hidden" style={{ borderColor: C.parchmentDark, background: C.white }}>
-              <div className="p-3 pb-0">
-                <BeforeAfterComparison beforeSrc={p.beforeImage} afterSrc={p.afterImage} />
-              </div>
-              <div className="p-5">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.region}</div>
-                <div style={{ fontFamily: FONT.serif }} className="mt-1 text-base font-bold">{p.title}</div>
-                <div className="mt-3 flex items-center justify-between">
-                  <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold">{fmt(p.fundedAmount)}</span>
-                  <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.completedDate}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-sm col-span-full text-center py-10">No projects match these filters.</p>
-          )}
-        </div>
+        {filtered.length === 0 ? (
+          <EmptyState icon="🏗️" title="No projects match these filters" illustration="tilt" />
+        ) : (
+          <StaggerList className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((p) => (
+              <StaggerItem key={p.id}>
+                <Card variant="elevated" tilt>
+                  <div className="p-3 pb-0">
+                    <BeforeAfterComparison beforeSrc={p.beforeImage} afterSrc={p.afterImage} />
+                  </div>
+                  <div className="p-5">
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.region}</div>
+                    <div style={{ fontFamily: FONT.serif }} className="mt-1 text-base font-bold">{p.title}</div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold">{fmt(p.fundedAmount)}</span>
+                      <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.completedDate}</span>
+                    </div>
+                  </div>
+                </Card>
+              </StaggerItem>
+            ))}
+          </StaggerList>
+        )}
       </div>
     </div>
   )

@@ -5,6 +5,10 @@ import { useFunding, type RecurringFrequency, type RecurringEndType } from '../f
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, PillButton, Header } from '../components/MobileLayout'
 import { ContactPicker, type PickedContact } from '../components/ContactPicker'
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
+import { ChipGroup } from '../components/Chip'
+import { EmptyState } from '../components/EmptyState'
+import { StaggerList, StaggerItem } from '../components/Stagger'
+import { ConfirmDialog } from '../components/Modal'
 
 // ── Group / pooled funding ───────────────────────────────────────────────────────
 export function PooledFundingScreen() {
@@ -38,33 +42,36 @@ export function PooledFundingScreen() {
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Contributors ({list.length})</p>
-          <div className="space-y-2">
-            {list.map((c) => {
-              const share = Math.round((c.amount / project.totalAmount) * 100)
-              return (
-                <Card key={c.id}>
-                  <div className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                        {c.name[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{c.name}{c.isYou ? ' (You)' : ''}</span>
-                          <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold whitespace-nowrap">{fmt(c.amount)}</span>
+          {list.length === 0 ? (
+            <EmptyState icon="🤝" title="No contributors yet" description="Be the first, or invite someone." illustration="tilt" />
+          ) : (
+            <StaggerList className="space-y-2">
+              {list.map((c) => {
+                const share = Math.round((c.amount / project.totalAmount) * 100)
+                return (
+                  <StaggerItem key={c.id}>
+                    <Card>
+                      <div className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                            {c.name[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{c.name}{c.isYou ? ' (You)' : ''}</span>
+                              <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold whitespace-nowrap">{fmt(c.amount)}</span>
+                            </div>
+                            <div className="mt-1.5"><ProgressBar pct={share} /></div>
+                            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">{share}% of goal · {c.date}</div>
+                          </div>
                         </div>
-                        <div className="mt-1.5"><ProgressBar pct={share} /></div>
-                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">{share}% of goal · {c.date}</div>
                       </div>
-                    </div>
-                  </div>
-                </Card>
-              )
-            })}
-            {list.length === 0 && (
-              <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No contributors yet — be the first, or invite someone.</div></Card>
-            )}
-          </div>
+                    </Card>
+                  </StaggerItem>
+                )
+              })}
+            </StaggerList>
+          )}
         </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.parchment }}>
@@ -128,8 +135,8 @@ export function InviteCoFunderScreen() {
       <Header title="Invite a Co-funder" subtitle={project.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl border p-3" style={{ background: '#EFF6FF', borderColor: '#BFDBFE' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#1E40AF' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
             Invite family, friends, or your diaspora association to pool funds toward this project together. Each contribution is tracked separately.
           </p>
         </div>
@@ -205,15 +212,7 @@ export function RecurringContributionSetupScreen() {
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Frequency</label>
-          <div className="grid grid-cols-3 gap-2">
-            {(['weekly', 'monthly', 'quarterly'] as const).map((f) => (
-              <button key={f} onClick={() => setFrequency(f)}
-                className="py-2.5 rounded-xl text-xs font-semibold capitalize transition-all"
-                style={{ background: frequency === f ? C.forest : C.parchment, color: frequency === f ? C.white : C.inkMuted, fontFamily: FONT.sans }}>
-                {f}
-              </button>
-            ))}
-          </div>
+          <ChipGroup options={['weekly', 'monthly', 'quarterly']} value={frequency} onChange={(v) => setFrequency(v as RecurringFrequency)} />
         </div>
 
         <div>
@@ -226,7 +225,7 @@ export function RecurringContributionSetupScreen() {
             ] as const).map((opt) => (
               <button key={opt.v} onClick={() => setEndType(opt.v)}
                 className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-all"
-                style={{ borderColor: endType === opt.v ? C.forest : C.parchmentDark, background: endType === opt.v ? '#F0FDF4' : C.white }}>
+                style={{ borderColor: endType === opt.v ? C.forest : C.parchmentDark, background: endType === opt.v ? 'var(--status-success-bg)' : C.white }}>
                 <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: endType === opt.v ? C.forest : C.inkSubtle }}>
                   {endType === opt.v && <div className="w-2 h-2 rounded-full" style={{ background: C.forest }} />}
                 </div>
@@ -253,8 +252,8 @@ export function RecurringContributionSetupScreen() {
           </div>
         )}
 
-        <div className="rounded-xl border p-3" style={{ background: '#F0FDF4', borderColor: '#86EFAC' }}>
-          <p style={{ fontFamily: FONT.sans, color: '#15803D' }} className="text-xs leading-relaxed">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
             Each contribution is charged via your linked MoMo/Orange Money account and added to escrow automatically.
           </p>
         </div>
@@ -271,6 +270,8 @@ export function RecurringContributionSetupScreen() {
 export function ManageRecurringScreen() {
   const nav = useNavigate()
   const { recurringContributions, pauseRecurring, resumeRecurring, cancelRecurring } = useFunding()
+  const [cancelingId, setCancelingId] = useState<string | null>(null)
+  const cancelTarget = recurringContributions.find((r) => r.id === cancelingId)
 
   return (
     <AppShell>
@@ -280,41 +281,52 @@ export function ManageRecurringScreen() {
         action={<button onClick={() => nav('/funder/browse')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">+ New</button>}
       />
 
-      <div className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
-        {recurringContributions.map((r) => (
-          <Card key={r.id}>
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{r.projectTitle}</div>
-                <StatusBadge status={r.status === 'active' ? 'approved' : r.status === 'paused' ? 'pending' : 'rejected'} />
-              </div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{fmt(r.amount)} · {r.frequency}</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] mb-3">
-                {r.status === 'active' ? `Next charge: ${r.nextChargeDate}` : r.status === 'paused' ? 'Paused' : 'Cancelled'}
-                {r.endType === 'until_date' && r.endDate && ` · Ends ${r.endDate}`}
-                {r.endType === 'occurrences' && r.occurrences && ` · ${r.occurrences} total`}
-              </div>
-              {r.status !== 'cancelled' && (
-                <div className="flex gap-2 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                  {r.status === 'active' ? (
-                    <button onClick={() => pauseRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Pause</button>
-                  ) : (
-                    <button onClick={() => resumeRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resume</button>
+      {recurringContributions.length === 0 ? (
+        <div className="px-5 py-4">
+          <EmptyState icon="🔁" title="No recurring contributions yet" description="Set one up from any project's funding page." illustration="tilt" />
+        </div>
+      ) : (
+        <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+          {recurringContributions.map((r) => (
+            <StaggerItem key={r.id}>
+              <Card>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{r.projectTitle}</div>
+                    <StatusBadge status={r.status === 'active' ? 'approved' : r.status === 'paused' ? 'pending' : 'rejected'} />
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{fmt(r.amount)} · {r.frequency}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] mb-3">
+                    {r.status === 'active' ? `Next charge: ${r.nextChargeDate}` : r.status === 'paused' ? 'Paused' : 'Cancelled'}
+                    {r.endType === 'until_date' && r.endDate && ` · Ends ${r.endDate}`}
+                    {r.endType === 'occurrences' && r.occurrences && ` · ${r.occurrences} total`}
+                  </div>
+                  {r.status !== 'cancelled' && (
+                    <div className="flex gap-2 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
+                      {r.status === 'active' ? (
+                        <button onClick={() => pauseRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Pause</button>
+                      ) : (
+                        <button onClick={() => resumeRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resume</button>
+                      )}
+                      <button onClick={() => setCancelingId(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Cancel</button>
+                    </div>
                   )}
-                  <button onClick={() => cancelRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: '#FECACA', color: '#DC2626', fontFamily: FONT.sans }}>Cancel</button>
                 </div>
-              )}
-            </div>
-          </Card>
-        ))}
-        {recurringContributions.length === 0 && (
-          <div className="col-span-full text-center py-16">
-            <div className="text-4xl mb-4">🔁</div>
-            <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold mb-1">No recurring contributions yet</div>
-            <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">Set one up from any project's funding page.</div>
-          </div>
-        )}
-      </div>
+              </Card>
+            </StaggerItem>
+          ))}
+        </StaggerList>
+      )}
+
+      <ConfirmDialog
+        open={!!cancelTarget}
+        onCancel={() => setCancelingId(null)}
+        onConfirm={() => { if (cancelingId) cancelRecurring(cancelingId); setCancelingId(null) }}
+        title="Cancel this recurring contribution?"
+        description={cancelTarget ? `You'll stop automatically contributing ${fmt(cancelTarget.amount)} ${cancelTarget.frequency} to ${cancelTarget.projectTitle}. You can always set up a new one later.` : undefined}
+        confirmLabel="Cancel contribution"
+        danger
+      />
     </AppShell>
   )
 }

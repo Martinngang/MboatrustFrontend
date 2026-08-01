@@ -1,9 +1,11 @@
 import { useNavigate, useLocation } from 'react-router-dom'
+import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../context'
 import { useTheme } from '../theme'
-import { ConnectivityBar } from './ConnectivityBar'
-import { InstallButton } from './InstallButton'
+import { Tilt3D } from './Tilt3D'
 import type { ReactNode } from 'react'
+// AppShell (sidebar/top-bar/command-palette) lives in ./shell/AppShell and is
+// re-exported below — kept out of this already-large file.
 
 // ── Shared style tokens ──────────────────────────────────────────────────────
 // These resolve through CSS custom properties (see index.css) so every screen
@@ -22,7 +24,7 @@ export const C = {
   parchmentDark: 'var(--color-parchment-dark)',
   cream: 'var(--color-cream)',
   seal: 'var(--color-seal)',
-  white: 'var(--color-white)',
+  white: 'var(--color-surface)',
   // Role-accent tokens — used only for dashboard hero differentiation between roles.
   steel: 'var(--color-steel)',
   moss: 'var(--color-moss)',
@@ -31,7 +33,43 @@ export const C = {
   glassBorder: 'var(--surface-glass-border)',
   navGlassBg: 'var(--nav-glass-bg)',
   navGlassBorder: 'var(--nav-glass-border)',
+  // High-contrast border + accent glow for premium hover/active states — same
+  // green identity in both themes, just brighter against the dark surface.
+  borderBright: 'var(--border-bright)',
+  glowPrimary: 'var(--glow-primary)',
+  // Elevation scale — colored, soft shadows tinted to the active theme,
+  // replacing hand-written box-shadow strings scattered per screen.
+  shadowSm: 'var(--shadow-sm)',
+  shadowMd: 'var(--shadow-md)',
+  shadowLg: 'var(--shadow-lg)',
+  shadowXl: 'var(--shadow-xl)',
+  glowForest: 'rgba(var(--glow-primary-rgb), 0.35)',
+  glowAmber: 'rgba(var(--glow-amber-rgb), 0.35)',
+  // Named gradients, formalizing patterns already used inline throughout.
+  gradientPrimary: 'var(--gradient-primary)',
+  gradientSurface: 'var(--gradient-surface)',
+  gradientAmber: 'var(--gradient-amber)',
+  gradientMesh: 'var(--gradient-mesh)',
+  // Semantic brand aliases (obsidian/gold/emerald) — same underlying vars as
+  // forest/amber/cream above, named for the shell/data-view layer so new code
+  // reads on-brand without duplicating the token values.
+  emerald: 'var(--color-forest)',
+  emeraldLight: 'var(--color-forest-light)',
+  emeraldDark: 'var(--color-forest-dark)',
+  gold: 'var(--color-amber)',
+  goldLight: 'var(--color-amber-light)',
+  obsidian: 'var(--color-cream)',
+  obsidianSurface: 'var(--color-parchment)',
 }
+
+// ── Typography convention ────────────────────────────────────────────────────
+// Eyebrow:  text-[10px] uppercase tracking-[0.3em] + FONT.mono
+// Display:  text-3xl sm:text-4xl font-bold        + FONT.serif  (hero/page-level only)
+// H1/title: text-2xl font-bold                    + FONT.serif
+// H2/section: text-lg font-semibold               + FONT.serif
+// Body:     text-sm                               + FONT.sans
+// Caption:  text-xs uppercase tracking-wide        + FONT.mono
+// Converge new screens on this pairing table instead of drifting per-screen.
 
 export const FONT = {
   serif: "'Playfair Display', Georgia, serif",
@@ -40,27 +78,42 @@ export const FONT = {
 }
 
 // ── Status badge ─────────────────────────────────────────────────────────────
+// Statuses route through 5 semantic tones (--status-*-bg/-text in index.css)
+// so dark mode gets real theme-aware colors instead of the light-only hex
+// pairs this used to hardcode per status string.
+export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral'
+export const STATUS_TONE_VARS: Record<StatusTone, { bg: string; text: string }> = {
+  success: { bg: 'var(--status-success-bg)', text: 'var(--status-success-text)' },
+  warning: { bg: 'var(--status-warning-bg)', text: 'var(--status-warning-text)' },
+  error: { bg: 'var(--status-error-bg)', text: 'var(--status-error-text)' },
+  info: { bg: 'var(--status-info-bg)', text: 'var(--status-info-text)' },
+  neutral: { bg: 'var(--status-neutral-bg)', text: 'var(--status-neutral-text)' },
+}
+const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
+  released: { tone: 'success', label: 'Released' },
+  under_review: { tone: 'warning', label: 'Under review' },
+  pending: { tone: 'neutral', label: 'Pending' },
+  disputed: { tone: 'error', label: 'Disputed' },
+  active: { tone: 'success', label: 'Active' },
+  completed: { tone: 'info', label: 'Completed' },
+  accepted: { tone: 'success', label: 'Accepted' },
+  rejected: { tone: 'error', label: 'Rejected' },
+  verified: { tone: 'success', label: 'Verified' },
+  unverified: { tone: 'warning', label: 'Pending verification' },
+  in_progress: { tone: 'warning', label: 'In progress' },
+  submitted: { tone: 'success', label: 'Submitted' },
+  flagged: { tone: 'error', label: 'Flagged' },
+  approved: { tone: 'success', label: 'Approved' },
+  open: { tone: 'success', label: 'Open' },
+  awarded: { tone: 'info', label: 'Awarded' },
+  closed: { tone: 'neutral', label: 'Closed' },
+}
 export function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { bg: string; text: string; label: string }> = {
-    released: { bg: '#D1FAE5', text: '#065F46', label: 'Released' },
-    under_review: { bg: '#FEF3C7', text: '#92400E', label: 'Under review' },
-    pending: { bg: '#F3F4F6', text: '#6B7280', label: 'Pending' },
-    disputed: { bg: '#FEE2E2', text: '#991B1B', label: 'Disputed' },
-    active: { bg: '#DCFCE7', text: '#166534', label: 'Active' },
-    completed: { bg: '#E0F2FE', text: '#0369A1', label: 'Completed' },
-    accepted: { bg: '#D1FAE5', text: '#065F46', label: 'Accepted' },
-    rejected: { bg: '#FEE2E2', text: '#991B1B', label: 'Rejected' },
-    verified: { bg: '#D1FAE5', text: '#065F46', label: 'Verified' },
-    unverified: { bg: '#FEF3C7', text: '#92400E', label: 'Pending verification' },
-    in_progress: { bg: '#FEF3C7', text: '#92400E', label: 'In progress' },
-    submitted: { bg: '#D1FAE5', text: '#065F46', label: 'Submitted' },
-    flagged: { bg: '#FEE2E2', text: '#991B1B', label: 'Flagged' },
-    approved: { bg: '#D1FAE5', text: '#065F46', label: 'Approved' },
-  }
-  const s = map[status] ?? { bg: '#F3F4F6', text: '#6B7280', label: status }
+  const s = STATUS_MAP[status] ?? { tone: 'neutral' as const, label: status }
+  const { bg, text } = STATUS_TONE_VARS[s.tone]
   return (
     <span
-      style={{ fontFamily: FONT.mono, background: s.bg, color: s.text }}
+      style={{ fontFamily: FONT.mono, background: bg, color: text }}
       className="text-[9px] uppercase tracking-widest px-2 py-0.5 rounded-full"
     >
       {s.label}
@@ -98,6 +151,37 @@ export function ThemeToggle({ dark }: { dark?: boolean }) {
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
           <path d="M14 9.8A6.2 6.2 0 116.2 2 5 5 0 0014 9.8Z" stroke={stroke} strokeWidth="1.4" strokeLinejoin="round" />
         </svg>
+      )}
+    </button>
+  )
+}
+
+// ── Notification bell ───────────────────────────────────────────────────────
+/** Global unread-notifications entry point — lives in both the mobile top bar
+ * and the desktop header so notifications are always one tap away instead of
+ * buried inside Settings or bolted onto a single role's dashboard. */
+export function NotificationBell({ dark }: { dark?: boolean }) {
+  const nav = useNavigate()
+  const { unreadNotifications } = useApp()
+  const stroke = dark ? '#FFFFFF' : C.ink
+  return (
+    <button
+      onClick={() => nav('/shared/notifications')}
+      aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
+      className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors"
+      style={{ background: dark ? 'rgba(255,255,255,0.14)' : C.parchment }}
+    >
+      <svg width="15" height="15" viewBox="0 0 18 18" fill="none">
+        <path d="M9 2C6 2 4 4.5 4 7V11L2 13H16L14 11V7C14 4.5 12 2 9 2Z" stroke={stroke} strokeWidth="1.3" />
+        <path d="M7 13C7 14.1 7.9 15 9 15C10.1 15 11 14.1 11 13" stroke={stroke} strokeWidth="1.3" />
+      </svg>
+      {unreadNotifications > 0 && (
+        <span
+          className="absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-bold"
+          style={{ background: C.seal, color: '#fff', fontFamily: FONT.mono }}
+        >
+          {unreadNotifications > 9 ? '9+' : unreadNotifications}
+        </span>
       )}
     </button>
   )
@@ -154,50 +238,76 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
   )
 }
 
-// ── Bottom tab nav ────────────────────────────────────────────────────────────
-const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths: string[] }[]> = {
+// ── Primary navigation ──────────────────────────────────────────────────────
+// Drives both the mobile bottom nav and the desktop sidebar from one source
+// of truth. Each role gets 5 destinations — the ones used often enough to
+// deserve a permanent slot. Single-shot actions (create a project, submit
+// proof) live as header buttons on the relevant list screen instead of
+// eating a tab; "Menu" is the hub for everything else (see ProfileScreen).
+export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths: string[] }[]> = {
   funder: [
     { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <GridIcon />, label: 'Projects', paths: ['/funder/browse', '/funder/project'] },
-    { icon: <PlusIcon />, label: 'Create', paths: ['/funder/create'] },
-    { icon: <ReceiptIcon />, label: 'Activity', paths: ['/funder/transactions'] },
-    { icon: <UserIcon />, label: 'Profile', paths: ['/shared/profile'] },
+    { icon: <GridIcon />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/create'] },
+    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
+    { icon: <ReceiptIcon />, label: 'Activity', paths: ['/activity'] },
+    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   recipient: [
     { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
     { icon: <GridIcon />, label: 'Projects', paths: ['/recipient/projects', '/recipient/submit', '/recipient/submission-status', '/recipient/history'] },
-    { icon: <UploadIcon />, label: 'Submit', paths: ['/recipient/submit'] },
+    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
     { icon: <WalletIcon />, label: 'Wallet', paths: ['/recipient/withdrawal'] },
-    { icon: <UserIcon />, label: 'Profile', paths: ['/shared/profile'] },
+    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   contractor: [
     { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <BriefcaseIcon />, label: 'Jobs', paths: ['/contractor/jobs', '/contractor/job'] },
-    { icon: <GridIcon />, label: 'My Bids', paths: ['/contractor/bids'] },
+    { icon: <BriefcaseIcon />, label: 'Jobs', paths: ['/workspace/jobs', '/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
+    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
     { icon: <WalletIcon />, label: 'Earnings', paths: ['/contractor/earnings'] },
-    { icon: <UserIcon />, label: 'Profile', paths: ['/shared/profile'] },
+    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   seller: [
     { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <MapIcon />, label: 'Browse', paths: ['/land/browse', '/land/listing'] },
-    { icon: <PlusIcon />, label: 'List', paths: ['/land/create'] },
-    { icon: <GridIcon />, label: 'My Listings', paths: ['/land/my-listings'] },
-    { icon: <UserIcon />, label: 'Profile', paths: ['/shared/profile'] },
+    { icon: <MapIcon />, label: 'Browse', paths: ['/workspace/land', '/land/browse', '/land/listing'] },
+    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
+    { icon: <GridIcon />, label: 'My Listings', paths: ['/land/my-listings', '/land/create'] },
+    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
   ],
 }
 
-const FUNDER_TABS = TAB_ROUTES.funder
+export const FUNDER_TABS = TAB_ROUTES.funder
+
+// Secondary "Workspace" links — desktop-only, sits below primary nav so
+// frequent-but-not-top-5 destinations don't require a trip through the Menu
+// hub. Same three for every role: broadly useful, not role-exclusive.
+export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[] = [
+  { icon: <ReceiptIcon />, label: 'Activity log', path: '/activity' },
+  { icon: <UsersIcon />, label: 'Community', path: '/groups/dashboard' },
+  { icon: <ConverterIcon />, label: 'Currency converter', path: '/tools/currency-converter' },
+  { icon: <GearIcon />, label: 'Settings', path: '/shared/settings' },
+]
+
+// Administrative tier — verifier & platform-staff tools. Visually and
+// structurally separated from the personal workspace above: real products
+// gate this behind a staff account, but since this app has no separate
+// staff login, we keep it reachable while making unmistakably clear it's a
+// different tier, not one more personal-settings item.
+export const ADMIN_LINKS: { label: string; path: string }[] = [
+  { label: 'Verifier dashboard', path: '/verifier/dashboard' },
+  { label: 'Admin panel', path: '/admin' },
+]
 
 export function BottomNav() {
   const { role } = useApp()
   const loc = useLocation()
   const nav = useNavigate()
+  const reduceMotion = useReducedMotion()
   const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
 
   return (
     <div
       className="flex border-t"
-      style={{ borderColor: C.parchmentDark, background: C.white }}
+      style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowMd }}
     >
       {tabs.map((tab) => {
         const active = tab.paths.some((p) => loc.pathname.startsWith(p))
@@ -205,12 +315,22 @@ export function BottomNav() {
           <button
             key={tab.label}
             onClick={() => nav(tab.paths[0])}
-            className="flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors"
+            className="relative flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors"
             style={{ color: active ? C.forest : C.inkSubtle }}
           >
-            <span className={`${active ? 'scale-110' : ''} transition-transform duration-200`}>{tab.icon}</span>
-            <span style={{ fontFamily: FONT.mono }} className="text-[9px] uppercase tracking-wider">
-              {tab.label}
+            {active && (
+              <motion.span
+                layoutId="bottomNavIndicator"
+                className="absolute top-0.5 z-0 h-8 w-11 rounded-xl"
+                style={{ background: C.parchment }}
+                transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex flex-col items-center gap-0.5">
+              <span className={`${active ? 'scale-110' : ''} transition-transform duration-200`}>{tab.icon}</span>
+              <span style={{ fontFamily: FONT.mono }} className="text-[9px] uppercase tracking-wider">
+                {tab.label}
+              </span>
             </span>
           </button>
         )
@@ -220,90 +340,11 @@ export function BottomNav() {
 }
 
 // ── Shell: wraps authenticated screens ───────────────────────────────────────
-export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boolean }) {
-  const { role } = useApp()
-  const loc = useLocation()
-  const nav = useNavigate()
-  const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
-
-  return (
-    <div className="min-h-screen w-full" style={{ background: `linear-gradient(135deg, ${C.cream} 0%, ${C.parchment} 100%)`, color: C.ink }}>
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col lg:flex-row">
-        <aside className="hidden w-72 flex-col border-r px-6 py-8 lg:flex" style={{ borderColor: C.parchmentDark, background: C.glassBg }}>
-          <div className="mb-8">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl" style={{ background: C.forest }}>
-                <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-                  <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.amber} strokeWidth="1.6" />
-                  <circle cx="11" cy="11" r="2.5" fill={C.amber} />
-                </svg>
-              </div>
-              <div>
-                <div style={{ fontFamily: FONT.serif }} className="text-lg font-semibold">Mboa Trust</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Web workspace</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Active role</div>
-            <div style={{ fontFamily: FONT.sans }} className="mt-2 text-sm font-semibold capitalize">{role ?? 'funder'}</div>
-          </div>
-
-          <nav className="mt-6 space-y-2">
-            {tabs.map((tab) => {
-              const active = tab.paths.some((p) => loc.pathname.startsWith(p))
-              return (
-                <button
-                  key={tab.label}
-                  onClick={() => nav(tab.paths[0])}
-                  className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all"
-                  style={{ background: active ? C.parchment : 'transparent', color: active ? C.forest : C.inkMuted }}
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: active ? C.forest : C.parchment, color: active ? C.white : C.ink }}>{tab.icon}</span>
-                  <span style={{ fontFamily: FONT.sans }} className="text-sm font-medium">{tab.label}</span>
-                </button>
-              )
-            })}
-          </nav>
-
-          <div className="mt-auto rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: `linear-gradient(135deg, ${C.parchment} 0%, ${C.parchmentDark} 100%)` }}>
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Design focus</div>
-            <div style={{ fontFamily: FONT.sans }} className="mt-2 text-sm font-semibold">Responsive workspace for desktop and mobile</div>
-          </div>
-        </aside>
-
-        <div className="flex flex-1 flex-col">
-          <header className="hidden border-b px-6 py-4 lg:flex" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <div className="flex w-full items-center justify-between">
-              <div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Premium experience</div>
-                <div style={{ fontFamily: FONT.serif }} className="text-lg font-semibold">Mboa Trust workspace</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <ConnectivityBar />
-                <InstallButton />
-                <ThemeToggle />
-                <button onClick={() => nav('/shared/settings')} className="rounded-full px-4 py-2 text-sm font-semibold transition-all" style={{ background: C.forest, color: C.white }}>
-                  Open settings
-                </button>
-              </div>
-            </div>
-          </header>
-
-          <main className="flex-1 overflow-y-auto">
-            <div className="flex items-center justify-between gap-2 px-4 pt-3 lg:hidden">
-              <InstallButton />
-              <ConnectivityBar />
-            </div>
-            <div className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-8 lg:py-8">{children}</div>
-          </main>
-          {!noNav && <div className="lg:hidden"><BottomNav /></div>}
-        </div>
-      </div>
-    </div>
-  )
-}
+// The full sidebar/top-bar/command-palette shell now lives in
+// src/components/shell/AppShell.tsx (management-app IA upgrade) — re-exported
+// here under the same name so every existing `import { AppShell } from
+// '../components/MobileLayout'` call site keeps working unchanged.
+export { AppShell } from './shell/AppShell'
 
 export function PageShell({ children, className = '', background = C.cream }: { children: ReactNode; className?: string; background?: string }) {
   return (
@@ -333,11 +374,10 @@ function GridIcon() {
     </svg>
   )
 }
-function PlusIcon() {
+function MessageIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M10 7V13M7 10H13" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M2 4.5C2 3.7 2.7 3 3.5 3H16.5C17.3 3 18 3.7 18 4.5V12.5C18 13.3 17.3 14 16.5 14H7L3 17.5V14H3.5C2.7 14 2 13.3 2 12.5V4.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -358,11 +398,29 @@ function UserIcon() {
     </svg>
   )
 }
-function UploadIcon() {
+function UsersIcon() {
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 13V5M7 8L10 5L13 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M4 14V16C4 16.6 4.4 17 5 17H15C15.6 17 16 16.6 16 16V14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1.5 17C1.5 13.5 4 11 7 11C10 11 12.5 13.5 12.5 17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M13 11.3C15.3 11.9 17 14.1 17 17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M12 4.2C13.2 4.6 14 5.7 14 7C14 8.3 13.2 9.4 12 9.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
+}
+function ConverterIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <path d="M3 7H15M15 7L11.5 3.5M15 7L11.5 10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M17 13H5M5 13L8.5 9.5M5 13L8.5 16.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+function GearIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M10 2.5V4.5M10 15.5V17.5M17.5 10H15.5M4.5 10H2.5M15.3 4.7L13.9 6.1M6.1 13.9L4.7 15.3M15.3 15.3L13.9 13.9M6.1 6.1L4.7 4.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   )
 }
@@ -393,14 +451,47 @@ function MapIcon() {
 }
 
 // ── Card component ─────────────────────────────────────────────────────────────
-export function Card({ children, className = '', onClick }: { children: ReactNode; className?: string; onClick?: () => void }) {
-  return (
+// variant: default (existing look, backward compatible) | elevated (deeper
+// shadow, no border) | glass (translucent + blur, formalizes the glass
+// styling already used ad hoc in DashboardShell) | interactive (spring
+// hover-lift instead of a CSS transition class).
+// tilt: composes Tilt3D for deliberate emphasis moments (opt-in, not blanket).
+export function Card({ children, className = '', onClick, variant = 'default', tilt = false }: {
+  children: ReactNode; className?: string; onClick?: () => void
+  variant?: 'default' | 'elevated' | 'glass' | 'interactive'; tilt?: boolean
+}) {
+  const base: Record<string, { background: string; border: string; boxShadow: string }> = {
+    default: { background: C.white, border: `1px solid ${C.parchmentDark}`, boxShadow: C.shadowSm },
+    elevated: { background: C.white, border: 'none', boxShadow: C.shadowLg },
+    glass: { background: C.glassBg, border: `1px solid ${C.glassBorder}`, boxShadow: C.shadowMd },
+    interactive: { background: C.white, border: `1px solid ${C.parchmentDark}`, boxShadow: C.shadowSm },
+  }
+  const s = base[variant]
+  const content = (
     <div
-      onClick={onClick}
-      className={`rounded-2xl border shadow-sm ${onClick ? 'cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg' : ''} ${className}`}
-      style={{ background: C.white, borderColor: C.parchmentDark }}
+      className={`rounded-2xl ${variant === 'glass' ? 'backdrop-blur-xl' : ''} ${className}`}
+      style={{ background: s.background, border: s.border, boxShadow: s.boxShadow }}
     >
       {children}
+    </div>
+  )
+  // tilt is a hover/visual effect, independent of clickability — a showcase
+  // card can tilt for emphasis without being navigable to anywhere.
+  const tilted = tilt ? <Tilt3D max={5}>{content}</Tilt3D> : content
+  if (!onClick) return tilted
+  if (tilt) {
+    return <div onClick={onClick} className="cursor-pointer">{tilted}</div>
+  }
+  if (variant === 'interactive') {
+    return (
+      <motion.div onClick={onClick} whileHover={{ y: -3, boxShadow: C.shadowLg }} whileTap={{ scale: 0.985 }} className="cursor-pointer rounded-2xl">
+        {content}
+      </motion.div>
+    )
+  }
+  return (
+    <div onClick={onClick} className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg rounded-2xl">
+      {content}
     </div>
   )
 }
@@ -425,18 +516,18 @@ export function Stars({ rating }: { rating: number }) {
 export function PillButton({ children, onClick, variant = 'primary', fullWidth, disabled }: {
   children: ReactNode; onClick?: () => void; variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; fullWidth?: boolean; disabled?: boolean
 }) {
-  const styles = {
-    primary: { background: C.forest, color: C.white, border: 'none' },
-    secondary: { background: C.parchment, color: C.forest, border: `1px solid ${C.parchmentDark}` },
-    ghost: { background: 'transparent', color: C.forest, border: `1px solid ${C.forest}` },
-    danger: { background: '#FEE2E2', color: '#991B1B', border: '1px solid #FECACA' },
+  const styles: Record<string, { background: string; color: string; border: string; boxShadow: string }> = {
+    primary: { background: C.forest, color: C.white, border: 'none', boxShadow: `0 8px 24px ${C.glowForest}` },
+    secondary: { background: C.parchment, color: C.forest, border: `1px solid ${C.parchmentDark}`, boxShadow: C.shadowSm },
+    ghost: { background: 'transparent', color: C.forest, border: `1px solid ${C.forest}`, boxShadow: 'none' },
+    danger: { background: 'var(--status-error-bg)', color: 'var(--status-error-text)', border: '1px solid var(--status-error-bg)', boxShadow: C.shadowSm },
   }
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={`px-5 py-3.5 rounded-xl font-semibold text-sm transition-all duration-200 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${fullWidth ? 'w-full' : ''}`}
-      style={{ ...styles[variant], fontFamily: FONT.sans, boxShadow: '0 8px 24px rgba(15, 27, 20, 0.08)' }}
+      style={{ ...styles[variant], fontFamily: FONT.sans }}
     >
       {children}
     </button>
@@ -527,8 +618,8 @@ export function MomoOmPicker({ method, onChange }: { method: 'momo' | 'om'; onCh
 export function DashboardShell({ children }: { children: ReactNode }) {
   return (
     <div
-      className="rounded-[28px] border p-4 shadow-[0_20px_60px_rgba(15,27,20,0.08)] backdrop-blur sm:p-6 lg:p-8"
-      style={{ background: C.glassBg, borderColor: C.glassBorder }}
+      className="rounded-[28px] border p-4 backdrop-blur-xl sm:p-6 lg:p-8"
+      style={{ background: C.glassBg, borderColor: C.glassBorder, boxShadow: C.shadowLg }}
     >
       {children}
     </div>
@@ -539,7 +630,7 @@ export function DashboardHero({ eyebrow, title, subtitle, stats, background, act
   eyebrow: string; title: string; subtitle?: string; stats: { label: string; value: string }[]; background?: string; action?: ReactNode
 }) {
   return (
-    <div className="rounded-[24px] p-5 sm:p-7" style={{ background: background ?? `linear-gradient(135deg, ${C.forest} 0%, ${C.forestLight} 100%)` }}>
+    <div className="rounded-[24px] p-5 sm:p-7" style={{ background: background ?? C.gradientPrimary, boxShadow: C.shadowLg }}>
       <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-[0.3em]">{eyebrow}</p>
@@ -562,19 +653,28 @@ export function DashboardHero({ eyebrow, title, subtitle, stats, background, act
 
 export function QuickActionsGrid({ actions }: { actions: { icon: string; label: string; path: string }[] }) {
   const nav = useNavigate()
+  const reduceMotion = useReducedMotion()
   return (
-    <div className="grid gap-3 grid-cols-2 sm:grid-cols-2 xl:grid-cols-4">
+    <motion.div
+      className="grid gap-3 grid-cols-2 sm:grid-cols-2 xl:grid-cols-4"
+      variants={reduceMotion ? undefined : { show: { transition: { staggerChildren: 0.05 } } }}
+      initial={reduceMotion ? undefined : 'hidden'}
+      animate={reduceMotion ? undefined : 'show'}
+    >
       {actions.map(({ icon, label, path }) => (
-        <button
+        <motion.button
           key={label}
           onClick={() => nav(path)}
-          className="flex flex-col items-center gap-2 rounded-2xl border px-3 py-4 text-center transition-all active:scale-95"
-          style={{ borderColor: C.parchmentDark, background: C.white }}
+          variants={reduceMotion ? undefined : { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
+          whileHover={{ y: -3, boxShadow: C.shadowMd }}
+          whileTap={{ scale: 0.96 }}
+          className="flex flex-col items-center gap-2 rounded-2xl border px-3 py-4 text-center"
+          style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}
         >
           <span className="text-xl">{icon}</span>
           <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-[0.2em] leading-tight">{label}</span>
-        </button>
+        </motion.button>
       ))}
-    </div>
+    </motion.div>
   )
 }
