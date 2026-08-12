@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
-import type { AppNotification } from '../context'
+import type { AppNotification, NotifCategory } from '../context'
+import type { StatusTone } from '../components/tokens'
+import type { IconName } from '../components/icons'
 
 // Avoids importing `fmt` from context.tsx here — context.tsx itself imports
 // this module's hooks, and a real (non-type-only) import back would create
@@ -29,36 +31,96 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+type Described = {
+  icon: IconName
+  category: NotifCategory
+  title: string
+  body: string
+  stat?: { label: string; tone: StatusTone }
+  path?: string
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  released: 'Released', approved: 'Approved', disputed: 'Disputed', under_review: 'Under review',
+  accepted: 'Accepted', rejected: 'Rejected', withdrawn: 'Withdrawn',
+}
+const STATUS_TONE: Record<string, StatusTone> = {
+  released: 'success', approved: 'success', accepted: 'success',
+  disputed: 'error', rejected: 'error',
+  under_review: 'warning', withdrawn: 'neutral',
+}
+
 /** Every `notificationService.notify(...)` call site in the backend, mapped
- * to a display icon/title/body — the backend only stores {type, payload},
- * by design (see notificationService.js), so this is the one place that
- * turns that into something a person reads. */
-function describe(n: BackendNotification): { icon: string; title: string; body: string } {
+ * to how it should render on the Notifications page — the backend only
+ * stores {type, payload} by design (see notificationService.js), so this is
+ * the one place that turns that into something a person reads, filters by,
+ * and can act on (`path` is where the card's "View" action goes). */
+function describe(n: BackendNotification): Described {
+  const p = n.payload
+  const statusLabel = (s: unknown) => STATUS_LABEL[String(s)] ?? String(s)
+  const statusTone = (s: unknown): StatusTone => STATUS_TONE[String(s)] ?? 'neutral'
+
   switch (n.type) {
     case 'project_funded':
-      return { icon: '🔒', title: 'Funds secured', body: `${fmt(Number(n.payload.amount) || 0)} moved into escrow.` }
+      return {
+        icon: 'lock', category: 'funding', title: 'Funds secured',
+        body: 'Your contribution moved into escrow for this project.',
+        stat: { label: fmt(Number(p.amount) || 0), tone: 'success' },
+        path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
+      }
     case 'milestone_evidence_submitted':
-      return { icon: '📸', title: 'Proof submitted', body: 'Milestone evidence was submitted and is ready for your review.' }
+      return {
+        icon: 'camera', category: 'milestones', title: 'Proof submitted',
+        body: 'Milestone evidence was submitted and is ready for your review.',
+        path: p.projectId ? `/funder/review/${p.projectId}` : undefined,
+      }
     case 'milestone_decision':
-      return { icon: n.payload.status === 'released' ? '✅' : n.payload.status === 'disputed' ? '🚩' : '🔄', title: 'Milestone update', body: `Milestone status changed to "${n.payload.status}".` }
+      return {
+        icon: p.status === 'released' ? 'checkCircle' : p.status === 'disputed' ? 'flag' : 'refresh',
+        category: 'milestones', title: 'Milestone update',
+        body: `Milestone status changed to "${statusLabel(p.status).toLowerCase()}".`,
+        stat: { label: statusLabel(p.status), tone: statusTone(p.status) },
+        path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
+      }
     case 'bid_received':
-      return { icon: '📋', title: 'New bid received', body: 'A contractor placed a bid on your tender.' }
+      return {
+        icon: 'clipboard', category: 'marketplace', title: 'New bid received',
+        body: 'A contractor placed a bid on your tender.',
+        path: p.projectId ? `/funder/tender/${p.projectId}/bids` : undefined,
+      }
     case 'bid_status_changed':
-      return { icon: n.payload.status === 'accepted' ? '🎉' : '📋', title: 'Bid update', body: `Your bid was ${n.payload.status}.` }
+      return {
+        icon: p.status === 'accepted' ? 'celebrate' : 'clipboard', category: 'marketplace', title: 'Bid update',
+        body: `Your bid was ${statusLabel(p.status).toLowerCase()}.`,
+        stat: { label: statusLabel(p.status), tone: statusTone(p.status) },
+        path: '/contractor/bids',
+      }
     case 'land_purchase_started':
-      return { icon: '🏡', title: 'Purchase started', body: 'A buyer started a purchase on your land listing.' }
+      return {
+        icon: 'home', category: 'marketplace', title: 'Purchase started',
+        body: 'A buyer started a purchase on your land listing.',
+        path: p.listingId ? `/land/listing/${p.listingId}` : undefined,
+      }
     case 'verification_assigned':
-      return { icon: '🧭', title: 'New verification assignment', body: 'You have been assigned a new on-site verification task.' }
+      return {
+        icon: 'compass', category: 'verification', title: 'New verification assignment',
+        body: 'You have been assigned a new on-site verification task.',
+        path: p.taskId ? `/verifier/task/${p.taskId}` : undefined,
+      }
     case 'new_message':
-      return { icon: '💬', title: 'New message', body: 'You have a new message.' }
+      return {
+        icon: 'message', category: 'messages', title: 'New message',
+        body: 'You have a new message.',
+        path: p.conversationId ? `/messages/${p.conversationId}` : undefined,
+      }
     default:
-      return { icon: '🔔', title: n.type.replace(/_/g, ' '), body: '' }
+      return { icon: 'bell', category: 'messages', title: n.type.replace(/_/g, ' '), body: '' }
   }
 }
 
 function mapNotification(n: BackendNotification): AppNotification {
-  const { icon, title, body } = describe(n)
-  return { id: n._id, icon, title, body, time: timeAgo(n.createdAt), unread: !n.read }
+  const { icon, category, title, body, stat, path } = describe(n)
+  return { id: n._id, icon, category, title, body, stat, path, time: timeAgo(n.createdAt), unread: !n.read }
 }
 
 export function useNotificationsQuery(enabled: boolean) {

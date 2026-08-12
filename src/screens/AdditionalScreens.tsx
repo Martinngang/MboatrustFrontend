@@ -3,8 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
 import { useVerification, type VerifierTask } from '../verification'
-import { useMarketplace } from '../marketplace'
-import { useCompliance } from '../compliance'
 import { RiskBadge } from '../components/RiskBadge'
 import { LandFlagBadge } from '../components/LandFlagBadge'
 import { ChipGroup } from '../components/Chip'
@@ -12,8 +10,18 @@ import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { ConfirmDialog } from '../components/Modal'
 import { useToast } from '../components/Toast'
-import { apiErrorMessage } from '../api/client'
+import { api, apiErrorMessage } from '../api/client'
+import { useUpsertMyContractorProfileMutation } from '../api/contractors'
+import { useBidsQuery } from '../api/tenders'
+import { useCreateRatingMutation } from '../api/reputation'
+import { useAllCertificationsQuery, useDecideCertificationMutation } from '../api/certifications'
+import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
+import { useProjectQuery } from '../api/projects'
+import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
 import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask } from '../api/reputation'
+import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation } from '../api/admin'
+import { AppIcon, type IconName } from '../components/icons'
+import { EmptyState } from '../components/EmptyState'
 
 function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
   return {
@@ -34,11 +42,13 @@ function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
 // ── Contractor onboarding ─────────────────────────────────────────────────────
 export function ContractorOnboardingScreen() {
   const nav = useNavigate()
-  const { name, addContractor } = useApp()
+  const { show: showToast } = useToast()
+  const upsertProfile = useUpsertMyContractorProfileMutation()
   const [step, setStep] = useState<'verify' | 'skills' | 'portfolio' | 'done'>('verify')
   const [idUploaded, setIdUploaded] = useState(false)
   const [skills, setSkills] = useState<string[]>([])
   const [portfolioCount, setPortfolioCount] = useState(0)
+  const [submitting, setSubmitting] = useState(false)
 
   const TRADES = ['Civil & Masonry', 'Plumbing & Water', 'Electrical', 'Roofing', 'Carpentry', 'Painting', 'Excavation', 'Solar Installation']
   const STEP_ORDER = ['verify', 'skills', 'portfolio'] as const
@@ -52,20 +62,20 @@ export function ContractorOnboardingScreen() {
     else setStep(step === 'skills' ? 'verify' : 'skills')
   }
 
-  const finish = () => {
-    const displayName = name || 'New Contractor'
-    addContractor({
-      name: displayName,
-      trade: skills[0] ?? 'General Contracting',
-      location: 'Cameroon',
-      rating: 0,
-      jobs: 0,
-      initials: displayName.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase(),
-      verified: false,
-      price: '—',
-      timeline: '—',
-    })
-    setStep('done')
+  const finish = async () => {
+    setSubmitting(true)
+    try {
+      // A funder/recipient picked at signup can still become a contractor
+      // later — make sure the role is actually on their account before
+      // upsertMine's role check (contractor-only) would otherwise 403.
+      await api.post('/users/me/roles', { roleType: 'contractor' })
+      await upsertProfile.mutateAsync({ categories: skills })
+      setStep('done')
+    } catch (err) {
+      showToast({ title: 'Failed to save contractor profile', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (step === 'done') {
@@ -140,9 +150,9 @@ export function ContractorOnboardingScreen() {
             <div className="flex flex-wrap gap-2">
               {TRADES.map((t) => (
                 <button key={t} onClick={() => toggleSkill(t)}
-                  className="px-3 py-2 rounded-xl text-xs font-semibold transition-all border-2"
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold transition-all border-2"
                   style={{ borderColor: skills.includes(t) ? C.forest : C.parchmentDark, background: skills.includes(t) ? 'var(--status-success-bg)' : C.white, color: skills.includes(t) ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
-                  {skills.includes(t) ? '✓ ' : ''}{t}
+                  {skills.includes(t) && <AppIcon name="check" size={12} strokeWidth={2.25} />}{t}
                 </button>
               ))}
             </div>
@@ -182,8 +192,8 @@ export function ContractorOnboardingScreen() {
           if (step === 'verify') setStep('skills')
           else if (step === 'skills') setStep('portfolio')
           else finish()
-        }} fullWidth disabled={step === 'verify' && !idUploaded}>
-          {step === 'portfolio' ? 'Complete setup' : 'Continue'}
+        }} fullWidth disabled={(step === 'verify' && !idUploaded) || submitting}>
+          {step === 'portfolio' ? (submitting ? 'Saving…' : 'Complete setup') : 'Continue'}
         </PillButton>
       </div>
     </AppShell>
@@ -198,6 +208,7 @@ export function PostJobScreen() {
   const [form, setForm] = useState({ title: '', description: '', category: '', budget: '', deadline: '', milestones: '3' })
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
 
   const canSubmit = form.title.trim() !== '' && form.category !== '' && Number(form.budget) > 0
@@ -205,7 +216,7 @@ export function PostJobScreen() {
   const submit = async () => {
     setSubmitting(true)
     try {
-      await addJob({
+      const created = await addJob({
         title: form.title,
         category: form.category || 'General',
         location: 'Cameroon',
@@ -217,6 +228,7 @@ export function PostJobScreen() {
         description: form.description,
         status: 'open',
       })
+      setCreatedJobId(created.id)
       setSubmitted(true)
     } catch (err) {
       showToast({ title: 'Failed to post job', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -239,7 +251,7 @@ export function PostJobScreen() {
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
             Your job is now visible to verified contractors. You will receive bids within 48 hours.
           </p>
-          <PillButton onClick={() => nav('/funder/contractors')} fullWidth>View bids as they come in</PillButton>
+          <PillButton onClick={() => nav(createdJobId ? `/funder/tender/${createdJobId}/bids` : '/funder/contractors')} fullWidth>View bids as they come in</PillButton>
         </div>
       </AppShell>
     )
@@ -311,16 +323,41 @@ export function PostJobScreen() {
 
 // ── Contract summary (auto-generated digital contract) ────────────────────────
 export function ContractSummaryScreen() {
-  const nav = useNavigate()
-  const { contractors, jobs } = useApp()
-  const contractor = contractors[0]
-  const job = jobs[0]
+  const { bidId } = useParams()
+  const { show: showToast } = useToast()
+  const { data: contracts, isLoading: contractLoading } = useContractsQuery({ bidId })
+  const contract = contracts?.[0]
+  const { data: project, isLoading: projectLoading } = useProjectQuery(contract?.projectId)
+  const { data: bids } = useBidsQuery({ projectId: contract?.projectId })
+  const bid = bids?.find((b) => b.id === bidId)
+  const completeContract = useCompleteContractMutation()
+  const terminateContract = useTerminateContractMutation()
+  const [acting, setActing] = useState<'complete' | 'terminate' | null>(null)
 
-  const milestones = [
-    { title: 'Site preparation & equipment delivery', amount: Math.round(job.budget * 0.25) },
-    { title: 'Primary installation work', amount: Math.round(job.budget * 0.45) },
-    { title: 'Testing, commissioning & handover', amount: Math.round(job.budget * 0.30) },
-  ]
+  const act = async (action: 'complete' | 'terminate') => {
+    if (!contract) return
+    setActing(action)
+    try {
+      await (action === 'complete' ? completeContract : terminateContract).mutateAsync(contract.id)
+      showToast({ title: action === 'complete' ? 'Contract marked completed' : 'Contract terminated', tone: action === 'complete' ? 'success' : 'error' })
+    } catch (err) {
+      showToast({ title: `Failed to ${action} contract`, description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (contractLoading || projectLoading) {
+    return <AppShell noNav><div className="px-5 py-8 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>Loading contract…</div></AppShell>
+  }
+  if (!contract || !project) {
+    return (
+      <AppShell noNav>
+        <Header title="Contract Summary" back />
+        <div className="px-5 py-4"><EmptyState icon="receipt" title="No contract found" description="This bid doesn't have an awarded contract." /></div>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell noNav>
@@ -329,24 +366,25 @@ export function ContractSummaryScreen() {
       <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         <div className="text-center py-4">
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em] mb-2">Digital Contract</div>
-          <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm font-medium">DL-CTR-2025-0091</div>
+          <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm font-medium">{contract.id.slice(-8).toUpperCase()}</div>
+          <div className="mt-2"><StatusBadge status={contract.status} /></div>
         </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Parties</div>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>E</div>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>{project.recipient[0]}</div>
               <div>
-                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">Emmanuel Njang</div>
+                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{project.recipient}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">Project owner / Funder</div>
               </div>
             </div>
             <div className="h-px" style={{ background: C.parchmentDark }} />
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.steel, fontFamily: FONT.serif }}>{contractor.initials}</div>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.steel, fontFamily: FONT.serif }}>{(bid?.contractorName ?? '?')[0]}</div>
               <div>
-                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{contractor.name}</div>
+                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{bid?.contractorName ?? 'Contractor'}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">Contractor</div>
               </div>
             </div>
@@ -355,15 +393,15 @@ export function ContractSummaryScreen() {
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Scope of work</div>
-          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold mb-1">{job.title}</div>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">{job.description}</p>
+          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold mb-1">{project.title}</div>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">{project.description}</p>
         </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Payment schedule</div>
           <div className="space-y-2">
-            {milestones.map((m, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-xl" style={{ background: C.parchment }}>
+            {project.milestones.map((m, i) => (
+              <div key={m.id} className="flex items-center justify-between p-3 rounded-xl" style={{ background: C.parchment }}>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background: C.forest, fontFamily: FONT.mono }}>{i + 1}</div>
                   <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs">{m.title}</span>
@@ -374,37 +412,46 @@ export function ContractSummaryScreen() {
           </div>
           <div className="flex justify-between mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
             <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-wider">Total contract value</span>
-            <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-lg font-bold">{fmt(job.budget)}</span>
+            <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-lg font-bold">{fmt(contract.totalAmount)}</span>
           </div>
         </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Terms</div>
-          <ul className="space-y-2">
-            {[
-              'Payment is milestone-based via escrow release',
-              'Contractor must submit photo/video proof per milestone',
-              'An independent verifier confirms work before funder approval',
-              'Disputes are resolved within 48 hours by the platform team',
-              'Platform fee of 3% applies on released payments',
-              `Deadline: ${job.deadline}`,
-            ].map((t, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] mt-0.5">●</span>
-                <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">{t}</span>
-              </li>
-            ))}
-          </ul>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Generated contract text</div>
+          <pre style={{ fontFamily: FONT.mono, color: C.inkMuted, whiteSpace: 'pre-wrap' }} className="text-[11px] leading-relaxed">{contract.generatedDocumentText}</pre>
         </div>
 
         <div className="text-center py-4">
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Both parties have agreed to these terms</div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1">Signed digitally on Mboa Trust</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Generated on acceptance · {contract.createdAt}</div>
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => nav('/contractor/contract')} fullWidth>View active contract</PillButton>
+      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl space-y-2" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        {contract.status === 'active' && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => act('complete')}
+              disabled={acting !== null}
+              className="flex-1 py-3 rounded-xl text-sm font-semibold disabled:opacity-50"
+              style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+            >
+              {acting === 'complete' ? 'Marking…' : 'Mark completed'}
+            </button>
+            <button
+              onClick={() => act('terminate')}
+              disabled={acting !== null}
+              className="flex-1 py-3 rounded-xl text-sm font-semibold border disabled:opacity-50"
+              style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
+            >
+              {acting === 'terminate' ? 'Terminating…' : 'Terminate'}
+            </button>
+          </div>
+        )}
+        {contract.generatedDocumentUrl && (
+          <a href={contract.generatedDocumentUrl} target="_blank" rel="noreferrer" className="block text-center text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+            Download contract document →
+          </a>
+        )}
       </div>
     </AppShell>
   )
@@ -413,16 +460,29 @@ export function ContractSummaryScreen() {
 // ── Rate contractor screen ────────────────────────────────────────────────────
 export function RateContractorScreen() {
   const nav = useNavigate()
-  const { contractors, addRating } = useApp()
-  const contractor = contractors[0]
+  const { jobId } = useParams()
+  const { contractors } = useApp()
+  const { show: showToast } = useToast()
+  const { data: bids = [] } = useBidsQuery({ projectId: jobId })
+  const acceptedBid = bids.find((b) => b.status === 'accepted')
+  const contractor = contractors.find((c) => c.id === acceptedBid?.contractorId) ?? contractors[0]
+  const createRating = useCreateRatingMutation()
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
   const [comment, setComment] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
-  const submit = () => {
-    addRating({ targetType: 'contractor', targetName: contractor.name, rating, comment, from: 'Emmanuel Njang', date: new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) })
-    setSubmitted(true)
+  const submit = async () => {
+    if (!acceptedBid?.contractorId || !jobId) {
+      showToast({ title: 'Cannot rate this contractor', description: 'No awarded bid was found for this tender.', tone: 'error' })
+      return
+    }
+    try {
+      await createRating.mutateAsync({ toUserId: acceptedBid.contractorId, projectId: jobId, score: rating, comment, roleContext: 'contractor' })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit rating', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   if (submitted) {
@@ -485,8 +545,8 @@ export function RateContractorScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={rating === 0}>
-          Submit rating
+        <PillButton onClick={submit} fullWidth disabled={rating === 0 || createRating.isPending}>
+          {createRating.isPending ? 'Submitting…' : 'Submit rating'}
         </PillButton>
       </div>
     </AppShell>
@@ -494,11 +554,66 @@ export function RateContractorScreen() {
 }
 
 // ── Land schedule verification visit ──────────────────────────────────────────
+// A buyer proposes one or more dates to visit the plot in person; the
+// seller picks one to confirm (see api/landVisits.ts /
+// visitRequestController) — a real scheduling handshake between the two
+// real parties, not an official verifier inspection (that's the separate
+// VerificationTask system used elsewhere for admin-assigned site checks).
 export function LandScheduleVisitScreen() {
   const nav = useNavigate()
-  const [date, setDate] = useState('')
+  const { id } = useParams()
+  const { landListings, devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const listing = landListings.find((l) => l.id === id) ?? landListings[0]
+  const isSeller = Boolean(devUserId && listing.sellerId && devUserId === listing.sellerId)
+
+  const { data: visits = [] } = useVisitRequestsQuery({ listingId: listing.id })
+  const requestVisit = useRequestVisitMutation()
+  const confirmVisit = useConfirmVisitMutation()
+  const cancelVisit = useCancelVisitMutation()
+
+  const [dates, setDates] = useState<string[]>([''])
   const [notes, setNotes] = useState('')
   const [scheduled, setScheduled] = useState(false)
+  const [actingOn, setActingOn] = useState<string | null>(null)
+  const [confirmDateFor, setConfirmDateFor] = useState<string | null>(null)
+  const [confirmDate, setConfirmDate] = useState('')
+
+  const validDates = dates.filter((d) => d.trim())
+
+  const submit = async () => {
+    if (validDates.length === 0) return
+    try {
+      await requestVisit.mutateAsync({ listingId: listing.id, proposedDates: validDates, notes })
+      setScheduled(true)
+    } catch (err) {
+      showToast({ title: 'Failed to request visit', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  const doConfirm = async (visitId: string) => {
+    if (!confirmDate) return
+    setActingOn(visitId)
+    try {
+      await confirmVisit.mutateAsync({ visitId, confirmedDate: confirmDate })
+      setConfirmDateFor(null)
+    } catch (err) {
+      showToast({ title: 'Failed to confirm visit', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActingOn(null)
+    }
+  }
+
+  const doCancel = async (visitId: string) => {
+    setActingOn(visitId)
+    try {
+      await cancelVisit.mutateAsync(visitId)
+    } catch (err) {
+      showToast({ title: 'Failed to cancel visit', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActingOn(null)
+    }
+  }
 
   if (scheduled) {
     return (
@@ -512,11 +627,11 @@ export function LandScheduleVisitScreen() {
               <line x1="24" y1="6" x2="24" y2="10" stroke="var(--status-info-text)" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </div>
-          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Visit scheduled</h1>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Visit requested</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            A local verifier will inspect the site on {date || 'the selected date'}. You will receive a verification report within 72 hours of the visit.
+            {listing.seller} has been notified of your proposed dates and will confirm one that works.
           </p>
-          <PillButton onClick={() => nav('/land/browse')} fullWidth>Back to listings</PillButton>
+          <PillButton onClick={() => nav(`/land/listing/${listing.id}`)} fullWidth>Back to listing</PillButton>
         </div>
       </AppShell>
     )
@@ -524,46 +639,92 @@ export function LandScheduleVisitScreen() {
 
   return (
     <AppShell noNav>
-      <Header title="Schedule Verification Visit" back />
+      <Header title={isSeller ? 'Visit Requests' : 'Schedule a Visit'} subtitle={listing.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-xl p-4 border" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
-          <div style={{ fontFamily: FONT.mono, color: 'var(--status-info-text)' }} className="text-[10px] uppercase tracking-widest mb-1">What is a verification visit?</div>
-          <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
-            A local agent visits the plot to confirm that the site matches the listing, boundaries are correct, and there are no visible disputes or encroachments.
-          </p>
-        </div>
+        {visits.length > 0 && (
+          <div>
+            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">{isSeller ? 'Requested visits' : 'Your visit requests'}</p>
+            <div className="space-y-2">
+              {visits.map((v) => (
+                <Card key={v.id}>
+                  <div className="p-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{isSeller ? v.requestedByName : 'You'}</span>
+                      <StatusBadge status={v.status} />
+                    </div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">
+                      {v.status === 'confirmed' && v.confirmedDate
+                        ? `Confirmed: ${new Date(v.confirmedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                        : `Proposed: ${v.proposedDates.map((d) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })).join(', ')}`}
+                    </div>
+                    {v.notes && <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-1">{v.notes}</p>}
 
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Preferred date</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-        </div>
-
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Notes for the verifier (optional)</label>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
-            placeholder="Any specific concerns or areas to focus on?"
-            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
-            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
-        </div>
-
-        <div className="rounded-xl p-3 border" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
-          <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-            <span>Verification fee</span><span style={{ color: C.ink }}>XAF 15,000</span>
+                    {isSeller && v.status === 'requested' && (
+                      confirmDateFor === v.id ? (
+                        <div className="flex gap-2 mt-2">
+                          <input type="date" value={confirmDate} onChange={(e) => setConfirmDate(e.target.value)}
+                            className="flex-1 border-2 rounded-lg px-3 py-2 outline-none text-sm"
+                            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+                          <PillButton onClick={() => doConfirm(v.id)} disabled={actingOn === v.id || !confirmDate}>Confirm</PillButton>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 mt-2">
+                          <PillButton onClick={() => { setConfirmDateFor(v.id); setConfirmDate(v.proposedDates[0]?.slice(0, 10) ?? '') }} disabled={actingOn === v.id}>Pick a date</PillButton>
+                          <PillButton onClick={() => doCancel(v.id)} variant="ghost" disabled={actingOn === v.id}>Decline</PillButton>
+                        </div>
+                      )
+                    )}
+                    {!isSeller && ['requested', 'confirmed'].includes(v.status) && (
+                      <div className="mt-2">
+                        <PillButton onClick={() => doCancel(v.id)} variant="ghost" disabled={actingOn === v.id}>{actingOn === v.id ? '…' : 'Cancel'}</PillButton>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              ))}
+            </div>
           </div>
-          <div className="flex justify-between text-xs mt-1" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-            <span>Report turnaround</span><span style={{ color: C.ink }}>72 hours</span>
-          </div>
-        </div>
+        )}
+
+        {!isSeller && (
+          <>
+            <div className="rounded-xl p-4 border" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
+                Propose one or more dates to visit this plot in person. {listing.seller} will confirm whichever works for them.
+              </p>
+            </div>
+
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Proposed dates</label>
+              <div className="space-y-2">
+                {dates.map((d, i) => (
+                  <input key={i} type="date" value={d} onChange={(e) => setDates((ds) => ds.map((x, j) => (j === i ? e.target.value : x)))}
+                    className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+                    style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+                ))}
+              </div>
+              <button onClick={() => setDates((ds) => [...ds, ''])} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold mt-2">+ Add another date option</button>
+            </div>
+
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Notes (optional)</label>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3}
+                placeholder="Anything the seller should know?"
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+                style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+            </div>
+          </>
+        )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => setScheduled(true)} fullWidth disabled={!date}>
-          Schedule visit
-        </PillButton>
-      </div>
+      {!isSeller && (
+        <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <PillButton onClick={submit} fullWidth disabled={validDates.length === 0 || requestVisit.isPending}>
+            {requestVisit.isPending ? 'Sending…' : 'Request visit'}
+          </PillButton>
+        </div>
+      )}
     </AppShell>
   )
 }
@@ -664,7 +825,9 @@ export function VerifierDashboard() {
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
-          <div className="mb-4 text-4xl">🧭</div>
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: 'var(--status-info-bg)', color: 'var(--status-info-text)' }}>
+            <AppIcon name="compass" size={30} strokeWidth={1.5} />
+          </div>
           <div style={{ fontFamily: FONT.serif }} className="mb-2 text-lg font-bold">Register as a verifier</div>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-6 max-w-sm text-sm">Complete a short profile to start receiving verification assignments.</p>
           <PillButton onClick={() => nav('/verifier/register')}>Get started</PillButton>
@@ -690,7 +853,7 @@ export function VerifierDashboard() {
           stats={[
             { label: 'Pending', value: String(pending.length) },
             { label: 'In progress', value: String(inProgress.length) },
-            { label: 'Rating', value: verifierProfile.rating > 0 ? `${verifierProfile.rating.toFixed(1)} ★` : '—' },
+            { label: 'Rating', value: verifierProfile.rating > 0 ? verifierProfile.rating.toFixed(1) : '—' },
           ]}
           action={
             <button onClick={() => nav('/verifier/profile')} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
@@ -703,7 +866,7 @@ export function VerifierDashboard() {
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Assignments</p>
           <div className="w-36">
             <Tabs
-              tabs={[{ id: 'list', label: '☰ List' }, { id: 'map', label: '⊕ Map' }]}
+              tabs={[{ id: 'list', label: 'List', icon: 'menu' }, { id: 'map', label: 'Map', icon: 'mapPin' }]}
               value={view}
               onChange={(v) => setView(v as 'list' | 'map')}
               variant="pill"
@@ -717,8 +880,8 @@ export function VerifierDashboard() {
             <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.35)' }} />
             {mapPins.map((t, i) => (
               <button key={t.id} onClick={() => nav(`/verifier/task/${t.id}`)} className="absolute flex flex-col items-center" style={{ left: pinPositions[i].x, top: pinPositions[i].y, transform: 'translate(-50%, -100%)' }}>
-                <div className="mb-1 rounded-full px-2 py-1 text-[10px] font-bold" style={{ background: t.status === 'in_progress' ? C.amber : C.forest, color: C.white, fontFamily: FONT.mono }}>
-                  {t.type === 'land' ? '🏡' : '🏗️'}
+                <div className="mb-1 flex items-center justify-center rounded-full p-1.5" style={{ background: t.status === 'in_progress' ? C.amber : C.forest, color: C.white }}>
+                  <AppIcon name={t.type === 'land' ? 'home' : 'hardHat'} size={11} strokeWidth={2} />
                 </div>
                 <div className="h-2 w-2 rounded-full" style={{ background: t.status === 'in_progress' ? C.amber : C.forest }} />
               </button>
@@ -968,17 +1131,17 @@ export function VerifierReportScreen() {
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={() => setDecision('match')}
-              className="py-4 rounded-xl border-2 text-sm font-bold transition-all"
+              className="inline-flex items-center justify-center gap-1.5 py-4 rounded-xl border-2 text-sm font-bold transition-all"
               style={{ borderColor: decision === 'match' ? C.forest : C.parchmentDark, background: decision === 'match' ? 'var(--status-success-bg)' : C.white, color: decision === 'match' ? C.forest : C.inkMuted, fontFamily: FONT.sans }}
             >
-              ✓ Confirms match
+              <AppIcon name="check" size={16} strokeWidth={2.25} /> Confirms match
             </button>
             <button
               onClick={() => setDecision('mismatch')}
-              className="py-4 rounded-xl border-2 text-sm font-bold transition-all"
+              className="inline-flex items-center justify-center gap-1.5 py-4 rounded-xl border-2 text-sm font-bold transition-all"
               style={{ borderColor: decision === 'mismatch' ? 'var(--status-error-text)' : C.parchmentDark, background: decision === 'mismatch' ? 'var(--status-error-bg)' : C.white, color: decision === 'mismatch' ? 'var(--status-error-text)' : C.inkMuted, fontFamily: FONT.sans }}
             >
-              ⚑ Flag mismatch
+              <AppIcon name="flag" size={16} strokeWidth={2.25} /> Flag mismatch
             </button>
           </div>
         </div>
@@ -1073,36 +1236,40 @@ export function VerifierProfileScreen() {
 // ── Admin panel ───────────────────────────────────────────────────────────────
 export function AdminPanelScreen() {
   const nav = useNavigate()
-  const { contractors } = useApp()
-  const { certifications, decideCertification } = useMarketplace()
-  const { kycCases, decideKyc } = useCompliance()
+  const { data: platformStats, isError: statsError } = usePlatformStatsQuery()
+  const { data: certifications = [] } = useAllCertificationsQuery()
+  const decideCertificationMutation = useDecideCertificationMutation()
+  const decideCertification = (certId: string, status: 'verified' | 'rejected') => decideCertificationMutation.mutate({ certId, status })
+  const { data: openDisputes = [] } = useDisputesQuery({ status: 'open' })
   const [tab, setTab] = useState<'overview' | 'verifications' | 'disputes' | 'users'>('overview')
   const pendingCertifications = certifications.filter((c) => c.status === 'pending')
-  const pendingKyc = kycCases.filter((k) => k.status === 'pending')
+
+  const [roleFilter, setRoleFilter] = useState<string>('all')
+  const { data: usersData, isLoading: usersLoading } = useAdminUsersQuery({ role: roleFilter === 'all' ? undefined : roleFilter, limit: 50 })
+  const deactivateUser = useDeactivateUserMutation()
+  const reactivateUser = useReactivateUserMutation()
 
   const stats = [
-    { label: 'Total users', value: '2,847', change: '+12%' },
-    { label: 'Active projects', value: '186', change: '+8%' },
-    { label: 'Escrow held', value: 'XAF 42M', change: '+15%' },
-    { label: 'Disputes open', value: '7', change: '-2' },
+    { label: 'Total users', value: platformStats ? String(platformStats.totalUsers) : '—' },
+    { label: 'Active projects', value: platformStats ? String(platformStats.activeProjects) : '—' },
+    { label: 'Escrow held', value: platformStats ? fmt(platformStats.totalEscrowHeld) : '—' },
+    { label: 'Disputes open', value: platformStats ? String(platformStats.openDisputes) : '—' },
   ]
 
-  const [pendingVerifications, setPendingVerifications] = useState([
-    { type: 'User ID', name: 'Roland Mbongo', date: '20 Jul 2025', status: 'pending' as 'pending' | 'approved' | 'rejected' },
-    { type: 'Land docs', name: 'Bonabéri Plot 500m²', date: '19 Jul 2025', status: 'pending' as 'pending' | 'approved' | 'rejected' },
-    { type: 'User ID', name: 'Germaine Fotso', date: '19 Jul 2025', status: 'pending' as 'pending' | 'approved' | 'rejected' },
-  ])
-
-  const decide = (name: string, status: 'approved' | 'rejected') => {
-    setPendingVerifications((vs) => vs.map((v) => v.name === name ? { ...v, status } : v))
+  if (statsError) {
+    return (
+      <AppShell>
+        <Header title="Admin Panel" back />
+        <div className="px-5 sm:mx-auto sm:max-w-md">
+          <EmptyState
+            icon="shield"
+            title="Access denied"
+            description="This area is restricted to platform admins. If you believe you should have access, contact an administrator."
+          />
+        </div>
+      </AppShell>
+    )
   }
-
-  const disputes = [
-    { project: 'Borehole — Bamenda North', issue: 'Proof does not match', status: 'pending', date: '18 Jul 2025' },
-    { project: 'Clinic renovation — Limbe', issue: 'Incomplete work', status: 'in_review', date: '15 Jul 2025' },
-  ]
-
-  const openVerifications = pendingVerifications.filter((v) => v.status === 'pending')
 
   return (
     <AppShell>
@@ -1119,12 +1286,11 @@ export function AdminPanelScreen() {
         {tab === 'overview' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              {stats.map(({ label, value, change }) => (
+              {stats.map(({ label, value }) => (
                 <Card key={label}>
                   <div className="p-3">
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest">{label}</div>
                     <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold mt-1">{value}</div>
-                    <div style={{ fontFamily: FONT.mono, color: change.startsWith('+') ? C.forest : 'var(--status-error-text)' }} className="text-[10px] mt-0.5">{change} this month</div>
                   </div>
                 </Card>
               ))}
@@ -1132,8 +1298,8 @@ export function AdminPanelScreen() {
 
             <Card onClick={() => nav('/admin/fraud-analytics')}>
               <div className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-error-bg)' }}>
-                  <span className="text-lg">⚠️</span>
+                <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-error-bg)', color: 'var(--status-error-text)' }}>
+                  <AppIcon name="alert" size={18} />
                 </div>
                 <div className="flex-1">
                   <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">Fraud & dispute analytics</div>
@@ -1143,64 +1309,27 @@ export function AdminPanelScreen() {
               </div>
             </Card>
 
-            <div>
-              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Recent activity</p>
-              {[
-                { icon: '✅', text: 'Milestone 2 released — Borehole Bamenda', time: '2h ago' },
-                { icon: '📋', text: 'New bid received — Ngaoundéré pump', time: '5h ago' },
-                { icon: '🔒', text: 'XAF 1.2M escrowed — Clinic Limbe', time: '1 day ago' },
-                { icon: '👤', text: 'New user registered — Roland Mbongo', time: '1 day ago' },
-                { icon: '🏡', text: 'Land listing submitted — Bonabéri', time: '2 days ago' },
-              ].map((a, i) => (
-                <div key={i} className="flex items-center gap-3 py-3 border-b last:border-0" style={{ borderColor: C.parchmentDark }}>
-                  <span className="text-lg">{a.icon}</span>
-                  <div className="flex-1">
-                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs">{a.text}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{a.time}</div>
-                  </div>
+            {platformStats && Object.keys(platformStats.usersByRole).length > 0 && (
+              <div>
+                <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Users by role</p>
+                <div className="space-y-2">
+                  {Object.entries(platformStats.usersByRole).map(([role, count]) => (
+                    <div key={role} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: C.parchmentDark }}>
+                      <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs capitalize">{role.replace('_', ' ')}</span>
+                      <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">{count}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
         {tab === 'verifications' && (
           <StaggerList className="space-y-3">
             <div className="rounded-xl p-3 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
-              <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">{openVerifications.length + pendingCertifications.length + pendingKyc.length} pending verifications</div>
+              <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">{pendingCertifications.length} pending certifications</div>
             </div>
-            {pendingKyc.map((k) => (
-              <Card key={k.id}>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{k.userName}</div>
-                    <StatusBadge status="pending" />
-                  </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">KYC / ID verification · Submitted {k.submittedDate}</div>
-                  <div className="flex gap-2 mt-3">
-                    <button onClick={() => decideKyc(k.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
-                    <button onClick={() => decideKyc(k.id, 'rejected', 'ID document did not pass review.')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
-                  </div>
-                </div>
-              </Card>
-            ))}
-            {pendingVerifications.map((v, i) => (
-              <Card key={i}>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{v.name}</div>
-                    <StatusBadge status={v.status === 'pending' ? 'pending' : v.status === 'approved' ? 'verified' : 'rejected'} />
-                  </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{v.type} · Submitted {v.date}</div>
-                  {v.status === 'pending' && (
-                    <div className="flex gap-2 mt-3">
-                      <button onClick={() => decide(v.name, 'approved')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
-                      <button onClick={() => decide(v.name, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
-                    </div>
-                  )}
-                </div>
-              </Card>
-            ))}
             {certifications.map((c) => (
               <Card key={c.id}>
                 <div className="p-4">
@@ -1208,7 +1337,7 @@ export function AdminPanelScreen() {
                     <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{c.name}</div>
                     <StatusBadge status={c.status} />
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">Contractor certification · {c.issuer} · Submitted {c.dateUploaded}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{c.contractorName ?? 'Contractor'} · {c.issuer} · Submitted {c.dateUploaded}</div>
                   {c.status === 'pending' && (
                     <div className="flex gap-2 mt-3">
                       <button onClick={() => decideCertification(c.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
@@ -1218,25 +1347,34 @@ export function AdminPanelScreen() {
                 </div>
               </Card>
             ))}
+            {certifications.length === 0 && (
+              <div className="text-center py-16">
+                <div className="mb-4 flex justify-center" style={{ color: C.forest }}><AppIcon name="checkCircle" size={40} strokeWidth={1.5} /></div>
+                <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No pending certifications</div>
+              </div>
+            )}
           </StaggerList>
         )}
 
         {tab === 'disputes' && (
           <StaggerList className="space-y-3">
-            {disputes.map((d, i) => (
-              <Card key={i}>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{d.project}</div>
-                    <StatusBadge status={d.status === 'pending' ? 'pending' : 'under_review'} />
+            {openDisputes.map((d) => {
+              const disp = disputeDisplay(d)
+              return (
+                <Card key={d._id} variant="interactive" onClick={() => nav('/admin/disputes')}>
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{disp.project}</div>
+                      <StatusBadge status="pending" />
+                    </div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{d.reason} · raised by {disp.raisedBy} · {disp.date}</div>
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{d.issue} · {d.date}</div>
-                </div>
-              </Card>
-            ))}
-            {disputes.length === 0 && (
+                </Card>
+              )
+            })}
+            {openDisputes.length === 0 && (
               <div className="text-center py-16">
-                <div className="text-4xl mb-4">✅</div>
+                <div className="mb-4 flex justify-center" style={{ color: C.forest }}><AppIcon name="checkCircle" size={40} strokeWidth={1.5} /></div>
                 <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No open disputes</div>
               </div>
             )}
@@ -1245,15 +1383,36 @@ export function AdminPanelScreen() {
 
         {tab === 'users' && (
           <StaggerList className="space-y-3">
-            {contractors.map((c) => (
-              <Card key={c.id}>
+            <ChipGroup
+              options={['all', 'funder', 'recipient', 'contractor', 'land_seller', 'diaspora_group', 'admin']}
+              value={roleFilter}
+              onChange={(v) => setRoleFilter(v as string)}
+            />
+            {usersLoading && <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">Loading…</p>}
+            {(usersData?.users ?? []).map((u) => (
+              <Card key={u.id}>
                 <div className="flex items-center gap-3 p-4">
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>{c.initials}</div>
-                  <div className="flex-1">
-                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{c.name}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{c.trade} · {c.location}</div>
+                  <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>{u.fullName[0]}</div>
+                  <div className="flex-1 min-w-0">
+                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm truncate">{u.fullName}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider truncate">{u.roles.join(', ') || 'no role'} · {u.email || u.phoneNumber || '—'}</div>
                   </div>
-                  <StatusBadge status={c.verified ? 'verified' : 'unverified'} />
+                  <StatusBadge status={u.isActive ? 'verified' : 'rejected'} />
+                  {u.isActive ? (
+                    <button
+                      onClick={() => deactivateUser.mutate(u.id)}
+                      disabled={deactivateUser.isPending}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold border flex-shrink-0"
+                      style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
+                    >Deactivate</button>
+                  ) : (
+                    <button
+                      onClick={() => reactivateUser.mutate(u.id)}
+                      disabled={reactivateUser.isPending}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0"
+                      style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                    >Reactivate</button>
+                  )}
                 </div>
               </Card>
             ))}
@@ -1328,7 +1487,7 @@ export function DisputeResolutionScreen() {
                 <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
                   <button onClick={() => setResolvingId(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resolve</button>
                   <button onClick={() => contact(d._id)} disabled={contacted.includes(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>
-                    {contacted.includes(d._id) ? 'Contacted ✓' : 'Contact parties'}
+                    {contacted.includes(d._id) ? 'Contacted' : 'Contact parties'}
                   </button>
                 </div>
               </div>
@@ -1338,7 +1497,7 @@ export function DisputeResolutionScreen() {
         })}
         {!isLoading && (disputes?.length ?? 0) === 0 && (
           <div className="col-span-full text-center py-16">
-            <div className="text-4xl mb-4">✅</div>
+            <div className="mb-4 flex justify-center" style={{ color: C.forest }}><AppIcon name="checkCircle" size={40} strokeWidth={1.5} /></div>
             <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No open disputes</div>
           </div>
         )}
@@ -1366,7 +1525,7 @@ interface FlaggedCase {
 
 interface FlaggedPattern {
   id: string
-  icon: string
+  icon: IconName
   title: string
   description: string
   cases: FlaggedCase[]
@@ -1375,7 +1534,8 @@ interface FlaggedPattern {
 export function AdminFraudAnalyticsScreen() {
   const nav = useNavigate()
   const { landListings, projects } = useApp()
-  const { kycCases } = useCompliance()
+  const { data: pendingKycUsers } = useAdminUsersQuery({ kycStatus: 'pending', limit: 50 })
+  const { data: rejectedKycUsers } = useAdminUsersQuery({ kycStatus: 'rejected', limit: 50 })
   const { data: riskFlags } = useRiskFlagsQuery()
   const { data: openDisputesData } = useDisputesQuery({ status: 'open' })
   const [activePatternId, setActivePatternId] = useState<string | null>(null)
@@ -1385,11 +1545,14 @@ export function AdminFraudAnalyticsScreen() {
   const reusedEvidenceFlags = (riskFlags ?? []).filter((f) => f.flagType === 'reused_evidence')
   const multipleDisputeFlags = (riskFlags ?? []).filter((f) => f.flagType === 'multiple_disputes')
   const openDisputes = openDisputesData ?? []
-  const kycIssues = kycCases.filter((k) => k.status === 'rejected' || k.status === 'pending')
+  const kycIssues = [
+    ...(rejectedKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Rejected' })),
+    ...(pendingKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Pending review' })),
+  ]
 
   const patterns: FlaggedPattern[] = [
     {
-      id: 'duplicate-land', icon: '🏡', title: 'Duplicate land listings',
+      id: 'duplicate-land', icon: 'home', title: 'Duplicate land listings',
       description: 'Listings that closely match another listing already on the platform.',
       cases: duplicateListings.map((l) => ({
         label: l.title, sub: `Matches ${landListings.find((o) => o.id === l.duplicateOfListingId)?.title ?? 'another listing'}`,
@@ -1397,7 +1560,7 @@ export function AdminFraudAnalyticsScreen() {
       })),
     },
     {
-      id: 'disputed-land', icon: '⚖️', title: 'Disputed land listings',
+      id: 'disputed-land', icon: 'scale', title: 'Disputed land listings',
       description: 'Listings under an active ownership or boundary dispute.',
       cases: disputedListings.map((l) => ({
         label: l.title, sub: l.disputeReason ?? 'Disputed ownership claim',
@@ -1405,7 +1568,7 @@ export function AdminFraudAnalyticsScreen() {
       })),
     },
     {
-      id: 'evidence', icon: '📸', title: 'Reused evidence flags',
+      id: 'evidence', icon: 'camera', title: 'Reused evidence flags',
       description: 'Milestone proof photos whose file hash matches evidence already submitted elsewhere — a strong sign of reused, non-authentic proof.',
       cases: reusedEvidenceFlags.map((f) => {
         const projectId = String(f.detail.projectId ?? '')
@@ -1414,7 +1577,7 @@ export function AdminFraudAnalyticsScreen() {
       }),
     },
     {
-      id: 'disputes', icon: '🚩', title: 'Open milestone disputes',
+      id: 'disputes', icon: 'flag', title: 'Open milestone disputes',
       description: 'Disputes raised against a project, awaiting platform resolution.',
       cases: openDisputes.map((d) => {
         const disp = disputeDisplay(d)
@@ -1422,7 +1585,7 @@ export function AdminFraudAnalyticsScreen() {
       }),
     },
     {
-      id: 'repeat-disputes', icon: '⚠️', title: 'Repeat dispute pattern',
+      id: 'repeat-disputes', icon: 'alert', title: 'Repeat dispute pattern',
       description: 'Project owners who have accumulated enough disputes across their projects to be a pattern, not a one-off.',
       cases: multipleDisputeFlags.map((f) => ({
         label: typeof f.userId === 'object' ? f.userId.fullName : 'Unknown user',
@@ -1430,9 +1593,9 @@ export function AdminFraudAnalyticsScreen() {
       })),
     },
     {
-      id: 'kyc', icon: '🪪', title: 'Identity verification issues',
+      id: 'kyc', icon: 'idCard', title: 'Identity verification issues',
       description: 'Users with a rejected or unresolved KYC/AML submission.',
-      cases: kycIssues.map((k) => ({ label: k.userName, sub: k.status === 'rejected' ? (k.rejectionReason ?? 'Rejected') : `Pending review · Submitted ${k.submittedDate}` })),
+      cases: kycIssues.map((k) => ({ label: k.name, sub: k.sub })),
     },
   ]
 
@@ -1449,7 +1612,7 @@ export function AdminFraudAnalyticsScreen() {
             <Card variant="interactive" onClick={() => setActivePatternId(activePatternId === p.id ? null : p.id)} className={activePatternId === p.id ? 'ring-2' : ''}>
               <div className="p-4">
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="text-xl">{p.icon}</span>
+                  <span style={{ color: C.forest }}><AppIcon name={p.icon} size={20} /></span>
                   <RiskBadge level={p.cases.length > 0 ? 'flagged' : 'good_standing'} />
                 </div>
                 <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{p.title}</div>

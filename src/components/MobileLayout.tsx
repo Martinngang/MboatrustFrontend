@@ -7,88 +7,16 @@ import type { ReactNode } from 'react'
 // AppShell (sidebar/top-bar/command-palette) lives in ./shell/AppShell and is
 // re-exported below — kept out of this already-large file.
 
-// ── Shared style tokens ──────────────────────────────────────────────────────
-// These resolve through CSS custom properties (see index.css) so every screen
-// using C.xxx in an inline style automatically follows the active theme —
-// see theme.tsx for the ThemeProvider that flips [data-theme] on <html>.
-export const C = {
-  forest: 'var(--color-forest)',
-  forestLight: 'var(--color-forest-light)',
-  forestDark: 'var(--color-forest-dark)',
-  amber: 'var(--color-amber)',
-  amberLight: 'var(--color-amber-light)',
-  ink: 'var(--color-ink)',
-  inkMuted: 'var(--color-ink-muted)',
-  inkSubtle: 'var(--color-ink-subtle)',
-  parchment: 'var(--color-parchment)',
-  parchmentDark: 'var(--color-parchment-dark)',
-  cream: 'var(--color-cream)',
-  seal: 'var(--color-seal)',
-  white: 'var(--color-surface)',
-  // Role-accent tokens — used only for dashboard hero differentiation between roles.
-  steel: 'var(--color-steel)',
-  moss: 'var(--color-moss)',
-  // Translucent glass surfaces (sticky nav bars, glassmorphism dashboard shell).
-  glassBg: 'var(--surface-glass-bg)',
-  glassBorder: 'var(--surface-glass-border)',
-  navGlassBg: 'var(--nav-glass-bg)',
-  navGlassBorder: 'var(--nav-glass-border)',
-  // High-contrast border + accent glow for premium hover/active states — same
-  // green identity in both themes, just brighter against the dark surface.
-  borderBright: 'var(--border-bright)',
-  glowPrimary: 'var(--glow-primary)',
-  // Elevation scale — colored, soft shadows tinted to the active theme,
-  // replacing hand-written box-shadow strings scattered per screen.
-  shadowSm: 'var(--shadow-sm)',
-  shadowMd: 'var(--shadow-md)',
-  shadowLg: 'var(--shadow-lg)',
-  shadowXl: 'var(--shadow-xl)',
-  glowForest: 'rgba(var(--glow-primary-rgb), 0.35)',
-  glowAmber: 'rgba(var(--glow-amber-rgb), 0.35)',
-  // Named gradients, formalizing patterns already used inline throughout.
-  gradientPrimary: 'var(--gradient-primary)',
-  gradientSurface: 'var(--gradient-surface)',
-  gradientAmber: 'var(--gradient-amber)',
-  gradientMesh: 'var(--gradient-mesh)',
-  // Semantic brand aliases (obsidian/gold/emerald) — same underlying vars as
-  // forest/amber/cream above, named for the shell/data-view layer so new code
-  // reads on-brand without duplicating the token values.
-  emerald: 'var(--color-forest)',
-  emeraldLight: 'var(--color-forest-light)',
-  emeraldDark: 'var(--color-forest-dark)',
-  gold: 'var(--color-amber)',
-  goldLight: 'var(--color-amber-light)',
-  obsidian: 'var(--color-cream)',
-  obsidianSurface: 'var(--color-parchment)',
-}
+// C/FONT/StatusTone/STATUS_TONE_VARS live in ./tokens (a dependency-free leaf
+// module) and are re-exported here so existing `from '../components/MobileLayout'`
+// imports keep working — see tokens.ts for why they can't be defined in this
+// file directly (this file re-exports AppShell, which pulls in the whole
+// shell/ directory; anything in shell/ that needs these tokens must NOT
+// import them from here, or it closes a circular import back to this file).
+import { C, FONT, STATUS_TONE_VARS, type StatusTone } from './tokens'
+export { C, FONT, STATUS_TONE_VARS, type StatusTone }
+import { AppIcon, type IconName } from './icons'
 
-// ── Typography convention ────────────────────────────────────────────────────
-// Eyebrow:  text-[10px] uppercase tracking-[0.3em] + FONT.mono
-// Display:  text-3xl sm:text-4xl font-bold        + FONT.serif  (hero/page-level only)
-// H1/title: text-2xl font-bold                    + FONT.serif
-// H2/section: text-lg font-semibold               + FONT.serif
-// Body:     text-sm                               + FONT.sans
-// Caption:  text-xs uppercase tracking-wide        + FONT.mono
-// Converge new screens on this pairing table instead of drifting per-screen.
-
-export const FONT = {
-  serif: "'Playfair Display', Georgia, serif",
-  sans: "'Inter', system-ui, sans-serif",
-  mono: "'DM Mono', 'Courier New', monospace",
-}
-
-// ── Status badge ─────────────────────────────────────────────────────────────
-// Statuses route through 5 semantic tones (--status-*-bg/-text in index.css)
-// so dark mode gets real theme-aware colors instead of the light-only hex
-// pairs this used to hardcode per status string.
-export type StatusTone = 'success' | 'warning' | 'error' | 'info' | 'neutral'
-export const STATUS_TONE_VARS: Record<StatusTone, { bg: string; text: string }> = {
-  success: { bg: 'var(--status-success-bg)', text: 'var(--status-success-text)' },
-  warning: { bg: 'var(--status-warning-bg)', text: 'var(--status-warning-text)' },
-  error: { bg: 'var(--status-error-bg)', text: 'var(--status-error-text)' },
-  info: { bg: 'var(--status-info-bg)', text: 'var(--status-info-text)' },
-  neutral: { bg: 'var(--status-neutral-bg)', text: 'var(--status-neutral-text)' },
-}
 const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   released: { tone: 'success', label: 'Released' },
   under_review: { tone: 'warning', label: 'Under review' },
@@ -159,14 +87,17 @@ export function ThemeToggle({ dark }: { dark?: boolean }) {
 // ── Notification bell ───────────────────────────────────────────────────────
 /** Global unread-notifications entry point — lives in both the mobile top bar
  * and the desktop header so notifications are always one tap away instead of
- * buried inside Settings or bolted onto a single role's dashboard. */
-export function NotificationBell({ dark }: { dark?: boolean }) {
-  const nav = useNavigate()
+ * buried inside Settings or bolted onto a single role's dashboard. Opens the
+ * NotificationsDrawer overlay; `onClick` is injected by the caller (rather
+ * than this component importing useNotificationsDrawer itself) because that
+ * hook's module imports C/FONT back from this one — closing the loop here
+ * would make the two files circularly dependent on each other. */
+export function NotificationBell({ dark, onClick }: { dark?: boolean; onClick: () => void }) {
   const { unreadNotifications } = useApp()
   const stroke = dark ? '#FFFFFF' : C.ink
   return (
     <button
-      onClick={() => nav('/shared/notifications')}
+      onClick={onClick}
       aria-label={unreadNotifications > 0 ? `Notifications, ${unreadNotifications} unread` : 'Notifications'}
       className="relative flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors"
       style={{ background: dark ? 'rgba(255,255,255,0.14)' : C.parchment }}
@@ -182,6 +113,30 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
         >
           {unreadNotifications > 9 ? '9+' : unreadNotifications}
         </span>
+      )}
+    </button>
+  )
+}
+
+// ── User avatar ──────────────────────────────────────────────────────────────
+/** Renders the account's uploaded photo (User.avatarUrl, set via
+ * ProfileScreen's "change photo" control) when there is one, falling back
+ * to an initials circle otherwise — the same fallback every avatar spot in
+ * the app already used before photo upload existed. Shared so TopBar's
+ * desktop avatar and the mobile top bar's render identically. */
+export function UserAvatar({ onClick, size = 32 }: { onClick: () => void; size?: number }) {
+  const { name, avatarUrl } = useApp()
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Profile"
+      className="flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold"
+      style={{ width: size, height: size, background: C.emerald, color: C.white, fontFamily: FONT.serif, fontSize: size * 0.42 }}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        name ? name[0].toUpperCase() : 'M'
       )}
     </button>
   )
@@ -204,36 +159,44 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
   const subtitleColor = dark ? 'rgba(255,255,255,0.6)' : C.inkSubtle
   const iconStroke = dark ? '#FFFFFF' : C.ink
   return (
-    <div
-      className={`px-5 pt-6 pb-4 lg:pt-5 ${dark ? '' : 'border-b'}`}
-      style={{ borderColor: C.parchmentDark, background: bg }}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
-          {back && (
-            <button
-              onClick={onBack ?? (() => nav(-1))}
-              className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${dark ? '' : 'hover:bg-[var(--color-parchment)]'}`}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M10 3L5 8L10 13" stroke={iconStroke} strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
-          )}
-          <div className="min-w-0">
-            <div style={{ fontFamily: FONT.serif, color: titleColor }} className="font-bold text-base truncate">
-              {title}
-            </div>
-            {subtitle && (
-              <div style={{ fontFamily: FONT.mono, color: subtitleColor }} className="text-[10px] uppercase tracking-wider truncate">
-                {subtitle}
-              </div>
+    // Only the compact title/back/action row sticks — `children` (which
+    // ranges from a small step-indicator to a full hero stat block) stays
+    // in normal flow below it and scrolls away, so a screen with a tall
+    // children block never ends up with an oversized sticky header eating
+    // the viewport. Same background on both keeps the two looking like one
+    // seamless block until the page is actually scrolled.
+    <div style={{ background: bg }}>
+      <div
+        className={`sticky top-0 z-30 px-5 pt-6 pb-4 lg:pt-5 ${!dark && !children ? 'border-b' : ''}`}
+        style={{ borderColor: C.parchmentDark, background: bg }}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3 min-w-0">
+            {back && (
+              <button
+                onClick={onBack ?? (() => nav(-1))}
+                className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${dark ? '' : 'hover:bg-[var(--color-parchment)]'}`}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M10 3L5 8L10 13" stroke={iconStroke} strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
             )}
+            <div className="min-w-0">
+              <div style={{ fontFamily: FONT.serif, color: titleColor }} className="font-bold text-base truncate">
+                {title}
+              </div>
+              {subtitle && (
+                <div style={{ fontFamily: FONT.mono, color: subtitleColor }} className="text-[10px] uppercase tracking-wider truncate">
+                  {subtitle}
+                </div>
+              )}
+            </div>
           </div>
+          {action && <div className="flex-shrink-0">{action}</div>}
         </div>
-        {action && <div className="flex-shrink-0">{action}</div>}
       </div>
-      {children && <div className="mt-4">{children}</div>}
+      {children && <div className={`px-5 pb-4 ${dark ? '' : 'border-b'}`} style={{ borderColor: C.parchmentDark, background: bg }}>{children}</div>}
     </div>
   )
 }
@@ -288,13 +251,13 @@ export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[]
 ]
 
 // Administrative tier — verifier & platform-staff tools. Visually and
-// structurally separated from the personal workspace above: real products
-// gate this behind a staff account, but since this app has no separate
-// staff login, we keep it reachable while making unmistakably clear it's a
-// different tier, not one more personal-settings item.
-export const ADMIN_LINKS: { label: string; path: string }[] = [
-  { label: 'Verifier dashboard', path: '/verifier/dashboard' },
-  { label: 'Admin panel', path: '/admin' },
+// structurally separated from the personal workspace above, and only ever
+// shown to accounts that actually hold the matching backend role — most
+// accounts hold neither, so this tier is normally invisible, not a
+// standing assumption that every user is staff.
+export const ADMIN_LINKS: { label: string; path: string; requiresRole: 'verifier' | 'admin' }[] = [
+  { label: 'Verifier dashboard', path: '/verifier/dashboard', requiresRole: 'verifier' },
+  { label: 'Admin panel', path: '/admin', requiresRole: 'admin' },
 ]
 
 export function BottomNav() {
@@ -305,9 +268,24 @@ export function BottomNav() {
   const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
 
   return (
+    // Literal position:fixed pinned to the viewport edge — the same
+    // technique used for the mobile bottom nav in the Technique Academy
+    // project, adopted here after the grid-sibling approach (relying on a
+    // dvh/grid-clamped ancestor to keep this in normal flow at the bottom)
+    // repeatedly failed to render on real mobile devices for reasons that
+    // never reproduced in any static/dev-server check. Fixed positioning
+    // only needs one invariant to hold: no ancestor between this element
+    // and <body> may have a `transform` (or filter/perspective/will-change:
+    // transform), since that would turn the ancestor into this element's
+    // containing block instead of the viewport. AppShell renders this as a
+    // sibling of <main> — never inside the Framer Motion page-transition
+    // wrapper, which is the one thing nearby that does apply a transform —
+    // so that invariant holds. z-40 matches the "sticky in-page nav" tier
+    // documented in index.css. pad for the home-indicator gesture bar on
+    // notched phones so tab labels/press targets aren't flush against it.
     <div
-      className="flex border-t"
-      style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowMd }}
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t lg:hidden"
+      style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowMd, paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {tabs.map((tab) => {
         const active = tab.paths.some((p) => loc.pathname.startsWith(p))
@@ -315,7 +293,7 @@ export function BottomNav() {
           <button
             key={tab.label}
             onClick={() => nav(tab.paths[0])}
-            className="relative flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors"
+            className="relative flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors active:scale-95"
             style={{ color: active ? C.forest : C.inkSubtle }}
           >
             {active && (
@@ -545,7 +523,7 @@ export function StepIndicator({ steps, current }: { steps: string[]; current: nu
               className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
               style={{ background: i <= current ? C.forest : C.parchmentDark, color: i <= current ? C.white : C.inkSubtle, fontFamily: FONT.mono }}
             >
-              {i < current ? '✓' : i + 1}
+              {i < current ? <AppIcon name="check" size={11} strokeWidth={2.5} /> : i + 1}
             </div>
             <span style={{ fontFamily: FONT.mono, color: i <= current ? C.forest : C.inkSubtle }} className="text-[10px] uppercase tracking-wide capitalize whitespace-nowrap">{s}</span>
           </div>
@@ -651,7 +629,7 @@ export function DashboardHero({ eyebrow, title, subtitle, stats, background, act
   )
 }
 
-export function QuickActionsGrid({ actions }: { actions: { icon: string; label: string; path: string }[] }) {
+export function QuickActionsGrid({ actions }: { actions: { icon: IconName; label: string; path: string }[] }) {
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
   return (
@@ -671,7 +649,7 @@ export function QuickActionsGrid({ actions }: { actions: { icon: string; label: 
           className="flex flex-col items-center gap-2 rounded-2xl border px-3 py-4 text-center"
           style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}
         >
-          <span className="text-xl">{icon}</span>
+          <span style={{ color: C.forest }}><AppIcon name={icon} size={22} /></span>
           <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] uppercase tracking-[0.2em] leading-tight">{label}</span>
         </motion.button>
       ))}

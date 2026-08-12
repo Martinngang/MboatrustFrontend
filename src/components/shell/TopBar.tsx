@@ -2,22 +2,24 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useApp } from '../../context'
-import { C, FONT, NotificationBell, ThemeToggle } from '../MobileLayout'
+import { C, FONT, NotificationBell, ThemeToggle, UserAvatar } from '../MobileLayout'
 import { ConnectivityBar } from '../ConnectivityBar'
 import { InstallButton } from '../InstallButton'
 import { useCommandPalette } from './CommandPalette'
 import { Breadcrumbs } from './Breadcrumbs'
 import { QUICK_CREATE_BY_ROLE } from './quickCreate'
 import { useShortcutsHelp } from './KeyboardShortcuts'
+import { useNotificationsDrawer } from '../NotificationsDrawer'
 
 /** Top bar: breadcrumb trail, global search (opens the command palette),
  * role-aware quick-create, existing chrome (notifications/theme/connectivity/
  * install), and an avatar menu (Profile/Settings/Sign out). */
 export function TopBar() {
   const nav = useNavigate()
-  const { role, name, setLoggedIn, setRole } = useApp()
+  const { role, setLoggedIn, setRole } = useApp()
   const { show } = useCommandPalette()
   const { show: showShortcuts } = useShortcutsHelp()
+  const { toggle: toggleNotifications } = useNotificationsDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
   const quickCreate = QUICK_CREATE_BY_ROLE[role ?? 'funder']
 
@@ -62,7 +64,7 @@ export function TopBar() {
           )}
           <ConnectivityBar />
           <InstallButton />
-          <NotificationBell />
+          <NotificationBell onClick={toggleNotifications} />
           <ThemeToggle />
           <button
             onClick={showShortcuts}
@@ -75,13 +77,7 @@ export function TopBar() {
           </button>
 
           <div className="relative">
-            <button
-              onClick={() => setMenuOpen((o) => !o)}
-              className="flex h-9 w-9 items-center justify-center rounded-full font-bold text-sm"
-              style={{ background: C.emerald, color: C.white, fontFamily: FONT.serif }}
-            >
-              {name ? name[0].toUpperCase() : 'M'}
-            </button>
+            <UserAvatar onClick={() => setMenuOpen((o) => !o)} size={36} />
             <AnimatePresence>
               {menuOpen && (
                 <>

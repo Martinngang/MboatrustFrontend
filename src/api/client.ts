@@ -13,7 +13,12 @@ export function setDevUserId(id: string | null) {
   currentDevUserId = id
 }
 
-export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || 'http://localhost:5000/api/v1'
+// Relative by default (not an absolute localhost URL) so it resolves
+// against whatever origin the page was actually loaded from — a hardcoded
+// `localhost:5000` only reaches the backend when the browser happens to
+// share a machine with it, which breaks on a phone or any other device
+// hitting the dev server over LAN/tunnel. See vite.config.ts's /api proxy.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) || '/api/v1'
 
 export const api = axios.create({ baseURL: API_BASE_URL })
 

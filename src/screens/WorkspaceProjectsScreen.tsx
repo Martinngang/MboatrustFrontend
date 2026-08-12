@@ -9,11 +9,20 @@ import { CalendarView } from '../components/dataview/CalendarView'
 import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
+import { useCancelProjectMutation } from '../api/projects'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
 
+// 'completed' and 'disputed' are only ever reached as a side effect of the
+// real milestone-approval/dispute flows, never a direct flip — so those two
+// columns are display-only. The one legal direct transition is 'open' →
+// 'cancelled' (see useCancelProjectMutation), gated below via isValidMove.
 const BOARD_COLUMNS = [
+  { id: 'open', label: 'Open' },
   { id: 'active', label: 'Active' },
   { id: 'completed', label: 'Completed' },
   { id: 'disputed', label: 'Disputed' },
+  { id: 'cancelled', label: 'Cancelled' },
 ]
 
 function dueDate(project: Project): Date {
@@ -28,10 +37,23 @@ function dueDate(project: Project): Date {
  * destination the Sidebar's "Projects" item now points to. */
 export function WorkspaceProjectsScreen() {
   const nav = useNavigate()
-  const { projects, updateProjectStatus } = useApp()
+  const { projects } = useApp()
   const [mode, setMode] = useViewMode('projects')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = projects.find((p) => p.id === previewId) ?? null
+  const cancelProject = useCancelProjectMutation()
+  const { show: showToast } = useToast()
+
+  const cancelEligible = (rows: Project[]) => {
+    const eligible = rows.filter((p) => p.status === 'open')
+    if (eligible.length === 0) {
+      showToast({ title: 'Nothing to cancel', description: 'Only projects that have not yet received funds can be cancelled.', tone: 'info' })
+      return
+    }
+    Promise.all(eligible.map((p) => cancelProject.mutateAsync(p.id)))
+      .then(() => showToast({ title: `Cancelled ${eligible.length} project${eligible.length > 1 ? 's' : ''}`, tone: 'success' }))
+      .catch((err) => showToast({ title: 'Cancel failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }))
+  }
 
   const columns: DataTableColumn<Project>[] = [
     { key: 'title', header: 'Project', sortValue: (p) => p.title, render: (p) => <span className="font-medium">{p.title}</span>, width: 'minmax(200px, 2fr)' },
@@ -56,7 +78,7 @@ export function WorkspaceProjectsScreen() {
     <AppShell>
       <Header title="Projects" subtitle={`${projects.length} total`} />
 
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <ViewSwitcher mode={mode} onChange={setMode} />
         <PillButton onClick={() => nav('/funder/create')} variant="secondary">+ New project</PillButton>
       </div>
@@ -68,7 +90,7 @@ export function WorkspaceProjectsScreen() {
           getRowId={(p) => p.id}
           onRowClick={(p) => setPreviewId(p.id)}
           bulkActions={[
-            { label: 'Mark completed', onClick: (rows) => rows.forEach((p) => updateProjectStatus(p.id, 'completed')) },
+            { label: 'Cancel', danger: true, onClick: cancelEligible },
           ]}
         />
       )}
@@ -79,7 +101,8 @@ export function WorkspaceProjectsScreen() {
           rows={projects}
           getRowId={(p) => p.id}
           getStatus={(p) => p.status}
-          onCardMove={(p, _from, to) => updateProjectStatus(p.id, to)}
+          isValidMove={(_p, from, to) => from === 'open' && to === 'cancelled'}
+          onCardMove={(p) => cancelEligible([p])}
           renderCard={(p) => (
             <button onClick={() => setPreviewId(p.id)} className="w-full text-left">
               <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-sm font-bold">{p.title}</div>

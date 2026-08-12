@@ -25,7 +25,7 @@ export function TemplatesScreen() {
       <div className="px-5 py-4">
         {templates.length === 0 ? (
           <EmptyState
-            icon="🧩"
+            icon="puzzle"
             title="No templates yet"
             description="Save a milestone breakdown as a template the next time you set up a project's milestones."
             illustration="tilt"

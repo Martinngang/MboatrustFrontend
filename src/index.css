@@ -79,9 +79,24 @@
    (not the old warm forest-black) with emerald as the primary accent and
    true gold as the secondary accent for CTAs and highlights. */
 [data-theme='dark'] {
-  --color-forest: #2FD996;
-  --color-forest-light: #6EEBC0;
-  --color-forest-dark: #1B8F63;
+  /* forest/forest-light/forest-dark double as TWO roles across the app:
+     (1) small text/icon/border accents that need to pop against these
+     near-black surfaces, and (2) solid fill backgrounds (buttons, avatar
+     badges, hero cards, ~80+ call sites) that are always paired with
+     hardcoded white text/icons on top. A previous pass tuned this trio
+     purely for role (1) — bright mint (#2FD996) reads great as an accent,
+     but white-on-#2FD996 is ~1.8:1 contrast, nowhere near legible. These
+     values are chosen to serve both roles at once (verified white-on-forest
+     and forest-on-cream both land at ~4.3–4.6:1, WCAG AA): still clearly
+     brighter/more saturated than the light-theme forest so it reads as an
+     accent against near-black, but dark enough that white text stays
+     readable wherever it's used as a fill. Same reasoning for --color-seal
+     below (danger/notification-count badges, same white-text-on-fill
+     pattern). --color-steel/--color-moss (role-accent hero gradients) were
+     audited too and already contrast well with white as-is — untouched. */
+  --color-forest: #0E8C5C;
+  --color-forest-light: #17A369;
+  --color-forest-dark: #084A31;
   --color-amber: #D4AF37;
   --color-amber-light: #E8CC72;
   --color-parchment: #16171B;
@@ -90,7 +105,7 @@
   --color-ink-muted: #9C9FA6;
   --color-ink-subtle: #6C6F76;
   --color-cream: #0A0A0D;
-  --color-seal: #E0503A;
+  --color-seal: #C94430;
   --color-surface: #1B1C21;
   --color-steel: #3F6EA8;
   --color-moss: #4A7A4A;
@@ -98,15 +113,15 @@
   --surface-glass-border: rgba(237, 235, 230, 0.08);
   --nav-glass-bg: rgba(10, 10, 13, 0.72);
   --nav-glass-border: rgba(237, 235, 230, 0.09);
-  --border-bright: rgba(110, 235, 192, 0.35);
-  --glow-primary: rgba(47, 217, 150, 0.35);
+  --border-bright: rgba(23, 163, 105, 0.4);
+  --glow-primary: rgba(14, 140, 92, 0.35);
   --grain-opacity: 0.035;
   color-scheme: dark;
 
   /* Dark elevation reads as deliberately deep-black, not a lightened clone
      of the light-mode shadow — pure black blur instead of ink-tinted. */
   --shadow-tint: 0, 0, 0;
-  --glow-primary-rgb: 47, 217, 150;
+  --glow-primary-rgb: 14, 140, 92;
   --glow-amber-rgb: 212, 175, 55;
   --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.42);
@@ -130,14 +145,31 @@ body {
   position: relative;
 }
 
+/* App-wide z-index scale (documented here since the layers span both CSS
+   and Tailwind `z-*` utilities scattered across components):
+     1     decorative background layers (film grain, below)
+     10–20 local component-internal layering (icons over their own
+           background, in-flow dropdown menus like DataTable's column
+           picker or TopBar's avatar menu)
+     30    sticky per-screen Header (components/MobileLayout.tsx)
+     40    sticky in-page sub-navs (Landing, CommunityScreens)
+     100   region-anchored overlays (InstallModal)
+     1000  blocking overlays (Modal, Drawer)
+     1100  toasts — above modals, since an action inside a modal can
+           still trigger one that needs to stay visible
+     1200  command palette — the one surface meant to sit above everything */
+
 /* Subtle film-grain texture — barely-there in light mode, gives the dark
-   mode the same premium, tactile surface as print/seal-stamped paper. */
+   mode the same premium, tactile surface as print/seal-stamped paper.
+   Must stay at the very bottom of the scale: it used to sit at z-index 999,
+   which put it ABOVE ordinary in-flow dropdowns/menus (z-10/z-20) that
+   don't create their own stacking context, visibly graining over them. */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 999;
+  z-index: 1;
   opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   transition: opacity 0.3s ease;
@@ -318,6 +350,24 @@ html {
   );
   background-size: 200% 100%;
   animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Toast auto-dismiss countdown — shrinks left-to-right over the toast's
+   duration. `animation-play-state` is toggled between running/paused on
+   hover (see components/Toast.tsx), which the browser handles natively:
+   pausing freezes the animation at its exact current position and
+   resuming continues from there, so it always stays in sync with the
+   matching JS dismiss-timer logic. */
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.toast-progress-bar {
+  width: 100%;
+  transform-origin: left;
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {

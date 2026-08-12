@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react'
 import { usePWAInstall } from '../pwaInstall'
 import { C, FONT } from './MobileLayout'
+import { AppIcon, type IconName } from './icons'
 
-const BENEFITS = [
-  { icon: '⚡', title: 'Faster access', desc: 'Opens instantly from your home screen — no browser tab to find first.' },
-  { icon: '🖥️', title: 'Full-screen experience', desc: 'No address bar or browser clutter — just the app.' },
-  { icon: '📶', title: 'Works offline', desc: 'Capture milestone evidence in the field with no signal — it syncs automatically once you’re back online.' },
-  { icon: '🏠', title: 'One tap away', desc: 'Sits right on your home screen, like any other app.' },
+const BENEFITS: { icon: IconName; title: string; desc: string }[] = [
+  { icon: 'zap', title: 'Faster access', desc: 'Opens instantly from your home screen — no browser tab to find first.' },
+  { icon: 'monitor', title: 'Full-screen experience', desc: 'No address bar or browser clutter — just the app.' },
+  { icon: 'wifi', title: 'Works offline', desc: 'Capture milestone evidence in the field with no signal — it syncs automatically once you’re back online.' },
+  { icon: 'home', title: 'One tap away', desc: 'Sits right on your home screen, like any other app.' },
 ]
 
 function StepRow({ n, children }: { n: number; children: ReactNode }) {
@@ -68,7 +69,7 @@ export function InstallModal() {
         <div className="space-y-3 px-6 py-5">
           {BENEFITS.map((b) => (
             <div key={b.title} className="flex items-start gap-3">
-              <span className="flex-shrink-0 text-lg">{b.icon}</span>
+              <span className="flex-shrink-0" style={{ color: C.forest }}><AppIcon name={b.icon} size={19} /></span>
               <div>
                 <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{b.title}</div>
                 <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-0.5 text-xs leading-relaxed">{b.desc}</div>

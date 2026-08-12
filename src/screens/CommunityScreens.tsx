@@ -1,30 +1,43 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useFunding } from '../funding'
-import { useCommunity, REFERRAL_REWARD_XAF, type ReferralStatus } from '../community'
+import { useProjectQuery } from '../api/projects'
+import { useMyReferralsQuery, useCreateReferralMutation, type Referral } from '../api/referrals'
+import {
+  useMyGroupsQuery,
+  useGroupDashboardQuery,
+  useCreateGroupMutation,
+  useInviteGroupMemberMutation,
+} from '../api/groups'
+import { useUserSearchQuery } from '../api/users'
+import { apiErrorMessage } from '../api/client'
 import { C, FONT, AppShell, Header, Card, PillButton, StatusBadge, ThemeToggle } from '../components/MobileLayout'
-import { ContactPicker, type PickedContact } from '../components/ContactPicker'
 import { BeforeAfterComparison } from '../components/BeforeAfterComparison'
 import { InstallButton } from '../components/InstallButton'
 import { EmptyState } from '../components/EmptyState'
 import { ChipGroup } from '../components/Chip'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { useToast } from '../components/Toast'
 
 // ── Diaspora group: organization profile setup ────────────────────────────────
 export function GroupSetupScreen() {
   const nav = useNavigate()
-  const { createGroup } = useCommunity()
+  const { show: showToast } = useToast()
+  const createGroup = useCreateGroupMutation()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [region, setRegion] = useState('')
+  const [purpose, setPurpose] = useState('')
 
-  const canCreate = name.trim() && region.trim()
+  const canCreate = name.trim().length > 0
 
-  const submit = () => {
+  const submit = async () => {
     if (!canCreate) return
-    createGroup(name.trim(), description.trim(), region.trim())
-    nav('/groups/dashboard')
+    try {
+      const group = await createGroup.mutateAsync({ name: name.trim(), description: description.trim(), purpose: purpose.trim() })
+      nav(`/groups/dashboard/${group.id}`)
+    } catch (err) {
+      showToast({ title: 'Failed to create group', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   return (
@@ -46,11 +59,11 @@ export function GroupSetupScreen() {
           />
         </div>
         <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Based in</label>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Purpose (optional)</label>
           <input
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            placeholder="e.g. Brussels, Belgium"
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            placeholder="e.g. Pooling toward community water & education projects"
             className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
             style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
           />
@@ -67,7 +80,7 @@ export function GroupSetupScreen() {
           />
         </div>
 
-        <PillButton onClick={submit} fullWidth disabled={!canCreate}>Create group</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!canCreate || createGroup.isPending}>{createGroup.isPending ? 'Creating…' : 'Create group'}</PillButton>
       </div>
     </AppShell>
   )
@@ -75,20 +88,30 @@ export function GroupSetupScreen() {
 
 // ── Diaspora group: member list + invite ───────────────────────────────────────
 export function GroupMembersScreen() {
-  const { groups, members, addMember } = useCommunity()
-  const [showInvite, setShowInvite] = useState(false)
-  const [contact, setContact] = useState<PickedContact | null>(null)
-  const group = groups[0]
-  const groupMembers = members.filter((m) => m.groupId === group?.id)
+  const { id } = useParams()
+  const { show: showToast } = useToast()
+  const { data: groups = [] } = useMyGroupsQuery()
+  const groupId = id ?? groups[0]?.id
+  const { data: dashboard, isLoading } = useGroupDashboardQuery(groupId)
+  const inviteMember = useInviteGroupMemberMutation()
 
-  const invite = () => {
-    if (!contact || !group) return
-    addMember(group.id, contact.name, contact.phone)
-    setContact(null)
-    setShowInvite(false)
+  const [showInvite, setShowInvite] = useState(false)
+  const [query, setQuery] = useState('')
+  const { data: results = [], isFetching } = useUserSearchQuery(query)
+
+  const invite = async (userId: string) => {
+    if (!groupId) return
+    try {
+      await inviteMember.mutateAsync({ groupId, userId })
+      setQuery('')
+      setShowInvite(false)
+      showToast({ title: 'Member added', tone: 'success' })
+    } catch (err) {
+      showToast({ title: 'Failed to add member', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
-  if (!group) {
+  if (!isLoading && !groupId) {
     return (
       <AppShell>
         <Header title="Group Members" back />
@@ -97,9 +120,11 @@ export function GroupMembersScreen() {
     )
   }
 
+  const groupMembers = dashboard?.members ?? []
+
   return (
     <AppShell>
-      <Header title="Group Members" subtitle={group.name} back />
+      <Header title="Group Members" subtitle={dashboard?.group.name} back />
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="flex items-center justify-between">
           <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">{groupMembers.length} members</span>
@@ -109,9 +134,39 @@ export function GroupMembersScreen() {
         </div>
 
         {showInvite && (
-          <div className="rounded-2xl border p-4 space-y-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <ContactPicker suggestions={[]} onChange={setContact} />
-            <PillButton onClick={invite} fullWidth disabled={!contact}>Add to group</PillButton>
+          <div className="rounded-2xl border p-4 space-y-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
+              Members must already have a Mboa Trust account. Search by name, phone, or email.
+            </p>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. Marie-Claire, +32..., or name@email.com"
+              className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+              style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+            />
+            {query.trim().length >= 2 && (
+              <div className="space-y-2">
+                {isFetching && <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">Searching…</p>}
+                {!isFetching && results.length === 0 && (
+                  <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">No matching account found. They'll need to create one first.</p>
+                )}
+                {results
+                  .filter((u) => !groupMembers.some((m) => m.userId === u.id))
+                  .map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => invite(u.id)}
+                      disabled={inviteMember.isPending}
+                      className="w-full text-left rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md disabled:opacity-50"
+                      style={{ borderColor: C.parchmentDark, background: C.white }}
+                    >
+                      <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{u.fullName}</div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{u.phoneNumber || u.email || u.roles.join(', ')}</div>
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -125,10 +180,10 @@ export function GroupMembersScreen() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{m.name}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{m.phone} · Joined {m.joinedDate}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">Joined {m.joinedAt}</div>
                   </div>
-                  {m.role === 'admin' && (
-                    <span className="rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning-text)', fontFamily: FONT.mono }}>Admin</span>
+                  {m.role === 'owner' && (
+                    <span className="rounded-full px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider" style={{ background: 'var(--status-warning-bg)', color: 'var(--status-warning-text)', fontFamily: FONT.mono }}>Owner</span>
                   )}
                 </div>
               </Card>
@@ -143,13 +198,13 @@ export function GroupMembersScreen() {
 // ── Diaspora group: shared dashboard ────────────────────────────────────────────
 export function GroupDashboardScreen() {
   const nav = useNavigate()
-  const { groups, members } = useCommunity()
-  const { contributors } = useFunding()
-  const { projects } = useApp()
-  const group = groups[0]
-  const groupMembers = members.filter((m) => m.groupId === group?.id)
+  const { id } = useParams()
+  const { data: groups = [] } = useMyGroupsQuery()
+  const groupId = id ?? groups[0]?.id
+  const { data: dashboard, isLoading } = useGroupDashboardQuery(groupId)
+  const { data: linkedProject } = useProjectQuery(dashboard?.group.linkedProjectId ?? undefined)
 
-  if (!group) {
+  if (!isLoading && !groupId) {
     return (
       <AppShell>
         <Header title="Group Dashboard" back />
@@ -158,37 +213,29 @@ export function GroupDashboardScreen() {
     )
   }
 
-  const memberContributions = groupMembers.map((m) => {
-    let total = 0
-    const fundedProjectIds = new Set<string>()
-    for (const [projectId, list] of Object.entries(contributors)) {
-      for (const c of list) {
-        if (c.name === m.name) {
-          total += c.amount
-          fundedProjectIds.add(projectId)
-        }
-      }
-    }
-    return { member: m, total, projectCount: fundedProjectIds.size }
-  })
+  if (!dashboard) {
+    return (
+      <AppShell>
+        <Header title="Group Dashboard" back />
+      </AppShell>
+    )
+  }
 
-  const fundedProjectIds = new Set<string>()
-  Object.entries(contributors).forEach(([projectId, list]) => {
-    if (list.some((c) => groupMembers.some((m) => m.name === c.name))) fundedProjectIds.add(projectId)
-  })
-  const fundedProjects = projects.filter((p) => fundedProjectIds.has(p.id))
-  const totalFunded = memberContributions.reduce((s, mc) => s + mc.total, 0)
+  const { group, members: groupMembers, fundingSummary, contributionsByMember } = dashboard
+  const contributionByUserId = new Map(contributionsByMember.map((c) => [c.userId, c.total]))
 
   return (
     <AppShell>
       <Header title="Group Dashboard" subtitle={group.name} back />
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-2xl p-5" style={{ background: C.forest }}>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-widest">{group.region}</div>
+          {group.purpose && (
+            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-widest">{group.purpose}</div>
+          )}
           <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="text-xs mt-2 leading-relaxed">{group.description}</p>
           <div className="mt-4 flex items-center gap-6">
             <div>
-              <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold">{fmt(totalFunded)}</div>
+              <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold">{fmt(fundingSummary?.raised ?? 0)}</div>
               <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[9px] uppercase tracking-wider mt-0.5">Funded together</div>
             </div>
             <div>
@@ -198,14 +245,14 @@ export function GroupDashboardScreen() {
           </div>
         </div>
 
-        <button onClick={() => nav('/groups/members')} className="w-full text-left" style={{ fontFamily: FONT.sans, color: C.forest }}>
+        <button onClick={() => nav(`/groups/members/${group.id}`)} className="w-full text-left" style={{ fontFamily: FONT.sans, color: C.forest }}>
           <span className="text-xs font-semibold">Manage members →</span>
         </button>
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Per-member contribution</p>
           <StaggerList className="space-y-2">
-            {memberContributions.map(({ member, total, projectCount }) => (
+            {groupMembers.map((member) => (
               <StaggerItem key={member.id}>
                 <Card>
                   <div className="p-4 flex items-center justify-between">
@@ -215,10 +262,10 @@ export function GroupDashboardScreen() {
                       </div>
                       <div className="min-w-0">
                         <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{member.name}</div>
-                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{projectCount} project{projectCount === 1 ? '' : 's'} funded</div>
+                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">Joined {member.joinedAt}</div>
                       </div>
                     </div>
-                    <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold flex-shrink-0">{fmt(total)}</span>
+                    <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold flex-shrink-0">{fmt(contributionByUserId.get(member.userId) ?? 0)}</span>
                   </div>
                 </Card>
               </StaggerItem>
@@ -227,25 +274,19 @@ export function GroupDashboardScreen() {
         </div>
 
         <div>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Projects the group has funded</p>
-          {fundedProjects.length === 0 ? (
-            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">No projects funded by group members yet.</p>
+          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Project the group is funding</p>
+          {!linkedProject ? (
+            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">No project linked to this group yet.</p>
           ) : (
-            <StaggerList className="space-y-2">
-              {fundedProjects.map((p) => (
-                <StaggerItem key={p.id}>
-                  <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
-                    <div className="p-4 flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{p.title}</div>
-                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.location}</div>
-                      </div>
-                      <StatusBadge status={p.status} />
-                    </div>
-                  </Card>
-                </StaggerItem>
-              ))}
-            </StaggerList>
+            <Card variant="interactive" onClick={() => nav(`/funder/project/${linkedProject.id}`)}>
+              <div className="p-4 flex items-center justify-between">
+                <div className="min-w-0">
+                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{linkedProject.title}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{linkedProject.location}</div>
+                </div>
+                <StatusBadge status={linkedProject.status} />
+              </div>
+            </Card>
           )}
         </div>
       </div>
@@ -258,7 +299,7 @@ function EmptyGroupState() {
   return (
     <div className="px-5 sm:mx-auto sm:max-w-md">
       <EmptyState
-        icon="👥"
+        icon="users"
         title="No diaspora group yet"
         description="Set up a shared account so members can pool contributions and track every project you fund together."
         illustration="tilt"
@@ -269,26 +310,40 @@ function EmptyGroupState() {
 }
 
 // ── Referral system ─────────────────────────────────────────────────────────────
-const SUGGESTED_REFERRALS = [
-  { name: 'Grace Tabi', phone: '+237 677 900 050', role: 'Friend' },
-  { name: 'Samuel Njoh', phone: '+237 677 900 060', role: 'Colleague' },
-]
-
-const REFERRAL_STATUS_MAP: Record<ReferralStatus, string> = { invited: 'pending', joined: 'active', rewarded: 'approved' }
+const REFERRAL_STATUS_MAP: Record<Referral['status'], string> = { invited: 'pending', joined: 'active', rewarded: 'approved' }
 
 export function ReferralScreen() {
-  const { referrals, referralCode, addReferral } = useCommunity()
-  const [showInvite, setShowInvite] = useState(false)
-  const [contact, setContact] = useState<PickedContact | null>(null)
+  const { show: showToast } = useToast()
+  const { data: referrals = [], isLoading } = useMyReferralsQuery()
+  const createReferral = useCreateReferralMutation()
+  const [copied, setCopied] = useState(false)
+
+  // "My shareable link" = the most recent still-'invited' (unclaimed)
+  // referral record — each one is single-use, so a fresh one is created
+  // once the last is claimed. See api/referrals.ts.
+  const shareable = referrals.find((r) => r.status === 'invited')
+  const createdRef = useRef(false)
+  useEffect(() => {
+    if (!isLoading && !shareable && !createdRef.current) {
+      createdRef.current = true
+      createReferral.mutate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, shareable])
 
   const rewardedCount = referrals.filter((r) => r.status === 'rewarded').length
-  const totalRewards = rewardedCount * REFERRAL_REWARD_XAF
+  const totalRewards = referrals.reduce((s, r) => s + (r.rewardAmount ?? 0), 0)
+  const link = shareable ? `mboatrust.app/#/signup?ref=${shareable.id}` : ''
 
-  const invite = () => {
-    if (!contact) return
-    addReferral(contact.name, contact.phone)
-    setContact(null)
-    setShowInvite(false)
+  const copyLink = async () => {
+    if (!link) return
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      showToast({ title: 'Could not copy link', tone: 'error' })
+    }
   }
 
   return (
@@ -296,16 +351,23 @@ export function ReferralScreen() {
       <Header title="Refer a Friend" back />
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-widest mb-1">Your referral code</div>
-          <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-3xl font-bold tracking-widest">{referralCode}</div>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.65)' }} className="text-[10px] mt-2">mboatrust.app/#/signup?ref={referralCode}</div>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-widest mb-1">Your referral link</div>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.85)' }} className="text-xs break-all mt-2">{link || 'Generating…'}</div>
+          <button
+            onClick={copyLink}
+            disabled={!link}
+            className="mt-4 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-50"
+            style={{ background: 'rgba(255,255,255,0.14)', color: C.white, fontFamily: FONT.sans }}
+          >
+            {copied ? 'Copied!' : 'Copy link'}
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <Card variant="glass">
             <div className="p-4 text-center">
-              <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">{referrals.length}</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">Total referred</div>
+              <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">{rewardedCount}</div>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">Successful referrals</div>
             </div>
           </Card>
           <Card variant="glass">
@@ -316,25 +378,27 @@ export function ReferralScreen() {
           </Card>
         </div>
 
-        {!showInvite ? (
-          <PillButton onClick={() => setShowInvite(true)} fullWidth>Invite a friend</PillButton>
-        ) : (
-          <div className="rounded-2xl border p-4 space-y-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <ContactPicker suggestions={SUGGESTED_REFERRALS} onChange={setContact} />
-            <PillButton onClick={invite} fullWidth disabled={!contact}>Send invite</PillButton>
-          </div>
-        )}
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
+          Share your link with someone who hasn't joined yet. You're rewarded once they sign up and complete their first project or contract.
+        </p>
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Your referrals</p>
+          {!isLoading && referrals.filter((r) => r.status !== 'invited').length === 0 && (
+            <Card>
+              <div className="p-4 text-center">
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">No one has joined via your link yet.</p>
+              </div>
+            </Card>
+          )}
           <StaggerList className="space-y-2">
-            {referrals.map((r) => (
+            {referrals.filter((r) => r.status !== 'invited').map((r) => (
               <StaggerItem key={r.id}>
                 <Card>
                   <div className="p-4 flex items-center justify-between">
                     <div>
-                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{r.name}</div>
-                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.date}{r.status === 'rewarded' ? ` · +${fmt(REFERRAL_REWARD_XAF)}` : ''}</div>
+                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{r.referredName ?? 'New member'}</div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.date}{r.status === 'rewarded' && r.rewardAmount ? ` · +${fmt(r.rewardAmount)}` : ''}</div>
                     </div>
                     <StatusBadge status={REFERRAL_STATUS_MAP[r.status]} />
                   </div>
@@ -451,7 +515,7 @@ export function PublicShowcaseScreen() {
         </div>
 
         {filtered.length === 0 ? (
-          <EmptyState icon="🏗️" title="No projects match these filters" illustration="tilt" />
+          <EmptyState icon="hardHat" title="No projects match these filters" illustration="tilt" />
         ) : (
           <StaggerList className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((p) => (

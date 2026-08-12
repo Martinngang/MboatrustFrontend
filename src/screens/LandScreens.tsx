@@ -2,16 +2,22 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { C, FONT, AppShell, Card, StatusBadge, Stars, PillButton, Header } from '../components/MobileLayout'
-import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTimeline'
+import { ActivityTimeline } from '../components/ActivityTimeline'
 import { LandFlagBadge } from '../components/LandFlagBadge'
 import { NeighboringListingsMap } from '../components/NeighboringListingsMap'
-import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
 import { ChipGroup } from '../components/Chip'
 import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { EmptyState } from '../components/EmptyState'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
-import { useMakeOfferMutation } from '../api/land'
+import {
+  useCreateLandOfferMutation,
+  useCounterOfferMutation,
+  useAcceptOfferMutation,
+  useDeclineOfferMutation,
+  useWithdrawOfferMutation,
+} from '../api/landOffers'
 import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
 
 // ── Browse land ────────────────────────────────────────────────────────────────
@@ -28,7 +34,7 @@ export function BrowseLandScreen() {
       <Header title="Land & Property" back action={
         <div className="w-40">
           <Tabs
-            tabs={[{ id: 'list', label: '☰ List' }, { id: 'map', label: '⊕ Map' }]}
+            tabs={[{ id: 'list', label: 'List', icon: 'menu' }, { id: 'map', label: 'Map', icon: 'mapPin' }]}
             value={view}
             onChange={(v) => setView(v as 'list' | 'map')}
             variant="pill"
@@ -74,6 +80,15 @@ export function BrowseLandScreen() {
               </button>
             )
           })}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="px-5 py-4">
+          <EmptyState
+            icon="mapPin"
+            title="No listings found"
+            description="Try a different region, or check back soon for new plots."
+            illustration="tilt"
+          />
         </div>
       ) : (
         <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
@@ -121,11 +136,44 @@ export function BrowseLandScreen() {
 export function LandListingDetailScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { landListings, offers } = useApp()
+  const { landListings, offers, devUserId } = useApp()
+  const { show: showToast } = useToast()
   const listing = landListings.find((l) => l.id === id) ?? landListings[0]
   const listingOffers = offers.filter((o) => o.listingId === listing.id)
   const [photoIdx, setPhotoIdx] = useState(0)
   const [interested, setInterested] = useState(false)
+  const [counteringId, setCounteringId] = useState<string | null>(null)
+  const [counterAmount, setCounterAmount] = useState('')
+  const [actingOn, setActingOn] = useState<string | null>(null)
+  const isSeller = Boolean(devUserId && listing.sellerId && devUserId === listing.sellerId)
+
+  const counterOffer = useCounterOfferMutation()
+  const acceptOffer = useAcceptOfferMutation()
+  const declineOffer = useDeclineOfferMutation()
+  const withdrawOffer = useWithdrawOfferMutation()
+
+  const runOfferAction = async (offerId: string, action: () => Promise<unknown>, successMessage: string) => {
+    setActingOn(offerId)
+    try {
+      await action()
+      showToast({ title: successMessage, tone: 'success' })
+      setCounteringId(null)
+    } catch (err) {
+      showToast({ title: 'Action failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActingOn(null)
+    }
+  }
+
+  const handleAccept = (offerId: string) =>
+    runOfferAction(offerId, async () => {
+      const result = await acceptOffer.mutateAsync(offerId)
+      if (!isSeller) nav('/funder/fund', { state: { projectId: result.projectId } })
+    }, isSeller ? 'Offer accepted — buyer can now fund the purchase' : 'Offer accepted')
+  const handleDecline = (offerId: string) => runOfferAction(offerId, () => declineOffer.mutateAsync(offerId), 'Offer declined')
+  const handleWithdraw = (offerId: string) => runOfferAction(offerId, () => withdrawOffer.mutateAsync(offerId), 'Offer withdrawn')
+  const submitCounter = (offerId: string) =>
+    runOfferAction(offerId, () => counterOffer.mutateAsync({ offerId, counterAmount: Number(counterAmount) }), 'Counter-offer sent')
 
   const photos = [listing.image, listing.image.replace('w=400', 'w=400&crop=entropy')]
 
@@ -282,18 +330,77 @@ export function LandListingDetailScreen() {
           <ActivityTimeline events={[
             { id: 'listed', label: 'Listing published', status: 'done' },
             { id: 'docs', label: listing.verified ? 'Documents verified' : 'Documents under verification', status: listing.verified ? 'done' : 'current' },
-            ...listingOffers.map((o, i): TimelineEvent => ({
-              id: `offer-${i}`,
-              label: `Offer received from ${o.buyerName}`,
-              detail: `${fmt(o.amount)} · ${o.status}`,
-              status: o.status === 'pending' ? 'current' : 'done',
-            })),
           ]} />
         </div>
+
+        {/* Offers */}
+        {listingOffers.length > 0 && (
+          <div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">
+              {isSeller ? 'Offers received' : 'Your offers'}
+            </div>
+            <div className="space-y-2">
+              {listingOffers.map((o) => {
+                const isBuyerOfOffer = Boolean(devUserId && devUserId === o.buyerId)
+                const canRespondToPending = o.status === 'pending' && isSeller
+                const canRespondToCounter = o.status === 'countered' && isBuyerOfOffer
+                const canWithdraw = ['pending', 'countered'].includes(o.status) && isBuyerOfOffer
+                const busy = actingOn === o.id
+                return (
+                  <div key={o.id} className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{fmt(o.amount)}{isSeller ? ` from ${o.buyerName}` : ''}</span>
+                      <StatusBadge status={o.status} />
+                    </div>
+                    {o.counterAmount != null && (
+                      <div style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold mb-1">Countered at {fmt(o.counterAmount)}</div>
+                    )}
+                    {o.message && <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mb-2">{o.message}</p>}
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mb-2">{o.date}</div>
+
+                    {counteringId === o.id ? (
+                      <div className="flex gap-2">
+                        <input type="number" value={counterAmount} onChange={(e) => setCounterAmount(e.target.value)} placeholder="Counter amount"
+                          className="flex-1 border-2 rounded-lg px-3 py-2 outline-none text-sm"
+                          style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+                        <PillButton onClick={() => submitCounter(o.id)} disabled={busy || !counterAmount || Number(counterAmount) <= 0}>{busy ? '…' : 'Send'}</PillButton>
+                        <PillButton onClick={() => setCounteringId(null)} variant="ghost">Cancel</PillButton>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {canRespondToPending && (
+                          <>
+                            <PillButton onClick={() => handleAccept(o.id)} disabled={busy}>{busy ? '…' : 'Accept'}</PillButton>
+                            <PillButton onClick={() => { setCounteringId(o.id); setCounterAmount(String(o.amount)) }} variant="secondary" disabled={busy}>Counter</PillButton>
+                            <PillButton onClick={() => handleDecline(o.id)} variant="ghost" disabled={busy}>Decline</PillButton>
+                          </>
+                        )}
+                        {canRespondToCounter && (
+                          <>
+                            <PillButton onClick={() => handleAccept(o.id)} disabled={busy}>{busy ? '…' : 'Accept counter'}</PillButton>
+                            <PillButton onClick={() => handleDecline(o.id)} variant="ghost" disabled={busy}>Decline</PillButton>
+                          </>
+                        )}
+                        {canWithdraw && !canRespondToCounter && (
+                          <PillButton onClick={() => handleWithdraw(o.id)} variant="ghost" disabled={busy}>{busy ? '…' : 'Withdraw'}</PillButton>
+                        )}
+                        {o.status === 'accepted' && isBuyerOfOffer && listing.linkedProjectId && (
+                          <PillButton onClick={() => nav('/funder/fund', { state: { projectId: listing.linkedProjectId } })}>Fund this purchase</PillButton>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-3xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        {!interested ? (
+        {isSeller ? (
+          <PillButton onClick={() => nav(`/land/schedule/${listing.id}`)} variant="secondary" fullWidth>Manage visit requests</PillButton>
+        ) : !interested ? (
           <>
             <div className="grid grid-cols-2 gap-3">
               <PillButton onClick={() => nav(`/land/contact/${listing.id}`)} variant="secondary" fullWidth>Contact seller</PillButton>
@@ -303,8 +410,8 @@ export function LandListingDetailScreen() {
                 <PillButton onClick={() => setInterested(true)} fullWidth>Follow for updates</PillButton>
               )}
             </div>
-            {listing.verified && (
-              <PillButton onClick={() => nav('/land/schedule')} variant="ghost" fullWidth>Schedule verification visit</PillButton>
+            {listing.verified && !isSeller && (
+              <PillButton onClick={() => nav(`/land/schedule/${listing.id}`)} variant="ghost" fullWidth>Schedule a visit</PillButton>
             )}
           </>
         ) : (
@@ -419,47 +526,29 @@ export function ContactSellerScreen() {
 export function PurchaseOfferScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { landListings, phone, addOffer } = useApp()
+  const { landListings } = useApp()
   const { show: showToast } = useToast()
   const listing = landListings.find((l) => l.id === id) ?? landListings[0]
   const [amount, setAmount] = useState(String(listing.price))
   const [financing, setFinancing] = useState<'cash' | 'financed'>('cash')
   const [message, setMessage] = useState('')
   const [submitted, setSubmitted] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const { blocked: kycBlocked } = useKycGate(Number(amount) || 0)
-  const makeOffer = useMakeOfferMutation()
+  const createOffer = useCreateLandOfferMutation()
 
-  // The architecture doc's data model has no separate offer/negotiation
-  // step before escrow — on a verified listing this directly starts a real
-  // purchase (land_purchase Project) and funds it. The local mock `offers`
-  // list is kept alongside purely for the existing "pending offers" display
-  // on MyListingsScreen/listing detail, which isn't backed by a real Offer
-  // collection (none exists in the architecture doc).
+  // No funds move here — this only creates a pending LandOffer for the
+  // seller to accept/counter/decline. Escrow only happens once an offer is
+  // actually accepted (see the accept-offer flow), which is when a real KYC
+  // gate on the amount actually matters.
   const submit = async () => {
-    setSubmitting(true)
     try {
-      if (listing.verified) {
-        await makeOffer.mutateAsync({
-          listingId: listing.id,
-          amount: Number(amount) || listing.price,
-          paymentProvider: 'mtn_momo',
-          payerPhoneNumber: phone || '+237677234891',
-        })
-      }
-      addOffer({
+      await createOffer.mutateAsync({
         listingId: listing.id,
-        buyerName: 'Marie-Claire N.',
-        amount: Number(amount) || listing.price,
+        offerAmount: Number(amount) || listing.price,
         message: `${financing === 'cash' ? 'Cash offer' : 'Financed offer'}. ${message}`.trim(),
-        status: 'pending',
-        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
       })
       setSubmitted(true)
     } catch (err) {
       showToast({ title: 'Failed to submit offer', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
-    } finally {
-      setSubmitting(false)
     }
   }
 
@@ -527,11 +616,10 @@ export function PurchaseOfferScreen() {
           </p>
         </div>
 
-        <KycGateBanner amount={Number(amount) || 0} />
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || kycBlocked || submitting}>{submitting ? 'Submitting…' : 'Submit offer'}</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || createOffer.isPending}>{createOffer.isPending ? 'Submitting…' : 'Submit offer'}</PillButton>
       </div>
     </AppShell>
   )
@@ -691,8 +779,8 @@ export function CreateListingScreen() {
 // ── My listings screen ─────────────────────────────────────────────────────────
 export function MyListingsScreen() {
   const nav = useNavigate()
-  const { landListings, offers } = useApp()
-  const mine = landListings.slice(0, 2)
+  const { landListings, offers, devUserId } = useApp()
+  const mine = landListings.filter((l) => l.sellerId && l.sellerId === devUserId)
 
   return (
     <AppShell>
@@ -704,31 +792,43 @@ export function MyListingsScreen() {
         </button>
       } />
 
-      <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
-        {mine.map((l) => {
-          const listingOffers = offers.filter((o) => o.listingId === l.id)
-          return (
-            <StaggerItem key={l.id}>
-              <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
-                <div className="flex gap-3 p-4">
-                  <img src={l.image} alt={l.title} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-1 mb-1">
-                      <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight">{l.title}</div>
-                      <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
+      {mine.length === 0 ? (
+        <div className="px-5 py-4">
+          <EmptyState
+            icon="mapPin"
+            title="No listings yet"
+            description="List a plot for sale and it'll show up here once submitted."
+            action={<PillButton onClick={() => nav('/land/create')}>+ New listing</PillButton>}
+            illustration="tilt"
+          />
+        </div>
+      ) : (
+        <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+          {mine.map((l) => {
+            const listingOffers = offers.filter((o) => o.listingId === l.id && ['pending', 'countered'].includes(o.status))
+            return (
+              <StaggerItem key={l.id}>
+                <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
+                  <div className="flex gap-3 p-4">
+                    <img src={l.image} alt={l.title} className="w-20 h-16 object-cover rounded-lg flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-1 mb-1">
+                        <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight">{l.title}</div>
+                        <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
+                      </div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mb-1">{l.size}</div>
+                      <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">{fmt(l.price)}</div>
+                      {listingOffers.length > 0 && (
+                        <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-[9px] uppercase tracking-wider mt-1">{listingOffers.length} pending offer{listingOffers.length > 1 ? 's' : ''}</div>
+                      )}
                     </div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mb-1">{l.size}</div>
-                    <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold">{fmt(l.price)}</div>
-                    {listingOffers.length > 0 && (
-                      <div style={{ fontFamily: FONT.mono, color: C.amber }} className="text-[9px] uppercase tracking-wider mt-1">{listingOffers.length} pending offer{listingOffers.length > 1 ? 's' : ''}</div>
-                    )}
                   </div>
-                </div>
-              </Card>
-            </StaggerItem>
-          )
-        })}
-      </StaggerList>
+                </Card>
+              </StaggerItem>
+            )
+          })}
+        </StaggerList>
+      )}
     </AppShell>
   )
 }

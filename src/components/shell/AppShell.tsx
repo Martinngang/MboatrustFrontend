@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { C, BottomNav, NotificationBell } from '../MobileLayout'
+import { C, BottomNav, NotificationBell, UserAvatar } from '../MobileLayout'
 import { ConnectivityBar } from '../ConnectivityBar'
 import { InstallButton } from '../InstallButton'
 import { pageVariants, pageTransition } from '../motion'
+import { useNotificationsDrawer } from '../NotificationsDrawer'
+import { ScreenErrorBoundary } from '../ErrorBoundary'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
@@ -15,22 +17,51 @@ import { TopBar } from './TopBar'
  * need to change. */
 export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boolean }) {
   const loc = useLocation()
+  const nav = useNavigate()
   const reduceMotion = useReducedMotion()
+  const { toggle: toggleNotifications } = useNotificationsDrawer()
 
   return (
-    <div className="min-h-screen w-full" style={{ background: C.gradientSurface, color: C.ink }}>
-      <div className="mx-auto flex min-h-screen max-w-[1600px] flex-col lg:flex-row">
+    // fixed + inset-0 (not h-dvh): pins all four edges directly to the
+    // browser's actual visual viewport, recomputed by the browser itself on
+    // every paint — not to a `100dvh` height value React only assigns once
+    // React commits, which can get committed against a stale/mid-transition
+    // viewport on first paint (e.g. right as the mobile browser's address
+    // bar is collapsing). overflow-hidden still caps it so overflow-y-auto
+    // on <main> below remains the only thing that scrolls. BottomNav itself
+    // is no longer part of this shell's flow at all — see the render below.
+    <div className="fixed inset-0 w-full overflow-hidden" style={{ background: C.gradientSurface, color: C.ink }}>
+      <div className="mx-auto flex h-full max-w-[1600px] flex-col lg:flex-row">
         <Sidebar />
 
-        <div className="flex flex-1 flex-col">
+        {/* Grid, not flex, for this column: a flex child's height comes from
+            flex-basis/flex-grow resolving against the row, and on some
+            mobile engines a `flex-1 overflow-y-auto` pane sized that way
+            computes a definite height for mouse/programmatic scrolling but
+            doesn't get recognized as a touch-scrollable region — wheel
+            scroll and clicks look fine, but swipes do nothing. Grid's
+            `minmax(0,1fr)` track sizing gives <main> the same definite,
+            bounded height through a different (and, for touch, more
+            reliable) codepath. Just TopBar (auto) + <main> (1fr) now —
+            BottomNav is `position:fixed` (see MobileLayout.tsx), so it's no
+            longer part of this flow and doesn't need its own row. */}
+        <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
           <TopBar />
 
-          <main className="flex-1 overflow-y-auto">
-            <div className="flex items-center justify-between gap-2 px-4 pt-3 lg:hidden">
+          {/* min-h-0: grid items get the same automatic min-height:auto
+              floor flex items do, which would otherwise let this track grow
+              to fit content instead of clamping to the row's minmax(0,1fr).
+              touchAction: 'pan-y' is set explicitly (not left to the
+              default) so no ancestor or sibling gesture handler — Framer
+              Motion's drag/tap gestures, dnd-kit's sensors, or a future
+              addition — can ever suppress vertical touch panning here. */}
+          <main className="min-h-0 overflow-y-auto overscroll-contain" style={{ touchAction: 'pan-y' }}>
+            <div className="flex items-center justify-between gap-2 px-4 pt-3 lg:hidden" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
               <InstallButton />
               <div className="flex items-center gap-2">
                 <ConnectivityBar />
-                <NotificationBell />
+                <NotificationBell onClick={toggleNotifications} />
+                <UserAvatar onClick={() => nav('/shared/profile')} />
               </div>
             </div>
             <AnimatePresence mode="wait">
@@ -41,15 +72,26 @@ export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boo
                 animate="animate"
                 exit="exit"
                 transition={reduceMotion ? { duration: 0 } : pageTransition}
-                className="mx-auto w-full max-w-6xl px-4 py-4 sm:px-6 lg:px-8 lg:py-8"
+                // pb-28 (not pb-4): clears the fixed BottomNav so it never
+                // overlaps the last bit of a page's content on mobile —
+                // BottomNav is ~60-95px tall depending on the device's
+                // safe-area inset, so 112px leaves comfortable headroom.
+                // Reverts to the original pb-8 at lg, where BottomNav is
+                // hidden and the sidebar/topbar shell is used instead.
+                className="mx-auto w-full max-w-6xl px-4 pt-4 pb-28 sm:px-6 lg:px-8 lg:pt-8 lg:pb-8"
               >
-                {children}
+                <ScreenErrorBoundary key={loc.pathname}>{children}</ScreenErrorBoundary>
               </motion.div>
             </AnimatePresence>
           </main>
-          {!noNav && <div className="lg:hidden"><BottomNav /></div>}
         </div>
       </div>
+
+      {/* Rendered here (sibling of the scrolling shell, never inside the
+          Framer Motion page-transition wrapper above) so nothing between
+          it and <body> ever has a `transform` — the one thing that would
+          silently break its `position:fixed`. See MobileLayout.tsx. */}
+      {!noNav && <BottomNav />}
     </div>
   )
 }

@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useMarketplace } from '../marketplace'
+import { useMyCertificationsQuery } from '../api/certifications'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, Stars } from '../components/MobileLayout'
 import { ChipGroup } from '../components/Chip'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
+import { EmptyState } from '../components/EmptyState'
+import { useRatingsQuery } from '../api/reputation'
+import { useTransactionsQuery } from '../api/transactions'
+import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
+import { useProjectQuery } from '../api/projects'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
 export function BrowseJobsScreen() {
@@ -47,6 +52,16 @@ export function BrowseJobsScreen() {
         </div>
       </Header>
 
+      {filtered.length === 0 ? (
+        <div className="px-5 py-4">
+          <EmptyState
+            icon="search"
+            title="No jobs found"
+            description="Try a different category, or check back soon for new tenders."
+            illustration="tilt"
+          />
+        </div>
+      ) : (
       <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         {filtered.map((job) => (
           <StaggerItem key={job.id}>
@@ -75,6 +90,7 @@ export function BrowseJobsScreen() {
           </StaggerItem>
         ))}
       </StaggerList>
+      )}
     </AppShell>
   )
 }
@@ -282,20 +298,23 @@ export function MyBidsScreen() {
   const nav = useNavigate()
   const { bids, jobs } = useApp()
 
-  const demoBids = [
-    { jobId: jobs[0]?.id, price: 850000, status: 'accepted', submitted: '15 Jul 2025' },
-    { jobId: jobs[1]?.id, price: 4200000, status: 'pending', submitted: '12 Jul 2025' },
-    { jobId: jobs[2]?.id, price: 620000, status: 'rejected', submitted: '5 Jul 2025' },
-  ].filter((b) => b.jobId)
-
-  const rows = bids.length > 0
-    ? bids.map((b) => ({ jobId: b.jobId, jobTitle: b.jobTitle, price: b.price, status: b.status, submitted: b.submitted }))
-    : demoBids.map((b) => ({ ...b, jobTitle: jobs.find((j) => j.id === b.jobId)?.title ?? '' }))
+  const rows = bids.map((b) => ({ id: b.id, jobId: b.jobId, jobTitle: b.jobTitle, price: b.price, status: b.status, submitted: b.submitted }))
 
   return (
     <AppShell>
       <Header title="My Bids" back />
 
+      {rows.length === 0 ? (
+        <div className="px-5 py-4">
+          <EmptyState
+            icon="clipboard"
+            title="No bids yet"
+            description="Browse open jobs and submit a bid to see it here."
+            action={<PillButton onClick={() => nav('/contractor/jobs')}>Browse jobs</PillButton>}
+            illustration="tilt"
+          />
+        </div>
+      ) : (
       <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
         {rows.map((bid, i) => {
           const job = jobs.find((j) => j.id === bid.jobId)
@@ -316,7 +335,7 @@ export function MyBidsScreen() {
                     <div className="text-right">
                       <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">Submitted {bid.submitted}</div>
                       {bid.status === 'accepted' && (
-                        <button onClick={(e) => { e.stopPropagation(); nav('/contractor/contract') }}
+                        <button onClick={(e) => { e.stopPropagation(); nav(`/contractor/contract/${bid.id}`) }}
                           className="text-xs font-semibold mt-1" style={{ color: C.forest, fontFamily: FONT.sans }}>
                           View contract →
                         </button>
@@ -329,6 +348,7 @@ export function MyBidsScreen() {
           )
         })}
       </StaggerList>
+      )}
     </AppShell>
   )
 }
@@ -336,25 +356,55 @@ export function MyBidsScreen() {
 // ── Active contract ────────────────────────────────────────────────────────────
 export function ContractDetailScreen() {
   const nav = useNavigate()
-  const { jobs } = useApp()
-  const job = jobs[0]
-  const milestones = [
-    { title: 'Site preparation & equipment delivery', amount: 300000, status: 'released' as const },
-    { title: 'Primary pump installation', amount: 540000, status: 'under_review' as const },
-    { title: 'Testing & commissioning', amount: 360000, status: 'pending' as const },
-  ]
+  const { bidId } = useParams()
+  const { show: showToast } = useToast()
+  const { data: contracts, isLoading: contractLoading } = useContractsQuery({ bidId })
+  const contract = contracts?.[0]
+  const { data: project, isLoading: projectLoading } = useProjectQuery(contract?.projectId)
+  const completeContract = useCompleteContractMutation()
+  const terminateContract = useTerminateContractMutation()
+  const [acting, setActing] = useState<'complete' | 'terminate' | null>(null)
+
+  const act = async (action: 'complete' | 'terminate') => {
+    if (!contract) return
+    setActing(action)
+    try {
+      await (action === 'complete' ? completeContract : terminateContract).mutateAsync(contract.id)
+      showToast({ title: action === 'complete' ? 'Contract marked completed' : 'Contract terminated', tone: action === 'complete' ? 'success' : 'error' })
+    } catch (err) {
+      showToast({ title: `Failed to ${action} contract`, description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActing(null)
+    }
+  }
+
+  if (contractLoading || projectLoading) {
+    return <AppShell><div className="px-5 py-8 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>Loading contract…</div></AppShell>
+  }
+  if (!contract || !project) {
+    return (
+      <AppShell>
+        <Header title="Contract" back />
+        <div className="px-5 py-4"><EmptyState icon="receipt" title="No contract found" description="This bid doesn't have an awarded contract." /></div>
+      </AppShell>
+    )
+  }
+
+  const milestones = project.milestones
+  const paid = milestones.filter((m) => m.status === 'released').reduce((s, m) => s + m.amount, 0)
+  const underReview = milestones.find((m) => m.status === 'under_review')
 
   return (
     <AppShell>
-      <Header title="Active Contract" subtitle="Contract DL-CTR-2025-0091" back tone="dark" background={C.forest}>
-        <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold text-white">{job.title}</div>
+      <Header title="Active Contract" subtitle={`Contract ${contract.id.slice(-8).toUpperCase()}`} back tone="dark" background={C.forest}>
+        <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold text-white">{project.title}</div>
       </Header>
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: 'Contract value', value: fmt(job.budget) },
-            { label: 'Paid so far', value: fmt(300000) },
+            { label: 'Contract value', value: fmt(contract.totalAmount) },
+            { label: 'Paid so far', value: fmt(paid) },
           ].map(({ label, value }) => (
             <Card key={label} variant="glass">
               <div className="p-3">
@@ -365,12 +415,14 @@ export function ContractDetailScreen() {
           ))}
         </div>
 
+        {contract.status !== 'active' && <StatusBadge status={contract.status} />}
+
         {/* Milestone tracker */}
         <div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Milestones</div>
           <div className="space-y-2">
             {milestones.map((m, i) => (
-              <div key={i} className="flex items-start gap-3 p-4 rounded-xl border"
+              <div key={m.id} className="flex items-start gap-3 p-4 rounded-xl border"
                 style={{
                   borderColor: m.status === 'under_review' ? C.amber : C.parchmentDark,
                   background: m.status === 'released' ? 'var(--status-success-bg)' : m.status === 'under_review' ? 'var(--status-warning-bg)' : C.white,
@@ -398,16 +450,40 @@ export function ContractDetailScreen() {
         </div>
 
         {/* CTA for pending milestone */}
-        {milestones.some((m) => m.status === 'under_review') && (
+        {underReview && (
           <div className="rounded-2xl border-2 p-4" style={{ background: 'var(--status-warning-bg)', borderColor: C.amber }}>
             <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-2">Proof under review</div>
             <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs mb-3">
-              Your milestone 2 proof is being reviewed by the verifier. Estimated approval: 20 Jul 2025.
+              Your "{underReview.title}" proof is being reviewed.
             </p>
           </div>
         )}
 
-        <PillButton onClick={() => nav('/recipient/submit')} fullWidth>Submit next milestone proof</PillButton>
+        {contract.status === 'active' && (
+          <div className="rounded-2xl border p-4 space-y-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Contract status</div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => act('complete')}
+                disabled={acting !== null}
+                className="flex-1 py-2.5 rounded-lg text-xs font-semibold disabled:opacity-50"
+                style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+              >
+                {acting === 'complete' ? 'Marking…' : 'Mark contract completed'}
+              </button>
+              <button
+                onClick={() => act('terminate')}
+                disabled={acting !== null}
+                className="flex-1 py-2.5 rounded-lg text-xs font-semibold border disabled:opacity-50"
+                style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
+              >
+                {acting === 'terminate' ? 'Terminating…' : 'Terminate contract'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <PillButton onClick={() => nav(`/recipient/submit/${project.id}`)} fullWidth>Submit next milestone proof</PillButton>
       </div>
     </AppShell>
   )
@@ -416,11 +492,8 @@ export function ContractDetailScreen() {
 // ── Earnings screen ────────────────────────────────────────────────────────────
 export function EarningsScreen() {
   const nav = useNavigate()
-  const earnings = [
-    { job: 'Borehole — Bamenda North', milestone: 'M1: Site prep', amount: 300000, date: '28 Jun 2025' },
-    { job: 'Clinic Renovation — Limbe', milestone: 'M3: Electrical', amount: 480000, date: '12 May 2025' },
-    { job: 'School Roof — Maroua', milestone: 'M2: Roofing', amount: 310000, date: '8 Feb 2025' },
-  ]
+  const { data: transactions = [], isLoading } = useTransactionsQuery()
+  const earnings = transactions.filter((t) => t.type === 'release')
   const total = earnings.reduce((s, e) => s + e.amount, 0)
 
   return (
@@ -434,9 +507,12 @@ export function EarningsScreen() {
       </Header>
 
       <div className="px-5 py-4 space-y-3 sm:mx-auto sm:max-w-2xl">
+        {!isLoading && earnings.length === 0 && (
+          <EmptyState icon="wallet" title="No earnings yet" description="Payments for completed milestones will show up here." />
+        )}
         <StaggerList className="space-y-3">
-          {earnings.map((e, i) => (
-            <StaggerItem key={i}>
+          {earnings.map((e) => (
+            <StaggerItem key={e.id}>
               <Card variant="elevated">
                 <div className="flex items-center gap-4 p-4">
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-success-bg)' }}>
@@ -446,8 +522,8 @@ export function EarningsScreen() {
                     </svg>
                   </div>
                   <div className="flex-1">
-                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{e.job}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{e.milestone} · {e.date}</div>
+                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{e.projectTitle}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{e.status} · {e.date}</div>
                   </div>
                   <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-sm font-bold">+{fmt(e.amount)}</div>
                 </div>
@@ -465,11 +541,10 @@ export function EarningsScreen() {
 // ── Contractor profile ─────────────────────────────────────────────────────────
 export function ContractorProfileScreen() {
   const nav = useNavigate()
-  const { name, ratings, contractors } = useApp()
-  const { certifications } = useMarketplace()
-  const self = contractors[0]
-  const liveReviews = ratings.filter((r) => r.targetType === 'contractor' && r.targetName === self.name)
-  const myCertifications = certifications.filter((c) => c.contractorId === self.id)
+  const { name, contractors, devUserId } = useApp()
+  const self = contractors.find((c) => c.id === devUserId) ?? contractors[0]
+  const { data: liveReviews = [] } = useRatingsQuery({ toUserId: self.id, roleContext: 'contractor' })
+  const { data: myCertifications = [] } = useMyCertificationsQuery()
 
   return (
     <AppShell>
@@ -515,8 +590,8 @@ export function ContractorProfileScreen() {
               <Card key={r.id}>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{r.from}</div>
-                    <Stars rating={r.rating} />
+                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{r.fromName}</div>
+                    <Stars rating={r.score} />
                   </div>
                   <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed italic">"{r.comment}"</p>
                 </div>

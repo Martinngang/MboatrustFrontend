@@ -7,6 +7,7 @@ import { Board } from '../components/dataview/Board'
 import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
+import { AppIcon } from '../components/icons'
 
 const BOARD_COLUMNS = [
   { id: 'pending', label: 'Pending' },
@@ -45,7 +46,7 @@ export function WorkspaceLandScreen() {
     <AppShell>
       <Header title="Land Listings" subtitle={`${landListings.length} total`} />
 
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <ViewSwitcher mode={mode} onChange={setMode} available={['list', 'board']} />
         <PillButton onClick={() => nav('/land/create')} variant="secondary">+ New listing</PillButton>
       </div>
@@ -112,7 +113,7 @@ export function WorkspaceLandScreen() {
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 text-[10px] uppercase tracking-widest">Documents</div>
               <div className="space-y-1.5">
                 {preview.docs.map((d, i) => (
-                  <div key={i} style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs">📄 {d}</div>
+                  <div key={i} style={{ fontFamily: FONT.sans, color: C.ink }} className="inline-flex items-center gap-1.5 text-xs"><AppIcon name="clipboard" size={13} style={{ color: C.inkSubtle }} /> {d}</div>
                 ))}
               </div>
             </div>

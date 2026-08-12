@@ -28,14 +28,17 @@ export function useShortcutsHelp() {
  * never misfires a navigation. Mounted once in App.tsx. */
 export function KeyboardShortcutsProvider({ children }: { children: ReactNode }) {
   const nav = useNavigate()
-  const { role, isLoggedIn } = useApp()
+  const { role, isLoggedIn, authChecked } = useApp()
   const [helpOpen, setHelpOpen] = useState(false)
   const leaderActive = useRef(false)
   const leaderTimeout = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!isLoggedIn) return
+      // Mounted above App.tsx's AuthGate loading splash — belt-and-braces
+      // alongside the isLoggedIn check so no shortcut can ever fire before
+      // the app has finished its initial auth check.
+      if (!authChecked || !isLoggedIn) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (isTypingTarget(e.target)) return
       const key = e.key.toLowerCase()
@@ -62,7 +65,7 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [nav, role, isLoggedIn])
+  }, [nav, role, isLoggedIn, authChecked])
 
   return (
     <ShortcutsHelpContext.Provider value={{ show: () => setHelpOpen(true) }}>

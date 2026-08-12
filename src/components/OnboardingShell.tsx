@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { C, FONT, ThemeToggle } from './MobileLayout'
+import { AppIcon } from './icons'
 
 export const ONBOARDING_STEPS = [
   { n: 1, label: 'Language', desc: "Pick how you'll use the app" },
@@ -101,7 +102,7 @@ export function OnboardingShell({
                         boxShadow: state === 'current' ? '0 0 0 4px rgba(232,160,32,0.12)' : 'none',
                       }}
                     >
-                      {state === 'done' ? '✓' : s.n}
+                      {state === 'done' ? <AppIcon name="check" size={12} strokeWidth={2.5} /> : s.n}
                     </div>
                     {!isLast && (
                       <div

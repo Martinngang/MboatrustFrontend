@@ -1,11 +1,13 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { api } from './api/client'
+import { useMySubscriptionsQuery } from './api/subscriptions'
 
-// ── Mock monetization config ──────────────────────────────────────────────────
-// Everything here is a stand-in for values that will eventually come from a
-// real pricing/config API. The shape is deliberately flat and JSON-serializable
-// so swapping DEFAULT_FEE_CONFIG for a fetched object later is a one-line change
-// — no component below cares where the numbers came from.
+// ── Monetization config ─────────────────────────────────────────────────────
+// The percentage fee fields sync to the real backend FeeConfig on load (see
+// the effect below); flat fees mirror server-side constants that aren't
+// exposed via an API (there's nothing to fetch, just numbers to keep in
+// sync by hand). Subscription plan pricing/status is real — see
+// api/subscriptions.ts — not modeled here.
 
 export interface ForeignCurrency {
   code: string
@@ -16,50 +18,33 @@ export interface ForeignCurrency {
 
 export interface FeeConfig {
   transactionFeeRate: number // milestone release platform fee, e.g. 0.03 = 3%
-  conversionSpreadRate: number // currency conversion platform spread, e.g. 0.025 = 2.5%
+  fundingFeeRate: number // fee taken when a funder sends money into escrow, e.g. 0.02 = 2%
   contractorSuccessFeeRate: number // contractor milestone payout success fee, e.g. 0.05 = 5%
   landSuccessFeeRate: number // land sale success fee, e.g. 0.02 = 2%
   verifierVisitFee: number // flat, XAF — in-person verifier visit add-on (funding + land)
-  perBidFee: number // flat, XAF — per-bid fee for Free-plan contractors
-  verifiedBadgeFee: number // flat, XAF — contractor "Get Verified" upgrade
+  perBidFee: number // flat, XAF — per-bid fee for contractors without an active Pro Contractor subscription
   listingFee: number // flat, XAF — publish a land listing
-  proContractorMonthlyPrice: number // flat, XAF/month — Pro Contractor plan
-  diasporaSubscriptionMonthlyPrice: number // flat, XAF/month — diaspora power-user plan
   foreignCurrencies: ForeignCurrency[]
 }
 
 export const DEFAULT_FEE_CONFIG: FeeConfig = {
   transactionFeeRate: 0.03,
-  conversionSpreadRate: 0.025,
-  contractorSuccessFeeRate: 0.05,
-  landSuccessFeeRate: 0.02,
+  fundingFeeRate: 0.02,
+  contractorSuccessFeeRate: 0.03,
+  landSuccessFeeRate: 0.03,
   verifierVisitFee: 15000,
   perBidFee: 2000,
-  verifiedBadgeFee: 10000,
   listingFee: 20000,
-  proContractorMonthlyPrice: 25000,
-  diasporaSubscriptionMonthlyPrice: 15000,
   foreignCurrencies: [
     { code: 'EUR', label: 'Euro (EUR)', xafRate: 655.96 },
     { code: 'USD', label: 'US Dollar (USD)', xafRate: 610.25 },
   ],
 }
 
-export type ContractorPlan = 'free' | 'pro'
-
 interface FeeConfigContextValue {
   config: FeeConfig
   updateConfig: (patch: Partial<FeeConfig>) => void
   resetConfig: () => void
-
-  // Simulated account/plan state — no backend, just demo toggles that other
-  // screens read to decide what fee UI to show.
-  contractorPlan: ContractorPlan
-  setContractorPlan: (plan: ContractorPlan) => void
-  contractorVerified: boolean
-  setContractorVerified: (v: boolean) => void
-  diasporaSubscribed: boolean
-  setDiasporaSubscribed: (v: boolean) => void
 }
 
 const FeeConfigContext = createContext<FeeConfigContextValue>({} as FeeConfigContextValue)
@@ -68,24 +53,27 @@ interface BackendFeeConfig { feeType: string; value: number; isFlat: boolean }
 
 export function FeeConfigProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<FeeConfig>(DEFAULT_FEE_CONFIG)
-  const [contractorPlan, setContractorPlan] = useState<ContractorPlan>('free')
-  const [contractorVerified, setContractorVerified] = useState(false)
-  const [diasporaSubscribed, setDiasporaSubscribed] = useState(false)
 
-  // Only transactionFeeRate and landSuccessFeeRate correspond to real
-  // backend FeeConfig entries that actually get charged (milestone_release
-  // — every pillar's escrow release, funding/tender/land alike, uses this
-  // one rate; there's no separate land_sale rate applied in practice even
-  // though that FeeConfig entry exists). The other 9 fields here are
-  // decorative — no backend route reads or charges them — so they stay
-  // local. Fetched once so the fee *preview* a user sees before acting
-  // matches what actually gets charged, not a hand-maintained duplicate.
+  // transactionFeeRate/landSuccessFeeRate/contractorSuccessFeeRate all sync
+  // to the one real backend rate that actually gets charged on release —
+  // feeService.calculateFee('milestone_release', ...) is the only fee
+  // applied when escrow pays out, whether the payee is a recipient
+  // (funding), a contractor (tender), or a land seller (land_purchase);
+  // there's no separate per-pillar rate despite each having its own
+  // frontend field. fundingFeeRate syncs to the real project_funding rate
+  // charged when a funder sends money in (see projectController.fundProject).
+  // The remaining flat fees (verifierVisitFee, perBidFee, listingFee) have
+  // no backend config route to sync from — they stay local, hand-kept in
+  // sync with the equivalent server-side constants.
   useEffect(() => {
     api.get<{ data: BackendFeeConfig[] }>('/fee-config').then(({ data }) => {
       const milestoneRelease = data.data.find((c) => c.feeType === 'milestone_release')
-      if (milestoneRelease) {
-        setConfig((c) => ({ ...c, transactionFeeRate: milestoneRelease.value, landSuccessFeeRate: milestoneRelease.value }))
-      }
+      const projectFunding = data.data.find((c) => c.feeType === 'project_funding')
+      setConfig((c) => ({
+        ...c,
+        ...(milestoneRelease ? { transactionFeeRate: milestoneRelease.value, landSuccessFeeRate: milestoneRelease.value, contractorSuccessFeeRate: milestoneRelease.value } : {}),
+        ...(projectFunding ? { fundingFeeRate: projectFunding.value } : {}),
+      }))
     }).catch((err) => console.error('[feeConfig] failed to load real fee rates', err))
   }, [])
 
@@ -93,14 +81,7 @@ export function FeeConfigProvider({ children }: { children: ReactNode }) {
   const resetConfig = () => setConfig(DEFAULT_FEE_CONFIG)
 
   return (
-    <FeeConfigContext.Provider
-      value={{
-        config, updateConfig, resetConfig,
-        contractorPlan, setContractorPlan,
-        contractorVerified, setContractorVerified,
-        diasporaSubscribed, setDiasporaSubscribed,
-      }}
-    >
+    <FeeConfigContext.Provider value={{ config, updateConfig, resetConfig }}>
       {children}
     </FeeConfigContext.Provider>
   )
@@ -162,13 +143,12 @@ export function calculateFee(params: {
  * screen should use — no screen computes fee math on its own.
  */
 export function useFeeCalculation() {
-  const { config, contractorPlan, contractorVerified, diasporaSubscribed } = useFeeConfig()
+  const { config } = useFeeConfig()
+  const { data: subscriptions = [] } = useMySubscriptionsQuery()
+  const hasProContractorPlan = subscriptions.some((s) => s.planType === 'pro_contractor' && s.status === 'active')
 
   return useMemo(() => ({
     config,
-    contractorPlan,
-    contractorVerified,
-    diasporaSubscribed,
 
     /** Funding pillar — releasing an approved milestone from escrow. */
     milestoneRelease: (amount: number, amountLabel = 'Milestone amount') =>
@@ -178,18 +158,15 @@ export function useFeeCalculation() {
         resultLabel: 'Recipient receives',
       }),
 
-    /** Funding pillar — funding in a foreign currency, converted + spread applied. */
-    currencyConversion: (foreignAmount: number, currencyCode: string) => {
-      const currency = config.foreignCurrencies.find((c) => c.code === currencyCode) ?? config.foreignCurrencies[0]
-      const xafAmount = Math.round(foreignAmount * currency.xafRate)
-      const result = calculateFee({
-        amount: xafAmount, feeRate: config.conversionSpreadRate, mode: 'add',
-        amountLabel: `${currency.label} converted to XAF`,
-        feeLabel: `Platform conversion fee (${pct(config.conversionSpreadRate)})`,
-        resultLabel: 'Total charged',
-      })
-      return { ...result, currency, foreignAmount }
-    },
+    /** Funding pillar — sending money into escrow. Deducted the same way
+     * milestoneRelease is (see projectController.fundProject: the funder is
+     * charged `amount`, but only `netAmount` is credited to the project). */
+    projectFunding: (amount: number, amountLabel = 'Amount to send') =>
+      calculateFee({
+        amount, feeRate: config.fundingFeeRate, mode: 'deduct', amountLabel,
+        feeLabel: `Platform fee (${pct(config.fundingFeeRate)})`,
+        resultLabel: 'Reaches escrow',
+      }),
 
     /** Funding + land pillar — optional in-person verifier visit add-on. */
     verifierVisit: () =>
@@ -200,12 +177,13 @@ export function useFeeCalculation() {
         resultLabel: 'Add-on cost',
       }),
 
-    /** Contractor pillar — per-bid fee, only charged on the Free plan. */
+    /** Contractor pillar — per-bid fee, waived for an active Pro Contractor
+     * subscription (see api/subscriptions.ts / SubscriptionScreen). */
     perBid: () =>
       calculateFee({
-        flatFee: contractorPlan === 'pro' ? 0 : config.perBidFee, mode: 'add',
+        flatFee: hasProContractorPlan ? 0 : config.perBidFee, mode: 'add',
         amountLabel: 'Per-bid fee',
-        feeLabel: contractorPlan === 'pro' ? 'Included in Pro plan' : 'Per-bid fee',
+        feeLabel: hasProContractorPlan ? 'Included in Pro Contractor plan' : 'Per-bid fee',
         resultLabel: 'Total to submit bid',
       }),
 
@@ -215,15 +193,6 @@ export function useFeeCalculation() {
         amount, feeRate: config.contractorSuccessFeeRate, mode: 'deduct', amountLabel,
         feeLabel: `Platform success fee (${pct(config.contractorSuccessFeeRate)})`,
         resultLabel: 'You receive',
-      }),
-
-    /** Contractor pillar — one-time verified badge upgrade. */
-    verifiedBadge: () =>
-      calculateFee({
-        flatFee: config.verifiedBadgeFee, mode: 'add',
-        amountLabel: 'Verified badge fee',
-        feeLabel: 'One-time verification fee',
-        resultLabel: 'Total to get verified',
       }),
 
     /** Land pillar — publishing a listing. */
@@ -242,5 +211,5 @@ export function useFeeCalculation() {
         feeLabel: `Platform success fee (${pct(config.landSuccessFeeRate)})`,
         resultLabel: 'Seller receives',
       }),
-  }), [config, contractorPlan, contractorVerified, diasporaSubscribed])
+  }), [config, hasProContractorPlan])
 }

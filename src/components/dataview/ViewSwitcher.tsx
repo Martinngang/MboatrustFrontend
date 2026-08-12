@@ -4,10 +4,10 @@ import { Tabs, type TabItem } from '../Tabs'
 export type ViewMode = 'list' | 'board' | 'timeline' | 'calendar'
 
 const ALL_VIEWS: (TabItem & { id: ViewMode })[] = [
-  { id: 'list', label: '☰ List' },
-  { id: 'board', label: '▦ Board' },
-  { id: 'timeline', label: '▤ Timeline' },
-  { id: 'calendar', label: '📅 Calendar' },
+  { id: 'list', label: 'List', icon: 'menu' },
+  { id: 'board', label: 'Board', icon: 'layers' },
+  { id: 'timeline', label: 'Timeline', icon: 'barChart' },
+  { id: 'calendar', label: 'Calendar', icon: 'calendar' },
 ]
 
 /** Persists the last-used view **per section** (e.g. "projects", "tenders",

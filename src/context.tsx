@@ -1,18 +1,30 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
 import { useActivityLog } from './activityLog'
 import { resolveCurrentUserId, clearDevUserId } from './api/devAuth'
+import { firebaseConfigured } from './firebase'
+import { onFirebaseAuthChange, firebaseSignOut } from './api/firebaseAuth'
+import { fetchBackendUser, mapBackendRoles, resolveAuthDestination } from './api/session'
+import type { StatusTone } from './components/tokens'
+import type { IconName } from './components/icons'
 import {
   useProjectsQuery, useCreateProjectMutation, useFundProjectMutation,
   useSubmitEvidenceMutation, useDecideApprovalMutation, useDisputeMilestoneMutation,
 } from './api/projects'
 import { useJobsQuery, useCreateJobMutation, useBidsQuery, useCreateBidMutation } from './api/tenders'
 import { useLandListingsQuery, useCreateListingMutation, useUpdateVerificationStatusMutation } from './api/land'
+import { useLandOffersQuery } from './api/landOffers'
+import { useContractorProfilesQuery } from './api/contractors'
 import { useNotificationsQuery, useMarkNotificationReadMutation, useMarkAllNotificationsReadMutation } from './api/notifications'
 
 export type Role = 'funder' | 'recipient' | 'contractor' | 'seller' | null
 
 export type Lang = 'en' | 'fr'
+
+export interface MilestoneApprover {
+  userId: string
+  userName: string
+  status: 'pending' | 'approved' | 'rejected'
+}
 
 export interface Milestone {
   id: string
@@ -20,6 +32,9 @@ export interface Milestone {
   amount: number
   status: string
   proof: boolean
+  requiresCosigner: boolean
+  requiresVideo: boolean
+  approvers: MilestoneApprover[]
 }
 
 export interface Project {
@@ -31,11 +46,17 @@ export interface Project {
   raised: number
   status: string
   recipient: string
+  /** Real backend User _id for the project owner — needed to rate them or
+   * start a real conversation, distinct from `recipient`'s display name. */
+  recipientId?: string
   recipientRating: number
   milestones: Milestone[]
   image: string
   description: string
   daysLeft: number
+  requiresMultiSig: boolean
+  coSignerId?: string
+  coSignerName?: string
 }
 
 export interface JobPosting {
@@ -70,6 +91,9 @@ export interface LandListing {
   disputed: boolean
   disputeReason?: string
   duplicateOfListingId?: string
+  /** Set once a purchase (direct or via an accepted offer) has started — the
+   * Project to fund. */
+  linkedProjectId?: string
   image: string
   description: string
   docs: string[]
@@ -84,8 +108,6 @@ export interface Contractor {
   jobs: number
   initials: string
   verified: boolean
-  price: string
-  timeline: string
 }
 
 export interface Bid {
@@ -106,28 +128,31 @@ export interface Bid {
 export interface Offer {
   id: string
   listingId: string
+  buyerId: string
   buyerName: string
   amount: number
+  counterAmount?: number
   message: string
   status: string
   date: string
 }
 
-export interface Rating {
-  id: string
-  targetType: 'recipient' | 'contractor'
-  targetName: string
-  rating: number
-  comment: string
-  from: string
-  date: string
-}
+/** Groups the backend's free-form `type` strings into the handful of
+ * categories the Notifications page filters/color-codes by. */
+export type NotifCategory = 'funding' | 'milestones' | 'marketplace' | 'verification' | 'messages'
 
 export interface AppNotification {
   id: string
-  icon: string
+  icon: IconName
+  category: NotifCategory
   title: string
   body: string
+  /** A short highlighted fact — an amount, a status word — shown as a pill
+   * on the card when the notification type has one worth surfacing. */
+  stat?: { label: string; tone: StatusTone }
+  /** Where the card's "View" action should take you. Absent for types with
+   * nowhere more specific to go than the list itself. */
+  path?: string
   time: string
   unread: boolean
 }
@@ -138,7 +163,18 @@ export interface AppState {
   lang: Lang
   phone: string
   name: string
+  /** Cloudinary URL from the backend's User.avatarUrl, or null when the
+   * account has never uploaded one — every avatar-rendering spot (TopBar,
+   * mobile header, ProfileScreen) falls back to an initials circle in that
+   * case. See UserAvatar in components/MobileLayout.tsx. */
+  avatarUrl: string | null
   isLoggedIn: boolean
+  /** True once the app has finished checking for a restored Firebase
+   * session on load — false only for the brief window right after a page
+   * refresh, so routing can show a splash instead of flashing the signed-out
+   * landing page for an already-authenticated visitor. Always true
+   * immediately when Firebase isn't configured (dev-bypass mode). */
+  authChecked: boolean
   /** Real backend Mongo _id for the current dev-auth-bypass session (see
    * api/devAuth.ts) — null until resolved after login. Screens that need to
    * filter API results by "the current user" (e.g. my verification tasks) use this. */
@@ -148,31 +184,42 @@ export interface AppState {
   setLang: (l: Lang) => void
   setPhone: (p: string) => void
   setName: (n: string) => void
+  setAvatarUrl: (u: string | null) => void
   setLoggedIn: (v: boolean) => void
+  /** Call right after any successful Firebase sign-in (Google, email, or
+   * phone). Resolves the backend User and routes based on its saved
+   * onboardingCompleted flag / roles (see resolveAuthDestination):
+   *   'home'    — onboarding already completed; hydrates app state and
+   *               signs the session in so the caller skips straight to /home.
+   *   'profile' — a role was already picked but setup wasn't finished;
+   *               resumes there instead of asking for a role again.
+   *   'role'    — brand-new account; normal first-time flow starts.
+   * Only the 'home' case touches isLoggedIn — the other two leave it alone
+   * so the in-progress role/profile screens (which set it themselves once
+   * truly done) aren't short-circuited. */
+  completeAuthSuccess: () => Promise<'home' | 'role' | 'profile'>
+  /** Signs out of Firebase (if configured) and clears all local session
+   * state — the one place "log out" is implemented, so every entry point
+   * (Settings, an expired-session redirect, etc.) behaves identically. */
+  logout: () => Promise<void>
 
   projects: Project[]
   projectsLoading: boolean
   addProject: (p: Omit<Project, 'id'>) => Promise<Project>
   fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => Promise<{ paymentUrl?: string; status: string }>
   submitMilestoneProof: (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => Promise<void>
-  approveMilestone: (projectId: string, milestoneId: string) => Promise<void>
+  approveMilestone: (projectId: string, milestoneId: string) => Promise<{ project: Project; releasedEscrow: unknown }>
   disputeMilestone: (projectId: string, milestoneId: string, reason?: string) => Promise<void>
-  updateProjectStatus: (id: string, status: string) => void
 
   jobs: JobPosting[]
   addJob: (j: Omit<JobPosting, 'id'>) => Promise<JobPosting>
-  updateJobStatus: (id: string, status: string) => void
   landListings: LandListing[]
   addListing: (l: Omit<LandListing, 'id'>) => Promise<LandListing>
   updateListingStatus: (id: string, status: 'pending' | 'verified' | 'disputed') => void
   contractors: Contractor[]
-  addContractor: (c: Omit<Contractor, 'id'>) => Contractor
   bids: Bid[]
   addBid: (b: Omit<Bid, 'id'>) => Promise<Bid>
   offers: Offer[]
-  addOffer: (o: Omit<Offer, 'id'>) => Offer
-  ratings: Rating[]
-  addRating: (r: Omit<Rating, 'id'>) => Rating
 
   notifications: AppNotification[]
   unreadNotifications: number
@@ -182,9 +229,6 @@ export interface AppState {
 
 const AppContext = createContext<AppState>({} as AppState)
 
-let idCounter = 1000
-const nextId = (prefix: string) => `${prefix}${idCounter++}`
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const { logActivity } = useActivityLog()
   const [role, setRole] = useState<Role>(null)
@@ -192,9 +236,74 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = useState<Lang>('en')
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
   const [isLoggedIn, setLoggedIn] = useState(false)
+  // Nothing to restore when there's no Firebase project — dev-bypass mode
+  // is ready to route immediately.
+  const [authChecked, setAuthChecked] = useState(!firebaseConfigured)
 
-  const qc = useQueryClient()
+  // Restores a session that survived a page reload. Also fires on every
+  // future Firebase auth transition (fresh sign-ins included), but only
+  // ever *sets* isLoggedIn for accounts whose backend onboardingCompleted
+  // flag is true — a brand-new or still-onboarding account (role picked but
+  // profile setup not finished) is left alone so the in-progress role/
+  // profile screens (which call setLoggedIn(true) themselves once truly
+  // done) aren't short-circuited by a concurrent listener callback.
+  useEffect(() => {
+    if (!firebaseConfigured) return
+    const unsubscribe = onFirebaseAuthChange(async (fbUser) => {
+      if (fbUser) {
+        const backendUser = await fetchBackendUser()
+        if (backendUser && resolveAuthDestination(backendUser) === 'home') {
+          const mappedRoles = mapBackendRoles(backendUser.roles)
+          setName(backendUser.fullName)
+          setAvatarUrl(backendUser.avatarUrl)
+          setRoles(mappedRoles)
+          setRole(mappedRoles[0])
+          setLoggedIn(true)
+        }
+      }
+      setAuthChecked(true)
+    })
+    return unsubscribe
+  }, [])
+
+  const completeAuthSuccess = async (): Promise<'home' | 'role' | 'profile'> => {
+    const backendUser = await fetchBackendUser()
+    const dest = resolveAuthDestination(backendUser)
+    if (dest !== 'home') {
+      // Still hydrate what's already known (name, any role already picked)
+      // so the resumed role/profile screen has it, without flipping
+      // isLoggedIn — onboarding isn't done yet.
+      if (backendUser) {
+        const mappedRoles = mapBackendRoles(backendUser.roles)
+        setName(backendUser.fullName)
+        setAvatarUrl(backendUser.avatarUrl)
+        if (mappedRoles.length > 0) {
+          setRoles(mappedRoles)
+          setRole(mappedRoles[0])
+        }
+      }
+      return dest
+    }
+    const mappedRoles = mapBackendRoles(backendUser!.roles)
+    setName(backendUser!.fullName)
+    setAvatarUrl(backendUser!.avatarUrl)
+    setRoles(mappedRoles)
+    setRole(mappedRoles[0])
+    setLoggedIn(true)
+    return 'home'
+  }
+
+  const logout = async () => {
+    if (firebaseConfigured) await firebaseSignOut().catch(() => {})
+    clearDevUserId()
+    setLoggedIn(false)
+    setRole(null)
+    setRoles([])
+    setName('')
+    setAvatarUrl(null)
+  }
   const [devUserId, setDevUserIdState] = useState<string | null>(null)
   // Resolves to the real signed-in Firebase user when one exists (real
   // sign-in flows now live in Onboarding.tsx), otherwise falls back to the
@@ -231,9 +340,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const createListingMutation = useCreateListingMutation()
   const updateVerificationStatusMutation = useUpdateVerificationStatusMutation()
 
-  const [contractors, setContractors] = useState<Contractor[]>(MOCK_CONTRACTORS)
-  const [offers, setOffers] = useState<Offer[]>([])
-  const [ratings, setRatings] = useState<Rating[]>([])
+  const contractorProfilesQuery = useContractorProfilesQuery()
+  const contractors = contractorProfilesQuery.data ?? MOCK_CONTRACTORS
+  // No filter = "mine" server-side (every offer the caller is a party to,
+  // as buyer or as the seller of the listing) — see api/landOffers.ts.
+  const landOffersQuery = useLandOffersQuery({}, Boolean(devUserId))
+  const offers = devUserId ? (landOffersQuery.data ?? []) : []
 
   const notificationsQuery = useNotificationsQuery(Boolean(devUserId))
   const notifications = isLoggedIn ? (notificationsQuery.data?.items ?? MOCK_NOTIFICATIONS) : []
@@ -242,60 +354,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addProject = async (p: Omit<Project, 'id'>) => {
     const created = await createProjectMutation.mutateAsync(p)
-    logActivity({ type: 'project_created', icon: '📁', title: 'Project created', detail: created.title, path: `/funder/project/${created.id}` })
+    logActivity({ type: 'project_created', icon: 'folder', title: 'Project created', detail: created.title, path: `/funder/project/${created.id}` })
     return created
   }
   const fundProject = async (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => {
     const p = projects.find((x) => x.id === id)
     const result = await fundProjectMutation.mutateAsync({ id, amount, ...opts })
-    logActivity({ type: 'project_funded', icon: '🔒', title: 'Funds secured', detail: p ? `${fmt(amount)} moved into escrow for ${p.title}` : fmt(amount), path: `/funder/project/${id}` })
+    logActivity({ type: 'project_funded', icon: 'lock', title: 'Funds secured', detail: p ? `${fmt(amount)} moved into escrow for ${p.title}` : fmt(amount), path: `/funder/project/${id}` })
     return result
   }
   const submitMilestoneProof = async (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => {
     await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag })
     const p = projects.find((x) => x.id === projectId)
     const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_submitted', icon: '📸', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
+    logActivity({ type: 'milestone_submitted', icon: 'camera', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
   }
   const approveMilestone = async (projectId: string, milestoneId: string) => {
-    await decideApprovalMutation.mutateAsync({ projectId, milestoneId, status: 'approved' })
+    const result = await decideApprovalMutation.mutateAsync({ projectId, milestoneId, status: 'approved' })
     const p = projects.find((x) => x.id === projectId)
     const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_approved', icon: '✅', title: 'Milestone approved', detail: p && m ? `${m.title} — ${p.title} · ${fmt(m.amount)} released` : undefined, path: `/funder/project/${projectId}` })
+    logActivity({ type: 'milestone_approved', icon: 'checkCircle', title: 'Milestone approved', detail: p && m ? `${m.title} — ${p.title} · ${fmt(m.amount)} released` : undefined, path: `/funder/project/${projectId}` })
+    return result
   }
   const disputeMilestone = async (projectId: string, milestoneId: string, reason = 'Disputed from app') => {
     await disputeMilestoneMutation.mutateAsync({ projectId, milestoneId, reason })
     const p = projects.find((x) => x.id === projectId)
     const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_disputed', icon: '🚩', title: 'Dispute raised', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
-  }
-  // No generic "set arbitrary status" backend endpoint exists (real
-  // transitions happen via fund/evidence/approval) — this stays a
-  // client-side-only patch for the Workspace Board/bulk-action demo view.
-  const updateProjectStatus = (id: string, status: string) => {
-    qc.setQueryData<Project[]>(['projects'], (ps) => (ps ?? projects).map((p) => (p.id === id ? { ...p, status } : p)))
-    const p = projects.find((x) => x.id === id)
-    logActivity({ type: 'project_status_changed', icon: '🔄', title: 'Project status changed', detail: p ? `${p.title} → ${status}` : status, path: `/funder/project/${id}` })
+    logActivity({ type: 'milestone_disputed', icon: 'flag', title: 'Dispute raised', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
   }
   const addJob = async (j: Omit<JobPosting, 'id'>) => {
     const created = await createJobMutation.mutateAsync({
       title: j.title, category: j.category, location: j.location, budget: j.budget,
       deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
     })
-    logActivity({ type: 'project_created', icon: '📋', title: 'Tender posted', detail: created.title, path: `/contractor/job/${created.id}` })
+    logActivity({ type: 'project_created', icon: 'clipboard', title: 'Tender posted', detail: created.title, path: `/contractor/job/${created.id}` })
     return created
-  }
-  // No generic "set arbitrary status" endpoint for tenders either (real
-  // transitions happen via bid accept/reject) — client-side-only patch for
-  // the Workspace Board/bulk-action demo view, same reasoning as projects.
-  const updateJobStatus = (id: string, status: string) => {
-    qc.setQueryData<JobPosting[]>(['jobs'], (js) => (js ?? jobs).map((j) => (j.id === id ? { ...j, status } : j)))
   }
   const addListing = async (l: Omit<LandListing, 'id'>) => {
     const created = await createListingMutation.mutateAsync({
       title: l.title, region: l.region, city: l.city, size: l.size, price: l.price, titleType: l.titleType, description: l.description,
     })
-    logActivity({ type: 'listing_created', icon: '🏡', title: 'Land listing created', detail: created.title, path: `/land/listing/${created.id}` })
+    logActivity({ type: 'listing_created', icon: 'home', title: 'Land listing created', detail: created.title, path: `/land/listing/${created.id}` })
     return created
   }
   // Real admin/verifier-only endpoint (will 403 for any other role — correct
@@ -304,26 +403,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const verificationStatus = status === 'disputed' ? 'flagged' : status;
     updateVerificationStatusMutation.mutate({ listingId: id, verificationStatus })
   }
-  const addContractor = (c: Omit<Contractor, 'id'>) => {
-    const created = { ...c, id: nextId('c') }
-    setContractors((cs) => [created, ...cs])
-    return created
-  }
   const addBid = async (b: Omit<Bid, 'id'>) => {
     const created = await createBidMutation.mutateAsync({ jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes })
-    logActivity({ type: 'bid_placed', icon: '📋', title: 'Bid placed', detail: `${fmt(b.price)} for ${b.jobTitle}`, path: `/contractor/job/${b.jobId}` })
+    logActivity({ type: 'bid_placed', icon: 'clipboard', title: 'Bid placed', detail: `${fmt(b.price)} for ${b.jobTitle}`, path: `/contractor/job/${b.jobId}` })
     return { ...created, jobTitle: b.jobTitle }
-  }
-  const addOffer = (o: Omit<Offer, 'id'>) => {
-    const created = { ...o, id: nextId('o') }
-    setOffers((os) => [created, ...os])
-    logActivity({ type: 'offer_made', icon: '🤝', title: 'Offer made', detail: fmt(o.amount), path: `/land/listing/${o.listingId}` })
-    return created
-  }
-  const addRating = (r: Omit<Rating, 'id'>) => {
-    const created = { ...r, id: nextId('r') }
-    setRatings((rs) => [created, ...rs])
-    return created
   }
   const markNotificationRead = (id: string) => {
     markNotificationReadMutation.mutate(id)
@@ -340,11 +423,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        role, roles, lang, phone, name, isLoggedIn, devUserId,
-        setRole, setRoles, setLang, setPhone, setName, setLoggedIn,
-        projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone, updateProjectStatus,
-        jobs, addJob, updateJobStatus, landListings, addListing, updateListingStatus,
-        contractors, addContractor, bids, addBid, offers, addOffer, ratings, addRating,
+        role, roles, lang, phone, name, avatarUrl, isLoggedIn, authChecked, devUserId,
+        setRole, setRoles, setLang, setPhone, setName, setAvatarUrl, setLoggedIn, completeAuthSuccess, logout,
+        projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone,
+        jobs, addJob, landListings, addListing, updateListingStatus,
+        contractors, bids, addBid, offers,
         notifications, unreadNotifications, markNotificationRead, markAllNotificationsRead,
       }}
     >
@@ -369,13 +452,14 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Emmanuel Njang',
     recipientRating: 4.8,
     milestones: [
-      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true },
-      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true },
-      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false },
+      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
     description: 'A community borehole serving 340 households in Bamenda North who currently walk 4km for clean water. Work started February 2025.',
     daysLeft: 24,
+    requiresMultiSig: false,
   },
   {
     id: 'p2',
@@ -388,13 +472,14 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Fatima Oumarou',
     recipientRating: 4.9,
     milestones: [
-      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true },
-      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true },
-      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true },
+      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&h=220&fit=crop&auto=format',
     description: 'Replacement of the collapsed roof on Bloc C of the Government Primary School, Maroua. 280 pupils affected.',
     daysLeft: 0,
+    requiresMultiSig: false,
   },
   {
     id: 'p3',
@@ -407,14 +492,15 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Dr. Ngole Mbah',
     recipientRating: 4.7,
     milestones: [
-      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true },
-      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false },
-      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false },
-      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false },
+      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&h=220&fit=crop&auto=format',
     description: 'Renovation of the only maternity unit serving 8 villages in Limbe District. Building has not been maintained since 2009.',
     daysLeft: 61,
+    requiresMultiSig: false,
   },
 ]
 
@@ -428,8 +514,6 @@ export const MOCK_CONTRACTORS: Contractor[] = [
     jobs: 34,
     initials: 'FA',
     verified: true,
-    price: 'XAF 850,000',
-    timeline: '6 weeks',
   },
   {
     id: 'c2',
@@ -440,8 +524,6 @@ export const MOCK_CONTRACTORS: Contractor[] = [
     jobs: 19,
     initials: 'NM',
     verified: true,
-    price: 'XAF 920,000',
-    timeline: '7 weeks',
   },
   {
     id: 'c3',
@@ -452,8 +534,6 @@ export const MOCK_CONTRACTORS: Contractor[] = [
     jobs: 11,
     initials: 'EB',
     verified: true,
-    price: 'XAF 780,000',
-    timeline: '5 weeks',
   },
 ]
 
@@ -569,12 +649,12 @@ export const MOCK_LAND: LandListing[] = [
 ]
 
 export const MOCK_NOTIFICATIONS: AppNotification[] = [
-  { id: 'n1', icon: '✅', title: 'Milestone approved', body: 'Drilling & casing — Borehole Bamenda was approved. XAF 1,400,000 released.', time: '2h ago', unread: true },
-  { id: 'n2', icon: '📋', title: 'New bid received', body: 'Fon Ayuk Construction submitted a bid of XAF 850,000 for Ngaoundéré pump job.', time: '5h ago', unread: true },
-  { id: 'n3', icon: '📸', title: 'Proof submitted', body: 'Emmanuel Njang submitted milestone 2 evidence for your review.', time: '1 day ago', unread: true },
-  { id: 'n4', icon: '🔒', title: 'Funds secured', body: 'XAF 1,200,000 moved into escrow for Clinic Renovation — Limbe.', time: '3 days ago', unread: false },
-  { id: 'n5', icon: '✅', title: 'Contractor verified', body: 'Ndongo Mechanical Works has been verified on the platform.', time: '5 days ago', unread: false },
-  { id: 'n6', icon: '🏡', title: 'Land listing verified', body: 'Bastos plot 800m² has completed document verification.', time: '1 week ago', unread: false },
+  { id: 'n1', icon: 'checkCircle', category: 'milestones', title: 'Milestone approved', body: 'Drilling & casing — Borehole Bamenda was approved and released from escrow.', stat: { label: 'XAF 1,400,000', tone: 'success' }, path: '/funder/project/p1', time: '2h ago', unread: true },
+  { id: 'n2', icon: 'clipboard', category: 'marketplace', title: 'New bid received', body: 'Fon Ayuk Construction submitted a bid for the Ngaoundéré pump job.', stat: { label: 'XAF 850,000', tone: 'info' }, path: '/funder/tender/j1/bids', time: '5h ago', unread: true },
+  { id: 'n3', icon: 'camera', category: 'milestones', title: 'Proof submitted', body: 'Emmanuel Njang submitted milestone 2 evidence for your review.', path: '/funder/review/p1', time: '1 day ago', unread: true },
+  { id: 'n4', icon: 'lock', category: 'funding', title: 'Funds secured', body: 'Your contribution moved into escrow for Clinic Renovation — Limbe.', stat: { label: 'XAF 1,200,000', tone: 'success' }, path: '/funder/project/p3', time: '3 days ago', unread: false },
+  { id: 'n5', icon: 'compass', category: 'verification', title: 'Verification assigned', body: 'You have been assigned a new on-site verification task.', path: '/verifier/dashboard', time: '5 days ago', unread: false },
+  { id: 'n6', icon: 'home', category: 'marketplace', title: 'Purchase started', body: 'A buyer started a purchase on your Bastos plot 800m² listing.', path: '/land/my-listings', time: '1 week ago', unread: false },
 ]
 
 export function fmt(n: number) {

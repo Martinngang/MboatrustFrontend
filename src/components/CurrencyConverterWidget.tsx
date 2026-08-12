@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useFeeCalculation } from '../feeConfig'
+import { useCurrencyConversionQuery } from '../api/tools'
 import { C, FONT } from './MobileLayout'
 import { FeeBreakdown } from './FeeBreakdown'
 
 /**
  * Reusable exchange-rate + conversion-fee widget. Works standalone (its own
  * screen) or embedded (e.g. behind a "fund in a different currency" toggle on
- * the escrow payment screen) — both read the same live FeeConfigContext rates.
+ * the escrow payment screen) — both call the real GET /tools/convert
+ * endpoint, the same conversionService the backend uses internally for a
+ * foreign-currency milestone payout, not a client-side approximation of it.
  */
 export function CurrencyConverterWidget({ defaultAmount, onResultChange }: {
   defaultAmount?: number
@@ -19,12 +22,12 @@ export function CurrencyConverterWidget({ defaultAmount, onResultChange }: {
 
   const currency = currencies.find((c) => c.code === currencyCode) ?? currencies[0]
   const numericAmount = Number(amount) || 0
-  const result = fees.currencyConversion(numericAmount, currencyCode)
+  const { data: result, isFetching } = useCurrencyConversionQuery(numericAmount, currencyCode, 'XAF')
 
   useEffect(() => {
-    onResultChange?.(numericAmount > 0 ? result.resultAmount : 0)
+    onResultChange?.(numericAmount > 0 ? (result?.settledAmount ?? 0) : 0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result.resultAmount, numericAmount])
+  }, [result?.settledAmount, numericAmount])
 
   return (
     <div className="space-y-3">
@@ -59,12 +62,24 @@ export function CurrencyConverterWidget({ defaultAmount, onResultChange }: {
           style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
         />
         <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1.5">
-          Mock rate: 1 {currency.code} = XAF {currency.xafRate.toLocaleString('fr-FR')}
+          {result ? `Live rate: 1 ${currency.code} = XAF ${result.rate.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}` : isFetching ? 'Fetching live rate…' : ''}
         </div>
       </div>
 
-      {numericAmount > 0 && (
-        <FeeBreakdown result={result} note="Exchange rate and conversion fee are illustrative mock values for this demo." />
+      {numericAmount > 0 && result && (
+        <FeeBreakdown
+          result={{
+            kind: 'percentage',
+            mode: 'deduct',
+            amount: result.convertedAmount,
+            feeRate: result.feeBreakdown?.feeRate ?? 0,
+            feeAmount: result.conversionFee,
+            resultAmount: result.settledAmount,
+            amountLabel: `${currency.label} converted to XAF`,
+            feeLabel: `Platform conversion fee (${((result.feeBreakdown?.feeRate ?? 0) * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 })}%)`,
+            resultLabel: 'Amount after fees',
+          }}
+        />
       )}
     </div>
   )

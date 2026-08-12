@@ -5,6 +5,7 @@ import { C, FONT, Card, ProgressBar, Stars, PillButton, ThemeToggle } from '../c
 import { InstallButton } from '../components/InstallButton'
 import { Reveal } from '../components/Reveal'
 import { Tilt3D } from '../components/Tilt3D'
+import { AppIcon, type IconName } from '../components/icons'
 
 export function LandingScreen() {
   return (
@@ -266,7 +267,7 @@ function TrustLedger() {
                   className="flex gap-3 py-3.5 text-sm leading-relaxed"
                   style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.parchmentDark}`, color: C.inkMuted, fontFamily: FONT.sans }}
                 >
-                  <span className="mt-0.5 flex-shrink-0 opacity-80" style={{ color: C.seal }}>✕</span>
+                  <span className="mt-0.5 flex-shrink-0 opacity-80" style={{ color: C.seal }}><AppIcon name="close" size={14} strokeWidth={2.25} /></span>
                   {b}
                 </div>
               ))}
@@ -281,7 +282,7 @@ function TrustLedger() {
                   className="flex gap-3 py-3.5 text-sm font-medium leading-relaxed"
                   style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.parchmentDark}`, color: C.ink, fontFamily: FONT.sans }}
                 >
-                  <span className="mt-0.5 flex-shrink-0" style={{ color: C.forest }}>✓</span>
+                  <span className="mt-0.5 flex-shrink-0" style={{ color: C.forest }}><AppIcon name="check" size={14} strokeWidth={2.25} /></span>
                   {a}
                 </div>
               ))}
@@ -361,7 +362,7 @@ function CityMarquee() {
       <div className="animate-marquee flex w-max gap-10 whitespace-nowrap">
         {row.map((c, i) => (
           <span key={i} style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-[0.2em]">
-            {c} <span style={{ color: C.amber }} className="mx-3">✦</span>
+            {c} <span style={{ color: C.amber }} className="mx-3">·</span>
           </span>
         ))}
       </div>
@@ -452,11 +453,11 @@ function TrustPath() {
 
 // ── How it works ─────────────────────────────────────────────────────────────
 function HowItWorks() {
-  const steps = [
-    { n: '01', icon: '🔒', title: 'Fund into escrow', body: 'Pay via MTN MoMo or Orange Money. Funds are held securely — not sent to the recipient yet.' },
-    { n: '02', icon: '📸', title: 'Proof gets submitted', body: 'Photo, video and GPS-tagged evidence is submitted for every milestone, as it happens.' },
-    { n: '03', icon: '🧾', title: 'A local verifier checks it', body: 'An independent, on-ground agent confirms the work matches the evidence before anyone can approve.' },
-    { n: '04', icon: '✅', title: 'You approve, funds release', body: 'Review the verified evidence and approve. Payment releases from escrow only then.' },
+  const steps: { n: string; icon: IconName; title: string; body: string }[] = [
+    { n: '01', icon: 'lock', title: 'Fund into escrow', body: 'Pay via MTN MoMo or Orange Money. Funds are held securely — not sent to the recipient yet.' },
+    { n: '02', icon: 'camera', title: 'Proof gets submitted', body: 'Photo, video and GPS-tagged evidence is submitted for every milestone, as it happens.' },
+    { n: '03', icon: 'receipt', title: 'A local verifier checks it', body: 'An independent, on-ground agent confirms the work matches the evidence before anyone can approve.' },
+    { n: '04', icon: 'checkCircle', title: 'You approve, funds release', body: 'Review the verified evidence and approve. Payment releases from escrow only then.' },
   ]
 
   return (
@@ -481,10 +482,10 @@ function HowItWorks() {
           <Tilt3D key={s.n} max={6} className="group relative rounded-[24px] border p-6 shadow-sm" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.serif, color: C.parchmentDark }} className="absolute right-5 top-4 text-4xl font-bold">{s.n}</div>
             <div
-              className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
-              style={{ background: C.parchment, transformStyle: 'preserve-3d' }}
+              className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
+              style={{ background: C.parchment, transformStyle: 'preserve-3d', color: C.forest }}
             >
-              {s.icon}
+              <AppIcon name={s.icon} size={22} />
             </div>
             <h3 style={{ fontFamily: FONT.serif }} className="mt-5 text-lg font-bold">{s.title}</h3>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">{s.body}</p>
@@ -503,10 +504,10 @@ function HowItWorks() {
 }
 
 // ── Roles showcase ────────────────────────────────────────────────────────────
-const ROLE_CARDS: { id: NonNullable<Role>; icon: string; title: string; body: string; points: string[]; bg: string }[] = [
+const ROLE_CARDS: { id: NonNullable<Role>; icon: IconName; title: string; body: string; points: string[]; bg: string }[] = [
   {
     id: 'funder',
-    icon: '🌍',
+    icon: 'globe',
     title: 'Diaspora Funder',
     body: 'Fund verified community projects, hire contractors, and invest in land — from anywhere.',
     points: ['Escrow-protected payments', 'Milestone-by-milestone approval', 'Full transaction history'],
@@ -514,7 +515,7 @@ const ROLE_CARDS: { id: NonNullable<Role>; icon: string; title: string; body: st
   },
   {
     id: 'recipient',
-    icon: '🏗️',
+    icon: 'hardHat',
     title: 'Project Recipient',
     body: 'Get funded for community or family projects and prove progress with photo, video and GPS evidence.',
     points: ['Simple milestone submission', 'Transparent status tracking', 'Fast MoMo/OM withdrawal'],
@@ -522,7 +523,7 @@ const ROLE_CARDS: { id: NonNullable<Role>; icon: string; title: string; body: st
   },
   {
     id: 'contractor',
-    icon: '🔧',
+    icon: 'wrench',
     title: 'Local Contractor',
     body: 'Bid on real jobs and get paid securely per milestone — no chasing invoices.',
     points: ['Verified job postings only', 'Escrow-backed contracts', 'Build a public rating'],
@@ -530,7 +531,7 @@ const ROLE_CARDS: { id: NonNullable<Role>; icon: string; title: string; body: st
   },
   {
     id: 'seller',
-    icon: '🏡',
+    icon: 'home',
     title: 'Land / Property Seller',
     body: 'List land with verified documentation and reach diaspora buyers who need certainty before they commit.',
     points: ['Document verification', 'On-site inspection reports', 'Serious, vetted buyers'],
@@ -560,10 +561,10 @@ function RolesShowcase() {
                 <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full opacity-10 transition-transform duration-500 group-hover:scale-125" style={{ background: C.white }} />
                 <div className="relative">
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-2xl transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl text-white transition-transform duration-700 ease-out group-hover:[transform:perspective(400px)_rotateY(360deg)]"
                     style={{ background: 'rgba(255,255,255,0.14)', transformStyle: 'preserve-3d' }}
                   >
-                    {r.icon}
+                    <AppIcon name={r.icon} size={22} />
                   </div>
                   <h3 style={{ fontFamily: FONT.serif }} className="mt-5 text-xl font-bold text-white">{r.title}</h3>
                   <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.75)' }} className="mt-2 max-w-sm text-sm leading-relaxed">{r.body}</p>

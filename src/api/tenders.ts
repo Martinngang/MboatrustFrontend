@@ -118,6 +118,25 @@ export function useCreateJobMutation() {
   })
 }
 
+/** Only legal while the tender hasn't awarded a bid yet ('open'/'draft' —
+ * shown to the UI as job.status 'open'). The backend auto-rejects any bids
+ * still pending on it. There is no way to "close" an already-awarded
+ * tender from here — that's a real contract, handled by the contract
+ * lifecycle (complete/terminate), not a status flip. */
+export function useCancelJobMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post<{ data: BackendProject }>(`/projects/${id}/cancel`, {})
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+      qc.invalidateQueries({ queryKey: ['bids'] })
+    },
+  })
+}
+
 // ── Bids ─────────────────────────────────────────────────────────────────
 function parseTimelineDays(timeline: string): number {
   const n = parseInt(timeline, 10)

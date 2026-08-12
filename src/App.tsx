@@ -9,10 +9,6 @@ import { TeamProvider } from './team'
 import { FeeConfigProvider } from './feeConfig'
 import { VerificationProvider } from './verification'
 import { MessagingProvider } from './messaging'
-import { FundingProvider } from './funding'
-import { MarketplaceProvider } from './marketplace'
-import { CommunityProvider } from './community'
-import { ComplianceProvider } from './compliance'
 import { ThemeProvider } from './theme'
 import { OfflineQueueProvider } from './offlineQueue'
 import { PWAInstallProvider } from './pwaInstall'
@@ -20,6 +16,7 @@ import { C } from './components/MobileLayout'
 import { ToastProvider } from './components/Toast'
 import { CommandPaletteProvider } from './components/shell/CommandPalette'
 import { KeyboardShortcutsProvider } from './components/shell/KeyboardShortcuts'
+import { NotificationsDrawerProvider } from './components/NotificationsDrawer'
 
 // Landing
 import { LandingScreen } from './screens/Landing'
@@ -31,7 +28,7 @@ import { HomeScreen } from './screens/Dashboard'
 import {
   BrowseProjectsScreen, ProjectDetailScreen, CreateProjectScreen, MilestonesScreen, FundProjectScreen,
   MilestoneReviewScreen, DisputeScreen, TransactionHistoryScreen, BidComparisonScreen,
-  RecipientProfileScreen, ContractTrackingScreen, VideoVerificationScheduleScreen,
+  RecipientProfileScreen, VideoVerificationScheduleScreen,
 } from './screens/FunderScreens'
 // Messaging
 import { ConversationListScreen, ChatDetailScreen } from './screens/MessagingScreens'
@@ -52,7 +49,7 @@ import { BrowseJobsScreen, JobDetailScreen, SubmitBidScreen, MyBidsScreen, Contr
 // Land
 import { BrowseLandScreen, LandListingDetailScreen, CreateListingScreen, MyListingsScreen, ContactSellerScreen, PurchaseOfferScreen } from './screens/LandScreens'
 // Shared
-import { NotificationsScreen, SettingsScreen, HelpScreen, ProfileScreen } from './screens/SharedScreens'
+import { SettingsScreen, HelpScreen, ProfileScreen, SubscriptionScreen } from './screens/SharedScreens'
 // Additional
 import {
   ContractorOnboardingScreen, PostJobScreen, ContractSummaryScreen, RateContractorScreen, LandScheduleVisitScreen,
@@ -60,7 +57,7 @@ import {
   AdminPanelScreen, DisputeResolutionScreen, AdminFraudAnalyticsScreen,
 } from './screens/AdditionalScreens'
 // Co-signer
-import { AddCoSignerScreen, CoSignerApprovalScreen } from './screens/CoSignerScreens'
+import { AddCoSignerScreen } from './screens/CoSignerScreens'
 // Workspace (new management-app view-switcher demo)
 import { WorkspaceProjectsScreen } from './screens/WorkspaceProjectsScreen'
 import { WorkspaceJobsScreen } from './screens/WorkspaceJobsScreen'
@@ -78,12 +75,14 @@ function WebFrame({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen w-full" style={{ background: C.cream, color: C.ink }}>
       <ToastProvider>
-        <CommandPaletteProvider>
-          <KeyboardShortcutsProvider>
-            {children}
-            <InstallModal />
-          </KeyboardShortcutsProvider>
-        </CommandPaletteProvider>
+        <NotificationsDrawerProvider>
+          <CommandPaletteProvider>
+            <KeyboardShortcutsProvider>
+              {children}
+              <InstallModal />
+            </KeyboardShortcutsProvider>
+          </CommandPaletteProvider>
+        </NotificationsDrawerProvider>
       </ToastProvider>
     </div>
   )
@@ -97,6 +96,35 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 function P({ children }: { children: ReactNode }) {
   return <RequireAuth>{children}</RequireAuth>
+}
+
+// A signed-in visitor who lands on the marketing page or an auth screen
+// (bookmark, back-button, restored session on reload) belongs at their
+// dashboard, not back at square one.
+function RedirectIfAuthed({ children }: { children: ReactNode }) {
+  const { isLoggedIn } = useApp()
+  return isLoggedIn ? <Navigate to="/home" replace /> : <>{children}</>
+}
+
+/** Full-bleed brand splash shown only for the brief window while a
+ * restored Firebase session is being resolved on page load — without it,
+ * an already-authenticated visitor would flash the signed-out Landing
+ * screen before `authChecked` flips true. */
+function AuthGate({ children }: { children: ReactNode }) {
+  const { authChecked } = useApp()
+  if (!authChecked) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center" style={{ background: C.cream }}>
+        <div
+          className="h-9 w-9 animate-spin rounded-full border-[3px]"
+          style={{ borderColor: C.parchmentDark, borderTopColor: C.forest }}
+          role="status"
+          aria-label="Loading"
+        />
+      </div>
+    )
+  }
+  return <>{children}</>
 }
 
 const queryClient = new QueryClient({
@@ -116,22 +144,19 @@ export default function App() {
       <FeeConfigProvider>
         <VerificationProvider>
           <MessagingProvider>
-            <FundingProvider>
-              <MarketplaceProvider>
-                <CommunityProvider>
-                <ComplianceProvider>
                 <OfflineQueueProvider>
                 <HashRouter>
                   <WebFrame>
+                    <AuthGate>
                     <Routes>
                       {/* Onboarding */}
-                      <Route path="/" element={<LandingScreen />} />
+                      <Route path="/" element={<RedirectIfAuthed><LandingScreen /></RedirectIfAuthed>} />
                       <Route path="/language" element={<LanguageScreen />} />
-                      <Route path="/signup" element={<SignupScreen />} />
+                      <Route path="/signup" element={<RedirectIfAuthed><SignupScreen /></RedirectIfAuthed>} />
                       <Route path="/otp" element={<OTPScreen />} />
-                      <Route path="/login" element={<LoginScreen />} />
-                      <Route path="/role" element={<RoleScreen />} />
-                      <Route path="/profile" element={<ProfileSetupScreen />} />
+                      <Route path="/login" element={<RedirectIfAuthed><LoginScreen /></RedirectIfAuthed>} />
+                      <Route path="/role" element={<RedirectIfAuthed><RoleScreen /></RedirectIfAuthed>} />
+                      <Route path="/profile" element={<RedirectIfAuthed><ProfileSetupScreen /></RedirectIfAuthed>} />
                       {/* Public — no login required */}
                       <Route path="/showcase" element={<PublicShowcaseScreen />} />
 
@@ -159,12 +184,11 @@ export default function App() {
                       <Route path="/funder/video-verification/:projectId/:milestoneId" element={<P><VideoVerificationScheduleScreen /></P>} />
                       <Route path="/funder/transactions" element={<P><TransactionHistoryScreen /></P>} />
                       <Route path="/funder/contractors" element={<P><BidComparisonScreen /></P>} />
-                      <Route path="/funder/contract-tracking" element={<P><ContractTrackingScreen /></P>} />
                       <Route path="/funder/post-job" element={<P><PostJobScreen /></P>} />
                       <Route path="/funder/tender/:jobId/bids" element={<P><TenderBidsScreen /></P>} />
-                      <Route path="/funder/contract-summary" element={<P><ContractSummaryScreen /></P>} />
-                      <Route path="/funder/rate-contractor" element={<P><RateContractorScreen /></P>} />
-                      <Route path="/funder/rate-recipient" element={<P><RateRecipientScreen /></P>} />
+                      <Route path="/funder/contract-summary/:bidId" element={<P><ContractSummaryScreen /></P>} />
+                      <Route path="/funder/rate-contractor/:jobId" element={<P><RateContractorScreen /></P>} />
+                      <Route path="/funder/rate-recipient/:id" element={<P><RateRecipientScreen /></P>} />
         
                       {/* Recipient */}
                       <Route path="/recipient/projects" element={<P><RecipientProjectsScreen /></P>} />
@@ -181,7 +205,7 @@ export default function App() {
                       <Route path="/contractor/job/:id" element={<P><JobDetailScreen /></P>} />
                       <Route path="/contractor/bid/:id?" element={<P><SubmitBidScreen /></P>} />
                       <Route path="/contractor/bids" element={<P><MyBidsScreen /></P>} />
-                      <Route path="/contractor/contract" element={<P><ContractDetailScreen /></P>} />
+                      <Route path="/contractor/contract/:bidId" element={<P><ContractDetailScreen /></P>} />
                       <Route path="/contractor/earnings" element={<P><EarningsScreen /></P>} />
         
                       {/* Land */}
@@ -191,7 +215,7 @@ export default function App() {
                       <Route path="/land/offer/:id?" element={<P><PurchaseOfferScreen /></P>} />
                       <Route path="/land/create" element={<P><CreateListingScreen /></P>} />
                       <Route path="/land/my-listings" element={<P><MyListingsScreen /></P>} />
-                      <Route path="/land/schedule" element={<P><LandScheduleVisitScreen /></P>} />
+                      <Route path="/land/schedule/:id" element={<P><LandScheduleVisitScreen /></P>} />
         
                       {/* Verifier */}
                       <Route path="/verifier/register" element={<P><VerifierRegistrationScreen /></P>} />
@@ -202,7 +226,6 @@ export default function App() {
       
                       {/* Co-signer */}
                       <Route path="/funder/co-signer/:projectId?" element={<P><AddCoSignerScreen /></P>} />
-                      <Route path="/cosign/:coSignerId" element={<P><CoSignerApprovalScreen /></P>} />
       
                       {/* Messaging */}
                       <Route path="/messages" element={<P><ConversationListScreen /></P>} />
@@ -222,8 +245,8 @@ export default function App() {
 
                       {/* Community */}
                       <Route path="/groups/create" element={<P><GroupSetupScreen /></P>} />
-                      <Route path="/groups/members" element={<P><GroupMembersScreen /></P>} />
-                      <Route path="/groups/dashboard" element={<P><GroupDashboardScreen /></P>} />
+                      <Route path="/groups/members/:id?" element={<P><GroupMembersScreen /></P>} />
+                      <Route path="/groups/dashboard/:id?" element={<P><GroupDashboardScreen /></P>} />
                       <Route path="/referrals" element={<P><ReferralScreen /></P>} />
 
                       {/* Compliance */}
@@ -235,21 +258,19 @@ export default function App() {
                       <Route path="/admin/disputes" element={<P><DisputeResolutionScreen /></P>} />
                       <Route path="/admin/fraud-analytics" element={<P><AdminFraudAnalyticsScreen /></P>} />
         
-                      {/* Shared */}
-                      <Route path="/shared/notifications" element={<P><NotificationsScreen /></P>} />
+                      {/* Shared — notifications live in the NotificationsDrawer overlay
+                          (see components/NotificationsDrawer.tsx), not a routed page. */}
                       <Route path="/shared/settings" element={<P><SettingsScreen /></P>} />
                       <Route path="/shared/help" element={<P><HelpScreen /></P>} />
+                      <Route path="/account/subscription" element={<P><SubscriptionScreen /></P>} />
                       <Route path="/shared/profile" element={<P><ProfileScreen /></P>} />
         
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    </AuthGate>
                   </WebFrame>
                 </HashRouter>
                 </OfflineQueueProvider>
-                </ComplianceProvider>
-                </CommunityProvider>
-              </MarketplaceProvider>
-            </FundingProvider>
           </MessagingProvider>
         </VerificationProvider>
       </FeeConfigProvider>

@@ -19,7 +19,7 @@ export function ConversationListScreen() {
 
       {!isLoading && (conversations?.length ?? 0) === 0 ? (
         <EmptyState
-          icon="💬"
+          icon="message"
           title="No conversations yet"
           description="Message a seller from a land listing, or a contractor from an awarded tender, to start a real conversation here."
         />

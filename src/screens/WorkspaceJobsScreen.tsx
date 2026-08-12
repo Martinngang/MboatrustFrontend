@@ -9,6 +9,9 @@ import { CalendarView } from '../components/dataview/CalendarView'
 import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
+import { useCancelJobMutation } from '../api/tenders'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
 
 const BOARD_COLUMNS = [
   { id: 'open', label: 'Open' },
@@ -29,10 +32,26 @@ function parsedDeadline(job: JobPosting): Date {
  * here on JobPosting data instead of being rebuilt. */
 export function WorkspaceJobsScreen() {
   const nav = useNavigate()
-  const { jobs, updateJobStatus } = useApp()
+  const { jobs } = useApp()
   const [mode, setMode] = useViewMode('jobs')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = jobs.find((j) => j.id === previewId) ?? null
+  const cancelJob = useCancelJobMutation()
+  const { show: showToast } = useToast()
+
+  // Awarding a tender means picking a specific contractor's bid — there is
+  // no "just mark it awarded" action, so the only bulk/drag transition
+  // offered here is closing tenders that never received an accepted bid.
+  const closeEligible = (rows: JobPosting[]) => {
+    const eligible = rows.filter((j) => j.status === 'open')
+    if (eligible.length === 0) {
+      showToast({ title: 'Nothing to close', description: 'Only open tenders with no awarded bid can be closed.', tone: 'info' })
+      return
+    }
+    Promise.all(eligible.map((j) => cancelJob.mutateAsync(j.id)))
+      .then(() => showToast({ title: `Closed ${eligible.length} tender${eligible.length > 1 ? 's' : ''}`, tone: 'success' }))
+      .catch((err) => showToast({ title: 'Close failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }))
+  }
 
   const columns: DataTableColumn<JobPosting>[] = [
     { key: 'title', header: 'Tender', sortValue: (j) => j.title, render: (j) => <span className="font-medium">{j.title}</span>, width: 'minmax(200px, 2fr)' },
@@ -49,7 +68,7 @@ export function WorkspaceJobsScreen() {
     <AppShell>
       <Header title="Tenders" subtitle={`${jobs.length} total`} />
 
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <ViewSwitcher mode={mode} onChange={setMode} />
         <PillButton onClick={() => nav('/funder/post-job')} variant="secondary">+ New tender</PillButton>
       </div>
@@ -61,8 +80,7 @@ export function WorkspaceJobsScreen() {
           getRowId={(j) => j.id}
           onRowClick={(j) => setPreviewId(j.id)}
           bulkActions={[
-            { label: 'Mark awarded', onClick: (rows) => rows.forEach((j) => updateJobStatus(j.id, 'awarded')) },
-            { label: 'Close', onClick: (rows) => rows.forEach((j) => updateJobStatus(j.id, 'closed')) },
+            { label: 'Close', danger: true, onClick: closeEligible },
           ]}
         />
       )}
@@ -73,7 +91,8 @@ export function WorkspaceJobsScreen() {
           rows={jobs}
           getRowId={(j) => j.id}
           getStatus={(j) => j.status}
-          onCardMove={(j, _from, to) => updateJobStatus(j.id, to)}
+          isValidMove={(_j, from, to) => from === 'open' && to === 'closed'}
+          onCardMove={(j) => closeEligible([j])}
           renderCard={(j) => (
             <button onClick={() => setPreviewId(j.id)} className="w-full text-left">
               <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-sm font-bold">{j.title}</div>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { C, FONT } from './MobileLayout'
 import { Tilt3D } from './Tilt3D'
+import { AppIcon, type IconName } from './icons'
 
 /** Standard "nothing here yet" block — replaces the emoji+text div every
  * screen used to hand-roll independently. `illustration='tilt'` is the
@@ -8,7 +9,7 @@ import { Tilt3D } from './Tilt3D'
  * small-angle Tilt3D + gentle float turns a flat empty moment into a small
  * dimensional one, on-brand with the seal-stamp motif used elsewhere. */
 export function EmptyState({ icon, title, description, action, tone = 'default', illustration = 'none' }: {
-  icon: ReactNode
+  icon: IconName
   title: string
   description?: string
   action?: ReactNode
@@ -16,6 +17,7 @@ export function EmptyState({ icon, title, description, action, tone = 'default',
   illustration?: 'float' | 'tilt' | 'none'
 }) {
   const ring = tone === 'success' ? 'var(--status-success-bg)' : tone === 'error' ? 'var(--status-error-bg)' : C.parchment
+  const iconColor = tone === 'success' ? 'var(--status-success-text)' : tone === 'error' ? 'var(--status-error-text)' : C.forest
 
   const glyph = (
     <div
@@ -28,10 +30,10 @@ export function EmptyState({ icon, title, description, action, tone = 'default',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 26,
+        color: iconColor,
       }}
     >
-      {icon}
+      <AppIcon name={icon} size={26} />
     </div>
   )
 

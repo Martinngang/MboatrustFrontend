@@ -1,8 +1,9 @@
 import { C, FONT } from '../MobileLayout'
 import { EmptyState } from '../EmptyState'
+import { AppIcon, type IconName } from '../icons'
 
 export interface AttentionItem {
-  icon: string
+  icon: IconName
   label: string
   sub?: string
   onClick: () => void
@@ -14,7 +15,7 @@ export interface AttentionItem {
  * offers for sellers) so the widget itself stays generic and reusable. */
 export function NeedsAttentionWidget({ items }: { items: AttentionItem[] }) {
   if (items.length === 0) {
-    return <EmptyState icon="🎉" title="You're all caught up" description="Nothing needs your attention right now." illustration="float" />
+    return <EmptyState icon="celebrate" title="You're all caught up" description="Nothing needs your attention right now." illustration="float" />
   }
   return (
     <div className="space-y-2">
@@ -25,7 +26,7 @@ export function NeedsAttentionWidget({ items }: { items: AttentionItem[] }) {
           className="flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:bg-[var(--color-parchment)]"
           style={{ borderColor: C.parchmentDark }}
         >
-          <span className="text-lg flex-shrink-0">{it.icon}</span>
+          <span className="flex-shrink-0" style={{ color: C.forest }}><AppIcon name={it.icon} size={18} /></span>
           <div className="min-w-0 flex-1">
             <div style={{ fontFamily: FONT.sans, color: C.ink }} className="truncate text-sm font-medium">{it.label}</div>
             {it.sub && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="truncate text-[10px]">{it.sub}</div>}

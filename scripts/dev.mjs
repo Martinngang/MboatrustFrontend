@@ -10,15 +10,39 @@ import { dirname, join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 
-const DEFAULT_PORT = Number(process.env.PORT) || 3000
+// Matches AGENTS.md's documented default. Deliberately NOT 3000/3001/5173 —
+// those are the default ports for CRA, Next.js, and Vite itself, so any
+// other Node project running alongside this one is likely to collide there.
+// 8443 is uncommon enough to avoid that entirely.
+const DEFAULT_PORT = Number(process.env.PORT) || 8443
 
-function isPortFree(port) {
+// Binds on every address a real client could reach the server through, not
+// just 0.0.0.0 — on Windows a wildcard (0.0.0.0) bind can report success
+// even when another process already holds the same port on a different
+// address family (e.g. `::`), which is exactly the "wildcard address"
+// warning Vite itself prints when this happens. Checking each address and
+// requiring all of them to succeed catches that case instead of handing
+// back a port that's actually still contested.
+function canBind(port, address) {
   return new Promise((resolve) => {
     const tester = createServer()
-    tester.once('error', () => resolve(false))
+    tester.once('error', (err) => {
+      // Only a real conflict on this exact port counts as "not free" — any
+      // other error (e.g. EADDRNOTAVAIL/ENOTSUP because this machine has no
+      // IPv6 loopback) means the address family isn't usable at all here,
+      // not that something else is occupying the port.
+      resolve(err.code !== 'EADDRINUSE')
+    })
     tester.once('listening', () => tester.close(() => resolve(true)))
-    tester.listen(port, '0.0.0.0')
+    tester.listen(port, address)
   })
+}
+
+async function isPortFree(port) {
+  for (const address of ['0.0.0.0', '127.0.0.1', '::1']) {
+    if (!(await canBind(port, address))) return false
+  }
+  return true
 }
 
 async function findNextFreePort(fromPort) {

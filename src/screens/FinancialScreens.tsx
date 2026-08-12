@@ -1,23 +1,30 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useFunding, type RecurringFrequency, type RecurringEndType } from '../funding'
-import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, PillButton, Header } from '../components/MobileLayout'
-import { ContactPicker, type PickedContact } from '../components/ContactPicker'
+import { usePooledContributionsQuery, useInviteCoFunderMutation, useContributeMutation, useCancelRecurringMutation, usePauseRecurringMutation, useResumeRecurringMutation } from '../api/pooledFunding'
+import { useUserSearchQuery } from '../api/users'
+import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, PillButton, Header, MomoOmPicker } from '../components/MobileLayout'
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
-import { ChipGroup } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { ConfirmDialog } from '../components/Modal'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
+
+function frequencyLabel(days: number | null): string {
+  if (days === 7) return 'week'
+  if (days === 30) return 'month'
+  if (days === 90) return 'quarter'
+  return `${days ?? '?'} days`
+}
 
 // ── Group / pooled funding ───────────────────────────────────────────────────────
 export function PooledFundingScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { projects } = useApp()
-  const { contributors } = useFunding()
+  const { projects, devUserId } = useApp()
   const project = projects.find((p) => p.id === id) ?? projects[0]
-  const list = contributors[project.id] ?? []
+  const { data: list = [] } = usePooledContributionsQuery({ projectId: project.id })
   const pct = Math.round((project.raised / project.totalAmount) * 100)
   const shareLink = `mboatrust.app/#/funder/project/${project.id}`
 
@@ -43,26 +50,36 @@ export function PooledFundingScreen() {
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Contributors ({list.length})</p>
           {list.length === 0 ? (
-            <EmptyState icon="🤝" title="No contributors yet" description="Be the first, or invite someone." illustration="tilt" />
+            <EmptyState icon="handshake" title="No contributors yet" description="Be the first, or invite someone." illustration="tilt" />
           ) : (
             <StaggerList className="space-y-2">
               {list.map((c) => {
                 const share = Math.round((c.amount / project.totalAmount) * 100)
+                const isYou = c.contributorId === devUserId
                 return (
                   <StaggerItem key={c.id}>
                     <Card>
                       <div className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                            {c.name[0]}
+                            {c.contributorName[0]}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
-                              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{c.name}{c.isYou ? ' (You)' : ''}</span>
+                              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{c.contributorName}{isYou ? ' (You)' : ''}</span>
                               <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold whitespace-nowrap">{fmt(c.amount)}</span>
                             </div>
-                            <div className="mt-1.5"><ProgressBar pct={share} /></div>
-                            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">{share}% of goal · {c.date}</div>
+                            {c.status === 'collected' ? (
+                              <>
+                                <div className="mt-1.5"><ProgressBar pct={share} /></div>
+                                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">{share}% of goal · {c.date}{c.isRecurring ? ` · every ${frequencyLabel(c.recurrenceIntervalDays)}` : ''}</div>
+                              </>
+                            ) : (
+                              <div className="mt-1 flex items-center gap-2">
+                                <StatusBadge status={c.status} />
+                                <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px]">{c.status === 'pending' ? 'Invited, not yet paid' : c.date}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -99,19 +116,32 @@ export function PooledFundingScreen() {
 }
 
 // ── Invite co-funder ────────────────────────────────────────────────────────────
-const SUGGESTED_COFUNDERS = [
-  { name: 'Théodore K.', phone: '+237 677 222 010', role: 'Family member — Toronto' },
-  { name: 'Rosine A.', phone: '+237 677 222 020', role: 'Friend — Paris' },
-  { name: 'Patrick Ndifor', phone: '+237 677 222 030', role: 'Community association' },
-]
-
+// Like adding a co-signer, this requires an existing registered account —
+// the backend has no way to invite someone who hasn't signed up (see
+// pooledFundingController.invite's contributorId requirement).
 export function InviteCoFunderScreen() {
   const nav = useNavigate()
   const { projectId } = useParams()
   const { projects } = useApp()
+  const { show: showToast } = useToast()
   const project = projects.find((p) => p.id === projectId) ?? projects[0]
-  const [contact, setContact] = useState<PickedContact | null>(null)
+  const inviteCoFunder = useInviteCoFunderMutation()
+
+  const [query, setQuery] = useState('')
+  const { data: results = [], isFetching } = useUserSearchQuery(query)
+  const [selected, setSelected] = useState<{ id: string; name: string } | null>(null)
+  const [amount, setAmount] = useState('')
   const [invited, setInvited] = useState<string | null>(null)
+
+  const invite = async () => {
+    if (!selected || !Number(amount)) return
+    try {
+      await inviteCoFunder.mutateAsync({ projectId: project.id, contributorId: selected.id, amount: Number(amount) })
+      setInvited(selected.name)
+    } catch (err) {
+      showToast({ title: 'Failed to send invitation', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
 
   if (invited) {
     return (
@@ -122,7 +152,7 @@ export function InviteCoFunderScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Invitation sent</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            {invited} has been invited to co-fund <strong style={{ color: C.ink }}>{project.title}</strong>. They'll receive a link to join and contribute.
+            {invited} has been invited to co-fund <strong style={{ color: C.ink }}>{project.title}</strong>. They'll see the pledge waiting for them next time they sign in.
           </p>
           <PillButton onClick={() => nav(`/funder/project/${project.id}/funding`)} fullWidth>Back to group funding</PillButton>
         </div>
@@ -137,48 +167,101 @@ export function InviteCoFunderScreen() {
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-xl border p-3" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
-            Invite family, friends, or your diaspora association to pool funds toward this project together. Each contribution is tracked separately.
+            Invite family, friends, or your diaspora association to pool funds toward this project together. They must already have a Mboa Trust account — search by name, phone, or email.
           </p>
         </div>
-        <ContactPicker suggestions={SUGGESTED_COFUNDERS} onChange={setContact} />
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Search for a co-funder</label>
+          <input
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setSelected(null) }}
+            placeholder="Name, phone, or email"
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+          />
+        </div>
+
+        {!selected && query.trim().length >= 2 && (
+          <div className="space-y-2">
+            {isFetching && <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">Searching…</p>}
+            {!isFetching && results.length === 0 && (
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">No matching account found. They'll need to create one first.</p>
+            )}
+            {results.map((u) => (
+              <button
+                key={u.id}
+                onClick={() => setSelected({ id: u.id, name: u.fullName })}
+                className="w-full text-left rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md"
+                style={{ borderColor: C.parchmentDark, background: C.white }}
+              >
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{u.fullName}</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{u.phoneNumber || u.email}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {selected && (
+          <>
+            <div className="rounded-xl border p-3 flex items-center justify-between" style={{ borderColor: C.forestLight, background: 'var(--status-success-bg)' }}>
+              <span style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-sm font-semibold">{selected.name}</span>
+              <button onClick={() => setSelected(null)} style={{ fontFamily: FONT.mono, color: 'var(--status-success-text)' }} className="text-xs underline">Change</button>
+            </div>
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Pledge amount (XAF)</label>
+              <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="e.g. 100000"
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+            </div>
+          </>
+        )}
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => contact && setInvited(contact.name)} fullWidth disabled={!contact}>Send invitation</PillButton>
+        <PillButton onClick={invite} fullWidth disabled={!selected || !Number(amount) || inviteCoFunder.isPending}>{inviteCoFunder.isPending ? 'Sending…' : 'Send invitation'}</PillButton>
       </div>
     </AppShell>
   )
 }
 
 // ── Recurring contribution setup ────────────────────────────────────────────────
+// Setting this up charges the first contribution immediately (real money,
+// same as a one-off deposit) and schedules the rest — the backend has no
+// "ends on a date / after N contributions" concept, only ongoing-until-
+// cancelled (see PooledContribution.isRecurring), so that's the only option.
+const FREQUENCY_DAYS: Record<'weekly' | 'monthly' | 'quarterly', number> = { weekly: 7, monthly: 30, quarterly: 90 }
+
 export function RecurringContributionSetupScreen() {
   const nav = useNavigate()
   const { projectId } = useParams()
-  const { projects } = useApp()
-  const { addRecurring } = useFunding()
+  const { projects, phone } = useApp()
+  const { show: showToast } = useToast()
   const project = projects.find((p) => p.id === projectId) ?? projects[0]
+  const contribute = useContributeMutation()
 
   const [amount, setAmount] = useState('')
-  const [frequency, setFrequency] = useState<RecurringFrequency>('monthly')
-  const [endType, setEndType] = useState<RecurringEndType>('ongoing')
-  const [endDate, setEndDate] = useState('')
-  const [occurrences, setOccurrences] = useState('12')
+  const [frequency, setFrequency] = useState<'weekly' | 'monthly' | 'quarterly'>('monthly')
+  const [method, setMethod] = useState<'momo' | 'om'>('momo')
   const [created, setCreated] = useState(false)
 
-  const canSubmit = Number(amount) > 0 && (endType !== 'until_date' || !!endDate) && (endType !== 'occurrences' || Number(occurrences) > 0)
+  const canSubmit = Number(amount) > 0
 
-  const submit = () => {
+  const submit = async () => {
     if (!canSubmit) return
-    addRecurring({
-      projectId: project.id,
-      projectTitle: project.title,
-      amount: Number(amount),
-      frequency,
-      endType,
-      endDate: endType === 'until_date' ? endDate : undefined,
-      occurrences: endType === 'occurrences' ? Number(occurrences) : undefined,
-    })
-    setCreated(true)
+    try {
+      await contribute.mutateAsync({
+        projectId: project.id,
+        amount: Number(amount),
+        isRecurring: true,
+        recurrenceIntervalDays: FREQUENCY_DAYS[frequency],
+        paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
+        payerPhoneNumber: phone || '+237677234891',
+      })
+      setCreated(true)
+    } catch (err) {
+      showToast({ title: 'Failed to set up recurring contribution', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   if (created) {
@@ -190,7 +273,7 @@ export function RecurringContributionSetupScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Recurring contribution set up</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            {fmt(Number(amount))} will be contributed to <strong style={{ color: C.ink }}>{project.title}</strong> every {frequency === 'monthly' ? 'month' : frequency === 'weekly' ? 'week' : 'quarter'}.
+            {fmt(Number(amount))} was charged now and will repeat every {frequency === 'monthly' ? 'month' : frequency === 'weekly' ? 'week' : 'quarter'} to <strong style={{ color: C.ink }}>{project.title}</strong>, until you pause or cancel it.
           </p>
           <PillButton onClick={() => nav('/funder/recurring')} fullWidth>Manage recurring contributions</PillButton>
         </div>
@@ -212,55 +295,31 @@ export function RecurringContributionSetupScreen() {
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Frequency</label>
-          <ChipGroup options={['weekly', 'monthly', 'quarterly']} value={frequency} onChange={(v) => setFrequency(v as RecurringFrequency)} />
-        </div>
-
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Ends</label>
-          <div className="space-y-2">
-            {([
-              { v: 'ongoing', label: 'Ongoing — until I cancel' },
-              { v: 'until_date', label: 'On a specific date' },
-              { v: 'occurrences', label: 'After a number of contributions' },
-            ] as const).map((opt) => (
-              <button key={opt.v} onClick={() => setEndType(opt.v)}
-                className="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 text-left transition-all"
-                style={{ borderColor: endType === opt.v ? C.forest : C.parchmentDark, background: endType === opt.v ? 'var(--status-success-bg)' : C.white }}>
-                <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0" style={{ borderColor: endType === opt.v ? C.forest : C.inkSubtle }}>
-                  {endType === opt.v && <div className="w-2 h-2 rounded-full" style={{ background: C.forest }} />}
-                </div>
-                <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{opt.label}</span>
+          <div className="grid grid-cols-3 gap-2">
+            {(['weekly', 'monthly', 'quarterly'] as const).map((f) => (
+              <button key={f} onClick={() => setFrequency(f)}
+                className="py-3 rounded-xl text-sm font-semibold capitalize transition-all border-2"
+                style={{ borderColor: frequency === f ? C.forest : C.parchmentDark, background: frequency === f ? 'var(--status-success-bg)' : C.white, color: frequency === f ? C.forest : C.inkMuted, fontFamily: FONT.sans }}>
+                {f}
               </button>
             ))}
           </div>
         </div>
 
-        {endType === 'until_date' && (
-          <div>
-            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">End date</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-              className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-              style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-          </div>
-        )}
-        {endType === 'occurrences' && (
-          <div>
-            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Number of contributions</label>
-            <input type="number" value={occurrences} onChange={(e) => setOccurrences(e.target.value)}
-              className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-              style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-          </div>
-        )}
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Payment method</label>
+          <MomoOmPicker method={method} onChange={setMethod} />
+        </div>
 
         <div className="rounded-xl border p-3" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
-            Each contribution is charged via your linked MoMo/Orange Money account and added to escrow automatically.
+            The first contribution is charged now. Every contribution after that repeats automatically via the same account and is added to escrow, until you pause or cancel it.
           </p>
         </div>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!canSubmit}>Set up recurring contribution</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!canSubmit || contribute.isPending}>{contribute.isPending ? 'Charging…' : 'Set up recurring contribution'}</PillButton>
       </div>
     </AppShell>
   )
@@ -269,9 +328,30 @@ export function RecurringContributionSetupScreen() {
 // ── Manage recurring contributions ─────────────────────────────────────────────
 export function ManageRecurringScreen() {
   const nav = useNavigate()
-  const { recurringContributions, pauseRecurring, resumeRecurring, cancelRecurring } = useFunding()
+  const { devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const { data: allContributions = [] } = usePooledContributionsQuery({ contributorId: devUserId ?? undefined })
+  // A cancelled pledge flips isRecurring back to false server-side (see
+  // pooledFundingController.cancelRecurring) — filtering on it alone is
+  // enough to drop cancelled ones from this list.
+  const recurring = allContributions.filter((c) => c.isRecurring)
+  const pauseRecurring = usePauseRecurringMutation()
+  const resumeRecurring = useResumeRecurringMutation()
+  const cancelRecurring = useCancelRecurringMutation()
   const [cancelingId, setCancelingId] = useState<string | null>(null)
-  const cancelTarget = recurringContributions.find((r) => r.id === cancelingId)
+  const [actingOn, setActingOn] = useState<string | null>(null)
+  const cancelTarget = recurring.find((r) => r.id === cancelingId)
+
+  const act = async (mutation: ReturnType<typeof usePauseRecurringMutation>, id: string, verb: string) => {
+    setActingOn(id)
+    try {
+      await mutation.mutateAsync(id)
+    } catch (err) {
+      showToast({ title: `Failed to ${verb}`, description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setActingOn(null)
+    }
+  }
 
   return (
     <AppShell>
@@ -281,36 +361,32 @@ export function ManageRecurringScreen() {
         action={<button onClick={() => nav('/funder/browse')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">+ New</button>}
       />
 
-      {recurringContributions.length === 0 ? (
+      {recurring.length === 0 ? (
         <div className="px-5 py-4">
-          <EmptyState icon="🔁" title="No recurring contributions yet" description="Set one up from any project's funding page." illustration="tilt" />
+          <EmptyState icon="refresh" title="No recurring contributions yet" description="Set one up from any project's funding page." illustration="tilt" />
         </div>
       ) : (
         <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
-          {recurringContributions.map((r) => (
+          {recurring.map((r) => (
             <StaggerItem key={r.id}>
               <Card>
                 <div className="p-4">
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{r.projectTitle}</div>
-                    <StatusBadge status={r.status === 'active' ? 'approved' : r.status === 'paused' ? 'pending' : 'rejected'} />
+                    <StatusBadge status={r.paused ? 'pending' : 'approved'} />
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{fmt(r.amount)} · {r.frequency}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{fmt(r.amount)} · every {frequencyLabel(r.recurrenceIntervalDays)}</div>
                   <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] mb-3">
-                    {r.status === 'active' ? `Next charge: ${r.nextChargeDate}` : r.status === 'paused' ? 'Paused' : 'Cancelled'}
-                    {r.endType === 'until_date' && r.endDate && ` · Ends ${r.endDate}`}
-                    {r.endType === 'occurrences' && r.occurrences && ` · ${r.occurrences} total`}
+                    {r.paused ? 'Paused' : r.nextChargeAt ? `Next charge: ${new Date(r.nextChargeAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
                   </div>
-                  {r.status !== 'cancelled' && (
-                    <div className="flex gap-2 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                      {r.status === 'active' ? (
-                        <button onClick={() => pauseRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Pause</button>
-                      ) : (
-                        <button onClick={() => resumeRecurring(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resume</button>
-                      )}
-                      <button onClick={() => setCancelingId(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Cancel</button>
-                    </div>
-                  )}
+                  <div className="flex gap-2 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
+                    {r.paused ? (
+                      <button disabled={actingOn === r.id} onClick={() => act(resumeRecurring, r.id, 'resume')} className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resume</button>
+                    ) : (
+                      <button disabled={actingOn === r.id} onClick={() => act(pauseRecurring, r.id, 'pause')} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Pause</button>
+                    )}
+                    <button disabled={actingOn === r.id} onClick={() => setCancelingId(r.id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Cancel</button>
+                  </div>
                 </div>
               </Card>
             </StaggerItem>
@@ -321,9 +397,12 @@ export function ManageRecurringScreen() {
       <ConfirmDialog
         open={!!cancelTarget}
         onCancel={() => setCancelingId(null)}
-        onConfirm={() => { if (cancelingId) cancelRecurring(cancelingId); setCancelingId(null) }}
+        onConfirm={async () => {
+          if (cancelingId) await act(cancelRecurring, cancelingId, 'cancel')
+          setCancelingId(null)
+        }}
         title="Cancel this recurring contribution?"
-        description={cancelTarget ? `You'll stop automatically contributing ${fmt(cancelTarget.amount)} ${cancelTarget.frequency} to ${cancelTarget.projectTitle}. You can always set up a new one later.` : undefined}
+        description={cancelTarget ? `You'll stop automatically contributing ${fmt(cancelTarget.amount)} every ${frequencyLabel(cancelTarget.recurrenceIntervalDays)} to ${cancelTarget.projectTitle}. You can always set up a new one later.` : undefined}
         confirmLabel="Cancel contribution"
         danger
       />

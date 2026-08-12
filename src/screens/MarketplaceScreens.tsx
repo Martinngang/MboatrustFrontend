@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useMarketplace, MATERIALS, REGIONS, estimateMaterialPrice } from '../marketplace'
+import { MATERIALS, REGIONS, estimateMaterialPrice } from '../marketplace'
+import { useCreateCertificationMutation } from '../api/certifications'
+import { useAvailabilityQuery, useSetAvailabilityMutation } from '../api/contractors'
 import { C, FONT, AppShell, PillButton, Header } from '../components/MobileLayout'
 import { ChipGroup } from '../components/Chip'
+import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
 
 // ── Add certification ────────────────────────────────────────────────────────────
 export function AddCertificationScreen() {
   const nav = useNavigate()
-  const { contractors } = useApp()
-  const { addCertification } = useMarketplace()
-  const self = contractors[0]
+  const { show: showToast } = useToast()
+  const createCertification = useCreateCertificationMutation()
 
   const [name, setName] = useState('')
   const [issuer, setIssuer] = useState('')
@@ -19,10 +22,14 @@ export function AddCertificationScreen() {
 
   const canSubmit = name.trim() !== '' && issuer.trim() !== '' && uploaded
 
-  const submit = () => {
+  const submit = async () => {
     if (!canSubmit) return
-    addCertification(self.id, name, issuer)
-    setSubmitted(true)
+    try {
+      await createCertification.mutateAsync({ name, issuer })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit certificate', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   if (submitted) {
@@ -95,7 +102,7 @@ export function AddCertificationScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={!canSubmit}>Submit for verification</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!canSubmit || createCertification.isPending}>{createCertification.isPending ? 'Submitting…' : 'Submit for verification'}</PillButton>
       </div>
     </AppShell>
   )
@@ -150,17 +157,20 @@ function getMonthGrid(year: number, month: number) {
 
 export function AvailabilityCalendarScreen() {
   const { contractorId } = useParams()
-  const { contractors } = useApp()
-  const { availability, toggleAvailability } = useMarketplace()
-  const contractor = contractorId ? (contractors.find((c) => c.id === contractorId) ?? contractors[0]) : contractors[0]
+  const { contractors, devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const contractor = contractorId
+    ? (contractors.find((c) => c.id === contractorId) ?? contractors[0])
+    : (contractors.find((c) => c.id === devUserId) ?? contractors[0])
   const readOnly = !!contractorId
+  const { data: contractorAvailability = {} } = useAvailabilityQuery(contractorId)
+  const setAvailability = useSetAvailabilityMutation()
 
   const today = new Date()
   const [viewYear, setViewYear] = useState(today.getFullYear())
   const [viewMonth, setViewMonth] = useState(today.getMonth())
 
   const cells = getMonthGrid(viewYear, viewMonth)
-  const contractorAvailability = availability[contractor.id] ?? {}
   const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
@@ -206,12 +216,18 @@ export function AvailabilityCalendarScreen() {
               const key = dateKey(day)
               const status = contractorAvailability[key] ?? 'available'
               const isPast = new Date(viewYear, viewMonth, day) < startOfToday
-              const disabled = readOnly || isPast
+              const disabled = readOnly || isPast || setAvailability.isPending
+              const toggle = () => {
+                setAvailability.mutate(
+                  { date: key, isAvailable: status === 'unavailable' },
+                  { onError: (err) => showToast({ title: 'Failed to update availability', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }) }
+                )
+              }
               return (
                 <button
                   key={i}
                   disabled={disabled}
-                  onClick={() => toggleAvailability(contractor.id, key)}
+                  onClick={toggle}
                   className="aspect-square rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
                   style={{
                     background: status === 'unavailable' ? 'var(--status-error-bg)' : 'var(--status-success-bg)',

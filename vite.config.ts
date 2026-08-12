@@ -73,6 +73,17 @@ export default defineConfig(({ mode }) => {
       port: parseInt(process.env.PORT || '8443'),
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
+      // Lets the SPA call the API as same-origin `/api/...` (see
+      // VITE_API_BASE_URL) instead of a hardcoded `localhost:5000` — that
+      // hostname only ever resolves to the backend when the browser and
+      // backend happen to share a machine. A phone or any other device
+      // hitting this dev server over LAN/tunnel has no backend at its own
+      // localhost, so every API call silently failed and the app always
+      // fell back to treating the account as brand-new. Proxying here
+      // forwards server-to-server instead, which isn't subject to that.
+      proxy: {
+        '/api': { target: process.env.BACKEND_URL || 'http://localhost:5000', changeOrigin: true },
+      },
     },
     preview: {
       host: '0.0.0.0',

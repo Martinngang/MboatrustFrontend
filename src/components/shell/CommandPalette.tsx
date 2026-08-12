@@ -5,10 +5,12 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useApp, fmt } from '../../context'
 import { C, FONT } from '../MobileLayout'
 import { scaleIn } from '../motion'
+import { useNotificationsDrawer } from '../NotificationsDrawer'
+import { AppIcon, type IconName } from '../icons'
 
 interface PaletteResult {
   id: string
-  icon: string
+  icon: IconName
   title: string
   subtitle?: string
   group: 'Projects' | 'Tenders' | 'Land' | 'Contractors' | 'Actions'
@@ -21,12 +23,18 @@ const CommandPaletteContext = createContext<{ show: () => void; hide: () => void
  * listener and the palette's open state — TopBar's search field and any
  * other trigger call `useCommandPalette().show()` to open the same instance. */
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
+  const { authChecked } = useApp()
   const [open, setOpen] = useState(false)
   const show = useCallback(() => setOpen(true), [])
   const hide = useCallback(() => setOpen(false), [])
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // This provider (and its global listener) mounts above App.tsx's
+      // AuthGate loading splash, so without this guard Cmd/Ctrl+K could pop
+      // the command palette open — and let someone navigate away via it —
+      // while the app is still supposed to be a blocking "loading" gate.
+      if (!authChecked) return
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
         setOpen((o) => !o)
@@ -35,7 +43,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [authChecked])
 
   return (
     <CommandPaletteContext.Provider value={{ show, hide }}>
@@ -54,6 +62,7 @@ export function useCommandPalette() {
 function CommandPaletteOverlay({ open, onClose }: { open: boolean; onClose: () => void }) {
   const nav = useNavigate()
   const { projects, jobs, landListings, contractors } = useApp()
+  const { open: openNotifications } = useNotificationsDrawer()
   const reduceMotion = useReducedMotion()
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
@@ -71,32 +80,32 @@ function CommandPaletteOverlay({ open, onClose }: { open: boolean; onClose: () =
 
   const allResults: PaletteResult[] = useMemo(() => [
     ...projects.map((p): PaletteResult => ({
-      id: `project-${p.id}`, icon: '📁', group: 'Projects',
+      id: `project-${p.id}`, icon: 'folder', group: 'Projects',
       title: p.title, subtitle: `${p.location} · ${fmt(p.raised)} of ${fmt(p.totalAmount)}`,
       onSelect: () => goTo(`/funder/project/${p.id}`),
     })),
     ...jobs.map((j): PaletteResult => ({
-      id: `job-${j.id}`, icon: '📋', group: 'Tenders',
+      id: `job-${j.id}`, icon: 'clipboard', group: 'Tenders',
       title: j.title, subtitle: `${j.location} · ${fmt(j.budget)}`,
       onSelect: () => goTo(`/contractor/job/${j.id}`),
     })),
     ...landListings.map((l): PaletteResult => ({
-      id: `land-${l.id}`, icon: '🏡', group: 'Land',
+      id: `land-${l.id}`, icon: 'home', group: 'Land',
       title: l.title, subtitle: `${l.city}, ${l.region} · ${fmt(l.price)}`,
       onSelect: () => goTo(`/land/listing/${l.id}`),
     })),
     ...contractors.map((c): PaletteResult => ({
-      id: `contractor-${c.id}`, icon: '👷', group: 'Contractors',
+      id: `contractor-${c.id}`, icon: 'hardHat', group: 'Contractors',
       title: c.name, subtitle: `${c.trade} · ${c.location}`,
       onSelect: () => goTo('/funder/contractors'),
     })),
-    { id: 'action-create-project', icon: '➕', group: 'Actions', title: 'Create project', onSelect: () => goTo('/funder/create') },
-    { id: 'action-post-job', icon: '📢', group: 'Actions', title: 'Post a tender', onSelect: () => goTo('/funder/post-job') },
-    { id: 'action-create-listing', icon: '🏗️', group: 'Actions', title: 'Create land listing', onSelect: () => goTo('/land/create') },
-    { id: 'action-home', icon: '🏠', group: 'Actions', title: 'Go to Home', onSelect: () => goTo('/home') },
-    { id: 'action-notifications', icon: '🔔', group: 'Actions', title: 'View notifications', onSelect: () => goTo('/shared/notifications') },
-    { id: 'action-settings', icon: '⚙️', group: 'Actions', title: 'Go to Settings', onSelect: () => goTo('/shared/settings') },
-  ], [projects, jobs, landListings, contractors, goTo])
+    { id: 'action-create-project', icon: 'plus', group: 'Actions', title: 'Create project', onSelect: () => goTo('/funder/create') },
+    { id: 'action-post-job', icon: 'megaphone', group: 'Actions', title: 'Post a tender', onSelect: () => goTo('/funder/post-job') },
+    { id: 'action-create-listing', icon: 'hardHat', group: 'Actions', title: 'Create land listing', onSelect: () => goTo('/land/create') },
+    { id: 'action-home', icon: 'home', group: 'Actions', title: 'Go to Home', onSelect: () => goTo('/home') },
+    { id: 'action-notifications', icon: 'bell', group: 'Actions', title: 'View notifications', onSelect: () => { onClose(); openNotifications() } },
+    { id: 'action-settings', icon: 'settings', group: 'Actions', title: 'Go to Settings', onSelect: () => goTo('/shared/settings') },
+  ], [projects, jobs, landListings, contractors, goTo, onClose, openNotifications])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -172,7 +181,7 @@ function CommandPaletteOverlay({ open, onClose }: { open: boolean; onClose: () =
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left"
                       style={{ background: i === activeIndex ? C.parchment : 'transparent' }}
                     >
-                      <span className="text-base flex-shrink-0">{r.icon}</span>
+                      <span className="flex-shrink-0" style={{ color: C.forest }}><AppIcon name={r.icon} size={16} /></span>
                       <div className="min-w-0 flex-1">
                         <div style={{ fontFamily: FONT.sans, color: C.ink }} className="truncate text-sm font-medium">{r.title}</div>
                         {r.subtitle && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="truncate text-[10px]">{r.subtitle}</div>}

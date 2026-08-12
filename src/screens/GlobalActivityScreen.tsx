@@ -5,6 +5,7 @@ import { C, FONT, AppShell, Header, Card } from '../components/MobileLayout'
 import { ChipGroup } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { AppIcon } from '../components/icons'
 
 const CATEGORY_TYPES: Record<string, ActivityType[]> = {
   Milestones: ['milestone_approved', 'milestone_disputed', 'milestone_submitted'],
@@ -31,14 +32,14 @@ export function GlobalActivityScreen() {
 
       <div className="px-5 py-4">
         {filtered.length === 0 ? (
-          <EmptyState icon="🗂️" title="No activity in this category yet" illustration="tilt" />
+          <EmptyState icon="folder" title="No activity in this category yet" illustration="tilt" />
         ) : (
           <StaggerList className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">
             {filtered.map((e) => (
               <StaggerItem key={e.id}>
                 <Card variant={e.path ? 'interactive' : 'default'} onClick={e.path ? () => nav(e.path!) : undefined}>
                   <div className="flex items-start gap-3 p-4">
-                    <span className="text-lg flex-shrink-0">{e.icon}</span>
+                    <span className="flex-shrink-0" style={{ color: C.forest }}><AppIcon name={e.icon} size={18} /></span>
                     <div className="min-w-0 flex-1">
                       <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{e.title}</div>
                       {e.detail && <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-0.5 text-xs leading-relaxed">{e.detail}</div>}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCompliance } from '../../compliance'
+import { useMyKycStatusQuery } from '../../api/kyc'
 import { C, FONT } from '../MobileLayout'
 
 interface ChecklistItem {
@@ -23,7 +23,7 @@ const ITEMS_BY_ROLE: Record<string, ChecklistItem> = {
  * for steps that aren't independently verifiable client-side. */
 export function OnboardingChecklistWidget({ role }: { role: string }) {
   const nav = useNavigate()
-  const { myKyc } = useCompliance()
+  const { data: kycStatus = 'unverified' } = useMyKycStatusQuery()
   const storageKey = `mboatrust-onboarding-checklist:${role}`
   const [dismissed, setDismissed] = useState(false)
   const [done, setDone] = useState<Set<string>>(new Set())
@@ -42,7 +42,7 @@ export function OnboardingChecklistWidget({ role }: { role: string }) {
     { id: 'payout', label: 'Link MoMo or Orange Money', path: '/shared/settings' },
     roleItem,
   ]
-  const isDone = (id: string) => (id === 'kyc' ? myKyc.status === 'verified' : done.has(id))
+  const isDone = (id: string) => (id === 'kyc' ? kycStatus === 'verified' : done.has(id))
   const doneCount = items.filter((it) => isDone(it.id)).length
 
   const persist = (nextDone: Set<string>, nextDismissed: boolean) => {

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../../context'
+import { useMyRoleTypesQuery } from '../../api/session'
 import { C, FONT, TAB_ROUTES, FUNDER_TABS, WORKSPACE_LINKS, ADMIN_LINKS } from '../MobileLayout'
 
 const COLLAPSE_KEY = 'mboatrust-sidebar-collapsed'
@@ -18,11 +19,13 @@ const ROLE_LABEL: Record<string, string> = {
  * future pinning), and the Workspace/Administration tiers carried over from
  * the previous AppShell. */
 export function Sidebar() {
-  const { role, name } = useApp()
+  const { role, name, devUserId } = useApp()
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
   const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
+  const visibleAdminLinks = ADMIN_LINKS.filter((link) => roleTypes.includes(link.requiresRole))
   const springTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 380, damping: 32 }
 
   const [collapsed, setCollapsed] = useState(() => {
@@ -37,12 +40,17 @@ export function Sidebar() {
   }
 
   return (
+    // flex-shrink-0 so the sidebar keeps its own width when a wide screen
+    // (e.g. a DataTable) would otherwise try to squeeze it in the flex row.
+    // The aside itself never scrolls as a whole — only the nav sections
+    // below the workspace switcher do — so the header stays put and the
+    // active-role/admin footer (mt-auto) stays pinned to the bottom.
     <aside
-      className={`hidden flex-col border-r px-4 py-6 lg:flex transition-[width] duration-200 ${collapsed ? 'w-20' : 'w-72 px-6 py-8'}`}
+      className={`hidden flex-shrink-0 flex-col overflow-hidden border-r lg:flex transition-[width] duration-200 ${collapsed ? 'w-20' : 'w-72'}`}
       style={{ borderColor: C.parchmentDark, background: C.glassBg }}
     >
-      {/* Workspace switcher */}
-      <div className={`mb-7 flex items-center gap-3 ${collapsed ? 'flex-col' : ''}`}>
+      {/* Workspace switcher — pinned, never scrolls */}
+      <div className={`flex items-center gap-3 px-4 pt-6 lg:pt-8 ${collapsed ? 'flex-col px-4' : 'px-6'}`}>
         <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: C.emerald, boxShadow: `0 8px 20px ${C.glowForest}` }}>
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
             <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.gold} strokeWidth="1.6" />
@@ -67,6 +75,10 @@ export function Sidebar() {
         </button>
       </div>
 
+      {/* Scrollable middle: primary nav + favorites + workspace links. Its own
+          region (not the whole aside) so the header above and the footer
+          below stay pinned regardless of how many nav items there are. */}
+      <div className={`mt-7 min-h-0 flex-1 overflow-y-auto ${collapsed ? 'px-4' : 'px-6'}`}>
       {/* Primary nav — same destinations as the mobile bottom nav */}
       <nav className="space-y-1">
         {tabs.map((tab) => {
@@ -129,29 +141,33 @@ export function Sidebar() {
           })}
         </nav>
       </div>
+      </div>
 
-      <div className="mt-auto space-y-4 pt-6">
-        {/* Administrative tier — deliberately set apart */}
-        <div className={`rounded-2xl border border-dashed ${collapsed ? 'p-1.5' : 'p-3'}`} style={{ borderColor: C.parchmentDark }}>
-          {!collapsed && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 px-1 text-[9px] uppercase tracking-[0.3em]">Administration</div>}
-          {ADMIN_LINKS.map((link) => (
-            <button
-              key={link.label}
-              onClick={() => nav(link.path)}
-              title={collapsed ? link.label : undefined}
-              className={`flex w-full items-center rounded-lg text-left transition-colors hover:bg-[var(--color-parchment)] ${collapsed ? 'justify-center py-2' : 'justify-between px-2 py-1.5'}`}
-            >
-              {collapsed ? (
-                <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[9px] font-bold uppercase">{link.label[0]}</span>
-              ) : (
-                <>
-                  <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs font-medium">{link.label}</span>
-                  <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M4 3L9 7L4 11" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" /></svg>
-                </>
-              )}
-            </button>
-          ))}
-        </div>
+      <div className={`mt-auto flex-shrink-0 space-y-4 pb-6 pt-6 lg:pb-8 ${collapsed ? 'px-4' : 'px-6'}`}>
+        {/* Administrative tier — deliberately set apart, and only rendered
+            at all for accounts that actually hold a staff role. */}
+        {visibleAdminLinks.length > 0 && (
+          <div className={`rounded-2xl border border-dashed ${collapsed ? 'p-1.5' : 'p-3'}`} style={{ borderColor: C.parchmentDark }}>
+            {!collapsed && <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 px-1 text-[9px] uppercase tracking-[0.3em]">Administration</div>}
+            {visibleAdminLinks.map((link) => (
+              <button
+                key={link.label}
+                onClick={() => nav(link.path)}
+                title={collapsed ? link.label : undefined}
+                className={`flex w-full items-center rounded-lg text-left transition-colors hover:bg-[var(--color-parchment)] ${collapsed ? 'justify-center py-2' : 'justify-between px-2 py-1.5'}`}
+              >
+                {collapsed ? (
+                  <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[9px] font-bold uppercase">{link.label[0]}</span>
+                ) : (
+                  <>
+                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs font-medium">{link.label}</span>
+                    <svg width="11" height="11" viewBox="0 0 14 14" fill="none"><path d="M4 3L9 7L4 11" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" /></svg>
+                  </>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
         {!collapsed && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}>

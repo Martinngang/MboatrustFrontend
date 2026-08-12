@@ -1,9 +1,11 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import { C, FONT } from './MobileLayout'
+import { AppIcon, type IconName } from './icons'
 
 export interface TabItem {
   id: string
   label: string
+  icon?: IconName
 }
 
 /** Shared-element sliding-indicator tab bar — replaces the hand-rolled tab
@@ -36,7 +38,10 @@ export function Tabs({ tabs, value, onChange, variant = 'underline' }: {
                 transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 400, damping: 34 }}
               />
             )}
-            <span className="relative z-10">{t.label}</span>
+            <span className="relative z-10 inline-flex items-center justify-center gap-1.5">
+              {t.icon && <AppIcon name={t.icon} size={14} />}
+              {t.label}
+            </span>
           </button>
         )
       })}

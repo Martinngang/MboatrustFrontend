@@ -8,6 +8,7 @@ import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
+import { useRatingSummaryQuery, useRatingsQuery, useCreateRatingMutation } from '../api/reputation'
 
 
 // ── Milestone submission ───────────────────────────────────────────────────────
@@ -259,7 +260,7 @@ export function MilestoneSubmitScreen() {
             {['A local verifier reviews the evidence on-site (72h)', 'The funder receives your proof for approval', 'Funds are released once approved'].map((s, i) => (
               <div key={i} className="flex items-start gap-2">
                 <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: C.amber, fontFamily: FONT.mono }}>
-                  <span className="text-[8px] font-bold text-white">{i + 1}</span>
+                  <span className="text-[8px] font-bold" style={{ color: C.forestDark }}>{i + 1}</span>
                 </div>
                 <span style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs">{s}</span>
               </div>
@@ -349,29 +350,22 @@ export function WithdrawalScreen() {
 
 // ── My reputation screen ──────────────────────────────────────────────────────
 export function ReputationScreen() {
-  const { ratings } = useApp()
-  const recipientName = 'Emmanuel Njang'
-
-  const staticReviews = [
-    { from: 'Marie-Claire N.', rating: 5, comment: 'Emmanuel delivered the borehole project ahead of schedule with excellent documentation at every step. Highly trustworthy recipient.', date: 'Jun 2025' },
-    { from: 'Théodore K.', rating: 5, comment: 'All milestones completed with clear photo evidence and timely updates. Will fund again.', date: 'Jan 2025' },
-    { from: 'Rosine A.', rating: 4, comment: 'Good communication and thorough proof submission. Minor delay on milestone 3 but resolved quickly.', date: 'Oct 2024' },
-  ]
-  const liveReviews = ratings
-    .filter((r) => r.targetType === 'recipient' && r.targetName === recipientName)
-    .map((r) => ({ from: r.from, rating: r.rating, comment: r.comment || '(No written review)', date: r.date }))
-  const reviews = [...liveReviews, ...staticReviews]
-  const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
+  const { name, projects, devUserId } = useApp()
+  const { data: summary } = useRatingSummaryQuery(devUserId ?? undefined)
+  const { data: reviews = [] } = useRatingsQuery({ toUserId: devUserId ?? undefined, roleContext: 'recipient' })
+  const projectsDone = projects.filter((p) => p.recipientId === devUserId && p.status === 'completed').length
+  const avg = summary?.average ?? 0
+  const initials = (name || '?').split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
   return (
     <AppShell>
       <Header title="My Reputation" back tone="dark" background={C.forest}>
         <div className="flex items-center gap-5">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold" style={{ background: 'rgba(255,255,255,0.15)', fontFamily: FONT.serif, color: C.white }}>
-            EN
+            {initials}
           </div>
           <div>
-            <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{recipientName}</div>
+            <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{name || 'You'}</div>
             <div className="flex items-center gap-1 mt-1">
               {[1, 2, 3, 4, 5].map((i) => (
                 <svg key={i} width="14" height="14" viewBox="0 0 14 14" fill={i <= Math.round(avg) ? C.amber : 'rgba(255,255,255,0.25)'}>
@@ -380,44 +374,35 @@ export function ReputationScreen() {
               ))}
               <span style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.8)' }} className="text-sm ml-1">{avg.toFixed(1)}</span>
             </div>
-            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] mt-0.5">{reviews.length} reviews · 3 projects completed</div>
+            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] mt-0.5">{summary?.count ?? 0} reviews · {projectsDone} projects completed</div>
           </div>
         </div>
       </Header>
 
       <div className="px-5 py-5 space-y-4 sm:mx-auto sm:max-w-2xl">
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Projects done', value: '3' },
-            { label: 'On time', value: '100%' },
-            { label: 'Response rate', value: '98%' },
-          ].map(({ label, value }) => (
-            <Card key={label} variant="glass">
-              <div className="p-3 text-center">
-                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{value}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{label}</div>
-              </div>
-            </Card>
-          ))}
-        </div>
-
         {/* Reviews */}
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Funder reviews</p>
+          {reviews.length === 0 && (
+            <Card>
+              <div className="p-4 text-center">
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">No reviews yet — complete a project to receive your first rating.</p>
+              </div>
+            </Card>
+          )}
           <StaggerList className="space-y-3">
-            {reviews.map((r, i) => (
-              <StaggerItem key={i}>
+            {reviews.map((r) => (
+              <StaggerItem key={r.id}>
                 <Card variant="elevated">
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div>
-                        <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{r.from}</div>
-                        <Stars rating={r.rating} />
+                        <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{r.fromName}</div>
+                        <Stars rating={r.score} />
                       </div>
                       <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.date}</span>
                     </div>
-                    <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed italic">"{r.comment}"</p>
+                    <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed italic">"{r.comment || '(No written review)'}"</p>
                   </div>
                 </Card>
               </StaggerItem>
@@ -460,7 +445,7 @@ export function RecipientProjectsScreen() {
       <div className="px-5 py-4">
         {filtered.length === 0 ? (
           <EmptyState
-            icon="📋"
+            icon="clipboard"
             title="No projects yet"
             description="Create a funding request or wait for a funder to assign you a project."
             illustration="tilt"
@@ -538,16 +523,27 @@ export function SubmissionStatusScreen() {
 // ── Rate recipient screen ─────────────────────────────────────────────────────
 export function RateRecipientScreen() {
   const nav = useNavigate()
-  const { projects, addRating } = useApp()
-  const project = projects[0]
+  const { id } = useParams()
+  const { projects } = useApp()
+  const { show: showToast } = useToast()
+  const project = projects.find((p) => p.id === id) ?? projects[0]
+  const createRating = useCreateRatingMutation()
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
   const [comment, setComment] = useState('')
   const [submitted, setSubmitted] = useState(false)
 
-  const submit = () => {
-    addRating({ targetType: 'recipient', targetName: project.recipient, rating, comment, from: 'Marie-Claire N.', date: new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }) })
-    setSubmitted(true)
+  const submit = async () => {
+    if (!project.recipientId) {
+      showToast({ title: 'Cannot rate this recipient', description: 'This project has no owner account attached.', tone: 'error' })
+      return
+    }
+    try {
+      await createRating.mutateAsync({ toUserId: project.recipientId, projectId: project.id, score: rating, comment, roleContext: 'recipient' })
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to submit rating', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   if (submitted) {
@@ -610,8 +606,8 @@ export function RateRecipientScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={submit} fullWidth disabled={rating === 0}>
-          Submit rating
+        <PillButton onClick={submit} fullWidth disabled={rating === 0 || createRating.isPending}>
+          {createRating.isPending ? 'Submitting…' : 'Submit rating'}
         </PillButton>
       </div>
     </AppShell>

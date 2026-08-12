@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { capturePendingReferral, getPendingReferralId, clearPendingReferral } from '../api/pendingReferral'
 import { useApp, T, type Role } from '../context'
 import { C, FONT, PillButton } from '../components/MobileLayout'
 import { OnboardingShell } from '../components/OnboardingShell'
@@ -7,44 +8,153 @@ import { Tilt3D } from '../components/Tilt3D'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage, api } from '../api/client'
 import { firebaseConfigured } from '../firebase'
-import { signInWithGoogle, startPhoneSignIn, confirmPhoneCode } from '../api/firebaseAuth'
+import {
+  signInWithGoogle, startPhoneSignIn, confirmPhoneCode, signUpWithEmail, signInWithEmail,
+  sendPasswordReset, credentialFromGoogleError, linkPendingCredential, fetchSignInMethods, clearRecaptcha,
+  getCurrentFirebaseUser,
+} from '../api/firebaseAuth'
 import { setPendingPhoneConfirmation, getPendingPhoneConfirmation } from '../api/phoneAuthState'
+import { friendlyAuthError, isAccountExistsError } from '../api/authErrors'
+import { GoogleAuthButton, AuthDivider, AuthMethodTabs, TextField, PasswordField, InlineAlert, Spinner } from '../components/AuthControls'
+import { AppIcon, type IconName } from '../components/icons'
 
-/** Real Google Sign-In button — only rendered once a Firebase project is
- * configured (see src/firebase.ts); the phone-OTP flow below it always
- * works, real or demo. */
-function GoogleSignInButton({ onSuccess }: { onSuccess: () => void }) {
+/** Normalizes a phone field's raw text into E.164. The input starts
+ * pre-filled with a country-code prefix (e.g. "+237 ") that the field
+ * itself doesn't stop someone from typing over or appending a full number
+ * onto — left unguarded, that produces something like
+ * "+237 +237600000001", which silently fails to match any registered
+ * number (test or real) instead of erroring clearly. Keeping only
+ * whatever comes after the *last* "+" discards a stray leading prefix
+ * like that while leaving a normal single-prefix number untouched. */
+function toE164(raw: string): string {
+  const cleaned = raw.replace(/[^\d+]/g, '')
+  const lastPlus = cleaned.lastIndexOf('+')
+  return lastPlus >= 0 ? cleaned.slice(lastPlus) : `+${cleaned}`
+}
+
+/** Where a signed-in user should land next: existing, fully-onboarded
+ * accounts skip straight past role/profile setup; someone who picked a role
+ * but never finished profile setup resumes there instead of re-picking a
+ * role; anyone else continues into the normal first-time flow. Shared by
+ * every entry point (Google, email, phone) so a returning user never gets
+ * routed through onboarding twice just because they used a different
+ * sign-in method this time. */
+function useAuthRouting() {
+  const nav = useNavigate()
+  const { completeAuthSuccess } = useApp()
+  return async () => {
+    const dest = await completeAuthSuccess()
+    const path = dest === 'home' ? '/home' : dest === 'profile' ? '/profile' : '/role'
+    nav(path, { replace: dest === 'home' })
+  }
+}
+
+/** Recovery form shown when Google sign-in collides with an existing
+ * email/password account (`auth/account-exists-with-different-credential`).
+ * Firebase already has the pending Google credential in hand — the person
+ * just needs to prove ownership of the existing account once, and the two
+ * get linked into a single identity for good. */
+function AccountConflictResolver({ email, credential, onLinked, onCancel }: {
+  email: string
+  credential: NonNullable<ReturnType<typeof credentialFromGoogleError>>
+  onLinked: () => void
+  onCancel: () => void
+}) {
   const { show: showToast } = useToast()
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const resolve = async () => {
+    setError('')
+    if (!password) return setError('Enter your password to continue.')
+    setBusy(true)
+    try {
+      const user = await signInWithEmail(email, password)
+      await linkPendingCredential(user, credential)
+      showToast({ title: 'Accounts linked', description: 'You can now sign in with either method.', tone: 'success' })
+      onLinked()
+    } catch (err) {
+      setError(friendlyAuthError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mb-5 rounded-2xl border-2 p-4" style={{ borderColor: C.amber, background: 'rgba(232,160,32,0.08)' }}>
+      <div style={{ fontFamily: FONT.sans, color: C.ink }} className="mb-1 text-sm font-semibold">Account already exists</div>
+      <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-3 text-xs leading-relaxed">
+        <strong>{email}</strong> already has an account with a password. Sign in below to link your Google account to it.
+      </p>
+      {error && <InlineAlert>{error}</InlineAlert>}
+      <PasswordField label="Password" value={password} onChange={setPassword} placeholder="Your existing password" autoComplete="current-password" containerClassName="mb-3" />
+      <div className="flex gap-2">
+        <button onClick={onCancel} disabled={busy} className="flex-1 rounded-xl border py-2.5 text-sm font-semibold disabled:opacity-60" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Cancel</button>
+        <button onClick={resolve} disabled={busy} className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>
+          {busy && <Spinner size={14} color={C.white} />}
+          {busy ? 'Linking…' : 'Sign in & link'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type GoogleConflict = { email: string; credential: NonNullable<ReturnType<typeof credentialFromGoogleError>> }
+
+/** Google Sign-In button — only rendered once a Firebase project is
+ * configured (see src/firebase.ts); the phone/email flows beside it always
+ * work, real or demo. Handles the "account exists with a different
+ * credential" collision inline instead of just failing. */
+function GoogleAuthSection() {
+  const { show: showToast } = useToast()
+  const route = useAuthRouting()
   const [loading, setLoading] = useState(false)
+  const [conflict, setConflict] = useState<GoogleConflict | null>(null)
   if (!firebaseConfigured) return null
 
   const go = async () => {
     setLoading(true)
     try {
       await signInWithGoogle()
-      onSuccess()
+      await route()
     } catch (err) {
-      showToast({ title: 'Google sign-in failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+      if (isAccountExistsError(err)) {
+        const credential = credentialFromGoogleError(err)
+        const email = (err as { customData?: { email?: string } })?.customData?.email
+        if (credential && email) {
+          const methods = await fetchSignInMethods(email).catch((): string[] => [])
+          if (methods.includes('password')) {
+            setConflict({ email, credential })
+          } else {
+            showToast({ title: 'Sign-in failed', description: `Sign in with your original method for ${email} first, then link Google from Settings.`, tone: 'error' })
+          }
+        } else {
+          showToast({ title: 'Google sign-in failed', description: friendlyAuthError(err), tone: 'error' })
+        }
+      } else {
+        showToast({ title: 'Google sign-in failed', description: friendlyAuthError(err), tone: 'error' })
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  if (conflict) {
+    return (
+      <AccountConflictResolver
+        email={conflict.email}
+        credential={conflict.credential}
+        onLinked={() => { setConflict(null); route() }}
+        onCancel={() => setConflict(null)}
+      />
+    )
+  }
+
   return (
-    <button
-      onClick={go}
-      disabled={loading}
-      className="mb-5 flex w-full items-center justify-center gap-2.5 rounded-xl border-2 py-3.5 text-sm font-semibold transition-all disabled:opacity-60"
-      style={{ borderColor: C.parchmentDark, background: C.white, color: C.ink, fontFamily: FONT.sans }}
-    >
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.87 2.7-6.62Z" />
-        <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.98v2.33A9 9 0 0 0 9 18Z" />
-        <path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.03l2.97-2.33Z" />
-        <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .98 4.97l2.97 2.33C4.66 5.17 6.65 3.58 9 3.58Z" />
-      </svg>
-      {loading ? 'Signing in…' : 'Continue with Google'}
-    </button>
+    <div className="mb-5">
+      <GoogleAuthButton onClick={go} loading={loading} />
+    </div>
   )
 }
 
@@ -62,16 +172,18 @@ export function LanguageScreen() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         {[
-          { code: 'en' as const, name: 'English', native: 'English', flag: '🇬🇧' },
-          { code: 'fr' as const, name: 'French', native: 'Français', flag: '🇫🇷' },
-        ].map(({ code, name, native, flag }) => (
+          { code: 'en' as const, name: 'English', native: 'English' },
+          { code: 'fr' as const, name: 'French', native: 'Français' },
+        ].map(({ code, name, native }) => (
           <Tilt3D key={code} max={5} className="rounded-2xl">
             <button
               onClick={() => pick(code)}
               className="flex w-full items-center gap-5 rounded-2xl border-2 p-5 text-left transition-colors hover:border-[var(--color-forest)]"
               style={{ background: C.white, borderColor: C.parchmentDark }}
             >
-              <span className="text-3xl">{flag}</span>
+              <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: C.parchment, color: C.forest }}>
+                <AppIcon name="languages" size={20} />
+              </span>
               <div>
                 <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">{native}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-wider">{name}</div>
@@ -90,66 +202,42 @@ export function LanguageScreen() {
 }
 
 // ── Sign up ───────────────────────────────────────────────────────────────────
-export function SignupScreen() {
+function PhoneSignupForm() {
   const nav = useNavigate()
   const { lang, setPhone } = useApp()
   const { show: showToast } = useToast()
   const [value, setValue] = useState('+237 ')
-  const [prefix, setPrefix] = useState('+237')
   const [sending, setSending] = useState(false)
 
-  const carriers = [
-    { label: 'MTN MoMo', prefix: '+237 6', color: '#FFCC00', bg: '#FFF9E6' },
-    { label: 'Orange OM', prefix: '+237 6', color: '#FF6600', bg: '#FFF0E6' },
-    { label: 'Other', prefix: '+', color: C.inkSubtle, bg: C.parchment },
-  ]
+  // Tears down the invisible reCAPTCHA widget when this form's container
+  // leaves the DOM (switching to the Email tab, navigating away) — without
+  // this, the next "send code" attempt can reuse a verifier bound to a
+  // node that no longer exists and throw "reCAPTCHA client element has
+  // been removed".
+  useEffect(() => clearRecaptcha, [])
 
   const handle = async () => {
-    setPhone(value)
+    const e164 = toE164(value)
+    setPhone(e164)
     if (!firebaseConfigured) {
       nav('/otp')
       return
     }
     setSending(true)
     try {
-      const e164 = value.replace(/[^\d+]/g, '')
       const confirmation = await startPhoneSignIn(e164, 'recaptcha-container')
       setPendingPhoneConfirmation(confirmation)
       nav('/otp')
     } catch (err) {
-      showToast({ title: 'Could not send code', description: apiErrorMessage(err, 'Check the number and try again'), tone: 'error' })
+      showToast({ title: 'Could not send code', description: friendlyAuthError(err, 'Check the number and try again'), tone: 'error' })
     } finally {
       setSending(false)
     }
   }
 
   return (
-    <OnboardingShell
-      step={2}
-      title="Create your account"
-      subtitle="We will send a verification code to your phone. Your number links to MoMo / Orange Money."
-    >
-      <GoogleSignInButton onSuccess={() => nav('/role')} />
+    <>
       <div id="recaptcha-container" />
-
-      <div className="mb-6 grid grid-cols-3 gap-2">
-        {carriers.map((c) => (
-          <button
-            key={c.label}
-            onClick={() => setPrefix(c.prefix)}
-            className="rounded-xl border py-2.5 text-xs font-semibold transition-all"
-            style={{
-              background: prefix === c.prefix ? c.bg : C.white,
-              borderColor: prefix === c.prefix ? c.color : C.parchmentDark,
-              color: prefix === c.prefix ? c.color : C.inkMuted,
-              fontFamily: FONT.mono,
-              boxShadow: prefix === c.prefix ? `0 4px 14px -6px ${c.color}66` : 'none',
-            }}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
 
       <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 block text-xs uppercase tracking-widest">
         {T.phone_prompt[lang]}
@@ -172,6 +260,100 @@ export function SignupScreen() {
       </div>
 
       <PillButton onClick={handle} fullWidth disabled={sending}>{sending ? 'Sending…' : 'Send verification code'}</PillButton>
+    </>
+  )
+}
+
+interface EmailSignupErrors { fullName?: string; email?: string; password?: string; confirm?: string }
+
+function EmailSignupForm() {
+  const nav = useNavigate()
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [errors, setErrors] = useState<EmailSignupErrors>({})
+  const [formError, setFormError] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const validate = (): boolean => {
+    const next: EmailSignupErrors = {}
+    if (!fullName.trim()) next.fullName = 'Enter your full name.'
+    if (!/^\S+@\S+\.\S+$/.test(email)) next.email = 'Enter a valid email address.'
+    if (password.length < 6) next.password = 'Use at least 6 characters.'
+    if (confirm !== password) next.confirm = 'Passwords don\'t match.'
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
+
+  const submit = async () => {
+    setFormError('')
+    if (!validate()) return
+    if (!firebaseConfigured) { nav('/role'); return }
+    setCreating(true)
+    try {
+      await signUpWithEmail(email, password, fullName)
+      // Explicit PATCH rather than relying on the ID token to pick up the
+      // new displayName claim on its next refresh — see signUpWithEmail.
+      await api.patch('/users/me', { fullName }).catch(() => {})
+      nav('/role')
+    } catch (err) {
+      setFormError(friendlyAuthError(err))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {formError && (
+        <InlineAlert>
+          {formError}{' '}
+          {formError.includes('already exists') && (
+            <button onClick={() => nav('/login')} className="font-semibold underline">Sign in instead</button>
+          )}
+        </InlineAlert>
+      )}
+      <TextField label="Full name" type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Marie-Claire Nkemdirim" error={errors.fullName} autoComplete="name" />
+      <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" error={errors.email} autoComplete="email" />
+      <PasswordField label="Password" value={password} onChange={setPassword} placeholder="At least 6 characters" error={errors.password} autoComplete="new-password" />
+      <PasswordField label="Confirm password" value={confirm} onChange={setConfirm} placeholder="Re-enter your password" error={errors.confirm} autoComplete="new-password" />
+      <div className="pt-1">
+        <PillButton onClick={submit} fullWidth disabled={creating}>
+          {creating ? (<span className="inline-flex items-center gap-2"><Spinner size={14} color={C.white} /> Creating account…</span>) : 'Create account'}
+        </PillButton>
+      </div>
+    </div>
+  )
+}
+
+export function SignupScreen() {
+  const nav = useNavigate()
+  const [method, setMethod] = useState<'phone' | 'email'>('phone')
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    capturePendingReferral(searchParams)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return (
+    <OnboardingShell
+      step={2}
+      title="Create your account"
+      subtitle={method === 'phone'
+        ? 'We will send a verification code to your phone. Your number links to MoMo / Orange Money.'
+        : 'Sign up with an email and password — perfect if you\'re funding from abroad.'}
+    >
+      <GoogleAuthSection />
+      <AuthDivider />
+      <AuthMethodTabs
+        options={[{ id: 'phone', label: 'Phone' }, { id: 'email', label: 'Email' }]}
+        value={method}
+        onChange={setMethod}
+      />
+
+      {method === 'phone' ? <PhoneSignupForm /> : <EmailSignupForm />}
 
       <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="mt-6 text-center text-xs">
         Already have an account?{' '}
@@ -186,6 +368,7 @@ export function OTPScreen() {
   const nav = useNavigate()
   const { phone, lang } = useApp()
   const { show: showToast } = useToast()
+  const route = useAuthRouting()
   const [code, setCode] = useState(['', '', '', '', '', ''])
   const [verifying, setVerifying] = useState(false)
   const refs = Array.from({ length: 6 }, () => null) as (HTMLInputElement | null)[]
@@ -208,9 +391,9 @@ export function OTPScreen() {
     try {
       await confirmPhoneCode(confirmation, code.join(''))
       setPendingPhoneConfirmation(null)
-      nav('/role')
+      await route()
     } catch (err) {
-      showToast({ title: 'Invalid code', description: apiErrorMessage(err, 'Please check the code and try again'), tone: 'error' })
+      showToast({ title: 'Invalid code', description: friendlyAuthError(err, 'Please check the code and try again'), tone: 'error' })
     } finally {
       setVerifying(false)
     }
@@ -269,37 +452,37 @@ export function OTPScreen() {
 }
 
 // ── Login ────────────────────────────────────────────────────────────────────
-export function LoginScreen() {
+function PhoneLoginForm() {
   const nav = useNavigate()
   const { setPhone } = useApp()
   const { show: showToast } = useToast()
   const [value, setValue] = useState('+237 ')
   const [sending, setSending] = useState(false)
 
+  useEffect(() => clearRecaptcha, [])
+
   const sendOtp = async () => {
-    setPhone(value)
+    const e164 = toE164(value)
+    setPhone(e164)
     if (!firebaseConfigured) {
       nav('/otp')
       return
     }
     setSending(true)
     try {
-      const e164 = value.replace(/[^\d+]/g, '')
       const confirmation = await startPhoneSignIn(e164, 'recaptcha-container-login')
       setPendingPhoneConfirmation(confirmation)
       nav('/otp')
     } catch (err) {
-      showToast({ title: 'Could not send code', description: apiErrorMessage(err, 'Check the number and try again'), tone: 'error' })
+      showToast({ title: 'Could not send code', description: friendlyAuthError(err, 'Check the number and try again'), tone: 'error' })
     } finally {
       setSending(false)
     }
   }
 
   return (
-    <OnboardingShell eyebrow="Welcome back" title="Welcome back" subtitle="Sign in with your phone number.">
-      <GoogleSignInButton onSuccess={() => nav('/role')} />
+    <>
       <div id="recaptcha-container-login" />
-
       <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 block text-xs uppercase tracking-widest">
         Phone number
       </label>
@@ -318,6 +501,121 @@ export function LoginScreen() {
       </div>
 
       <PillButton onClick={sendOtp} fullWidth disabled={sending}>{sending ? 'Sending…' : 'Send OTP'}</PillButton>
+    </>
+  )
+}
+
+function ForgotPasswordForm({ onBack }: { onBack: () => void }) {
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
+  const [sent, setSent] = useState(false)
+  const [sending, setSending] = useState(false)
+
+  const submit = async () => {
+    setError('')
+    if (!/^\S+@\S+\.\S+$/.test(email)) return setError('Enter a valid email address.')
+    setSending(true)
+    try {
+      await sendPasswordReset(email)
+      setSent(true)
+    } catch (err) {
+      setError(friendlyAuthError(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="space-y-5 text-center">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full animate-pop-in" style={{ background: 'rgba(52,168,115,0.12)' }}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M5 12L10 17L19 7" stroke={C.forest} strokeWidth="2" strokeLinecap="round" /></svg>
+        </div>
+        <div>
+          <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">Check your inbox</div>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-1.5 text-xs leading-relaxed">
+            We sent a password reset link to <strong>{email}</strong>. Follow it to choose a new password, then come back and sign in.
+          </p>
+        </div>
+        <PillButton onClick={onBack} fullWidth variant="secondary">Back to sign in</PillButton>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && <InlineAlert>{error}</InlineAlert>}
+      <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />
+      <PillButton onClick={submit} fullWidth disabled={sending}>{sending ? 'Sending…' : 'Send reset link'}</PillButton>
+      <button onClick={onBack} className="w-full text-center text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.inkSubtle }}>
+        Back to sign in
+      </button>
+    </div>
+  )
+}
+
+function EmailLoginForm() {
+  const route = useAuthRouting()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [formError, setFormError] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+  const [forgot, setForgot] = useState(false)
+
+  if (forgot) return <ForgotPasswordForm onBack={() => setForgot(false)} />
+
+  const submit = async () => {
+    setFormError('')
+    if (!email || !password) return setFormError('Enter your email and password.')
+    setSigningIn(true)
+    try {
+      await signInWithEmail(email, password)
+      await route()
+    } catch (err) {
+      setFormError(friendlyAuthError(err))
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {formError && <InlineAlert>{formError}</InlineAlert>}
+      <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+      <div>
+        <PasswordField label="Password" value={password} onChange={setPassword} placeholder="Your password" autoComplete="current-password" />
+        <button onClick={() => setForgot(true)} className="mt-2 text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+          Forgot password?
+        </button>
+      </div>
+      <div className="pt-1">
+        <PillButton onClick={submit} fullWidth disabled={signingIn}>
+          {signingIn ? (<span className="inline-flex items-center gap-2"><Spinner size={14} color={C.white} /> Signing in…</span>) : 'Sign in'}
+        </PillButton>
+      </div>
+    </div>
+  )
+}
+
+export function LoginScreen() {
+  const nav = useNavigate()
+  const [method, setMethod] = useState<'phone' | 'email'>('phone')
+
+  return (
+    <OnboardingShell
+      eyebrow="Welcome back"
+      title="Welcome back"
+      subtitle={method === 'phone' ? 'Sign in with your phone number.' : 'Sign in with your email and password.'}
+    >
+      <GoogleAuthSection />
+      <AuthDivider />
+      <AuthMethodTabs
+        options={[{ id: 'phone', label: 'Phone' }, { id: 'email', label: 'Email' }]}
+        value={method}
+        onChange={setMethod}
+      />
+
+      {method === 'phone' ? <PhoneLoginForm /> : <EmailLoginForm />}
 
       <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="mt-6 text-center text-xs">
         New to Mboa Trust?{' '}
@@ -328,11 +626,11 @@ export function LoginScreen() {
 }
 
 // ── Role selection ────────────────────────────────────────────────────────────
-const ROLES: { id: Role; icon: string; title: string; sub: string; accent: string }[] = [
-  { id: 'funder', icon: '🌍', title: 'Diaspora Funder', sub: 'Fund projects, hire contractors, invest in land from abroad', accent: '#34A873' },
-  { id: 'recipient', icon: '🏗️', title: 'Project Recipient', sub: 'Receive funding for community or family projects', accent: '#C9A227' },
-  { id: 'contractor', icon: '🔧', title: 'Local Contractor', sub: 'Bid on projects and get paid securely via escrow', accent: '#3F6EA8' },
-  { id: 'seller', icon: '🏡', title: 'Land / Property Seller', sub: 'List land or property with verified documentation', accent: '#A8492F' },
+const ROLES: { id: Role; icon: IconName; title: string; sub: string; accent: string }[] = [
+  { id: 'funder', icon: 'globe', title: 'Diaspora Funder', sub: 'Fund projects, hire contractors, invest in land from abroad', accent: '#34A873' },
+  { id: 'recipient', icon: 'hardHat', title: 'Project Recipient', sub: 'Receive funding for community or family projects', accent: '#C9A227' },
+  { id: 'contractor', icon: 'wrench', title: 'Local Contractor', sub: 'Bid on projects and get paid securely via escrow', accent: '#3F6EA8' },
+  { id: 'seller', icon: 'home', title: 'Land / Property Seller', sub: 'List land or property with verified documentation', accent: '#A8492F' },
 ]
 
 // Frontend role labels aren't always the backend's roleType string (mirrors
@@ -356,14 +654,24 @@ export function RoleScreen() {
 
   const proceed = async () => {
     const chosen = multi.length > 0 ? multi : (['funder'] as NonNullable<Role>[])
-    if (firebaseConfigured) {
+    // Same check resolveCurrentUserId uses everywhere else — Firebase being
+    // *configured* doesn't mean this browser has an active Firebase
+    // *session* (e.g. the dev-bypass path, or a race right after signup).
+    // Calling /users/me with no token and no dev-bypass header 401s.
+    if (firebaseConfigured && getCurrentFirebaseUser()) {
       setSaving(true)
       try {
         // GET /me first — JIT-provisions the backend User from the Firebase
         // token on its very first authenticated call (middleware/auth.js).
         await api.get('/users/me')
-        for (const r of chosen) {
-          await api.post('/users/me/roles', { roleType: ROLE_TYPE[r] })
+        await Promise.all(chosen.map((r) => api.post('/users/me/roles', { roleType: ROLE_TYPE[r] })))
+        // Best-effort — a missing/already-claimed/self-visited referral
+        // link shouldn't block signup, so failures here are silently
+        // swallowed rather than surfaced as a save error.
+        const pendingReferralId = getPendingReferralId()
+        if (pendingReferralId) {
+          await api.post(`/referrals/${pendingReferralId}/claim`, {}).catch(() => {})
+          clearPendingReferral()
         }
       } catch (err) {
         showToast({ title: 'Failed to save role', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -394,10 +702,10 @@ export function RoleScreen() {
                 }}
               >
                 <span
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl text-xl transition-transform duration-500"
-                  style={{ background: `${accent}1F` }}
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition-transform duration-500"
+                  style={{ background: `${accent}1F`, color: accent }}
                 >
-                  {icon}
+                  <AppIcon name={icon} size={20} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{title}</div>
@@ -437,11 +745,12 @@ export function ProfileSetupScreen() {
   const [finishing, setFinishing] = useState(false)
 
   const finish = async () => {
-    const fullName = form.name || 'Marie-Claire N.'
-    if (firebaseConfigured) {
+    const fallbackName = getCurrentFirebaseUser()?.displayName || getCurrentFirebaseUser()?.email?.split('@')[0] || 'New user'
+    const fullName = form.name || fallbackName
+    if (firebaseConfigured && getCurrentFirebaseUser()) {
       setFinishing(true)
       try {
-        await api.patch('/users/me', { fullName })
+        await api.patch('/users/me', { fullName, onboardingCompleted: true })
       } catch (err) {
         showToast({ title: 'Failed to save profile', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
         setFinishing(false)

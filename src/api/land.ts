@@ -46,6 +46,7 @@ function mapListing(doc: BackendLandListing, sellerRating: number): LandListing 
     disputed: doc.disputeFlag,
     disputeReason: doc.disputeReason || undefined,
     duplicateOfListingId: doc.duplicateOfListingId || undefined,
+    linkedProjectId: doc.linkedProjectId || undefined,
     image: doc.imageUrl || DEFAULT_IMAGE,
     description: doc.description || '',
     docs: doc.documents.map((d) => d.type),
@@ -118,32 +119,3 @@ export function useUpdateVerificationStatusMutation() {
   })
 }
 
-/**
- * Starts a real purchase: creates a land_purchase Project linked to the
- * listing, then immediately funds it via the same escrow flow the funding
- * and tender pillars use. The architecture doc's data model has no
- * separate offer/counter-offer negotiation step before this — a "make an
- * offer" action on a verified listing genuinely is starting the purchase.
- */
-export function useMakeOfferMutation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async ({ listingId, amount, paymentProvider, payerPhoneNumber }: {
-      listingId: string; amount: number; paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string
-    }) => {
-      const { data: purchaseRes } = await api.post(
-        `/land-listings/${listingId}/purchase`,
-        { amount },
-        { headers: { 'Idempotency-Key': crypto.randomUUID() } }
-      )
-      const projectId = purchaseRes.data.project._id
-      await api.post(
-        `/projects/${projectId}/fund`,
-        { amount, paymentProvider, payerPhoneNumber },
-        { headers: { 'Idempotency-Key': crypto.randomUUID() } }
-      )
-      return { projectId }
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
-  })
-}

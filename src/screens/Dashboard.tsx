@@ -5,6 +5,7 @@ import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, Dash
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { ChipGroup } from '../components/Chip'
+import { EmptyState } from '../components/EmptyState'
 import { WidgetGrid, type WidgetDef } from '../components/dashboard/WidgetGrid'
 import { NeedsAttentionWidget, type AttentionItem } from '../components/dashboard/NeedsAttentionWidget'
 import { RecentActivityWidget } from '../components/dashboard/RecentActivityWidget'
@@ -54,7 +55,7 @@ function FunderHome() {
 
   const attentionItems: AttentionItem[] = projects.flatMap((p) =>
     p.milestones.filter((m) => m.status === 'under_review').map((m): AttentionItem => ({
-      icon: '⏳', label: `${m.title} — ${p.title}`, sub: `${fmt(m.amount)} awaiting your review`,
+      icon: 'hourglass', label: `${m.title} — ${p.title}`, sub: `${fmt(m.amount)} awaiting your review`,
       onClick: () => nav(`/funder/review/${p.id}`),
     }))
   )
@@ -85,10 +86,10 @@ function FunderHome() {
             <div>
               <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
               <QuickActionsGrid actions={[
-                { icon: '➕', label: 'Create project', path: '/funder/create' },
-                { icon: '🔍', label: 'Browse', path: '/funder/browse' },
-                { icon: '📋', label: 'Post job', path: '/funder/post-job' },
-                { icon: '📊', label: 'Activity', path: '/funder/transactions' },
+                { icon: 'plus', label: 'Create project', path: '/funder/create' },
+                { icon: 'search', label: 'Browse', path: '/funder/browse' },
+                { icon: 'clipboard', label: 'Post job', path: '/funder/post-job' },
+                { icon: 'barChart', label: 'Activity', path: '/funder/transactions' },
               ]} />
             </div>
 
@@ -133,14 +134,14 @@ function FunderHome() {
                               <div style={{ fontFamily: FONT.serif }} className="text-sm font-bold">{p.title}</div>
                               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-0.5 text-[10px] uppercase tracking-[0.25em]">{p.location}</div>
                             </div>
-                            <StatusBadge status={milestone.status} />
+                            {milestone && <StatusBadge status={milestone.status} />}
                           </div>
                           <ProgressBar pct={pct} />
                           <div className="mt-2 flex justify-between">
                             <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{fmt(p.raised)} raised</span>
                             <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{pct}%</span>
                           </div>
-                          <div className="mt-2 text-[10px]" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>Current: {milestone.title}</div>
+                          {milestone && <div className="mt-2 text-[10px]" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>Current: {milestone.title}</div>}
                         </div>
                       </Card>
                     </StaggerItem>
@@ -186,11 +187,45 @@ function RecipientHome() {
   const nav = useNavigate()
   const { name, projects } = useApp()
   const project = projects[0]
+
+  // A brand-new recipient account has no assigned project yet — every
+  // computation below assumes one exists, so bail out to an empty state
+  // rather than crashing on `project.milestones`.
+  if (!project) {
+    return (
+      <DeferredReveal skeleton={<DashboardSkeleton />}>
+        <AppShell>
+          <DashboardShell>
+            <DashboardHero
+              eyebrow="Project recipient"
+              title={name || 'Emmanuel N.'}
+              background={`linear-gradient(135deg, ${C.forestDark} 0%, ${C.forest} 100%)`}
+              stats={[
+                { label: 'Funds received', value: fmt(0) },
+                { label: 'Milestones done', value: '0 / 0' },
+                { label: 'Active project', value: 'No' },
+              ]}
+            />
+            <div className="mt-6"><OnboardingChecklistWidget role="recipient" /></div>
+            <div className="mt-6">
+              <EmptyState
+                icon="clipboard"
+                title="No projects yet"
+                description="Once a funder assigns you a project, it'll show up here."
+                illustration="tilt"
+              />
+            </div>
+          </DashboardShell>
+        </AppShell>
+      </DeferredReveal>
+    )
+  }
+
   const nextMilestone = project.milestones.find((m) => m.status !== 'released')
   const received = project.milestones.filter((m) => m.status === 'released').reduce((s, m) => s + m.amount, 0)
 
   const attentionItems: AttentionItem[] = nextMilestone
-    ? [{ icon: '📸', label: `Submit proof for ${nextMilestone.title}`, sub: `${fmt(nextMilestone.amount)} released on approval`, onClick: () => nav('/recipient/submit') }]
+    ? [{ icon: 'camera', label: `Submit proof for ${nextMilestone.title}`, sub: `${fmt(nextMilestone.amount)} released on approval`, onClick: () => nav('/recipient/submit') }]
     : []
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
@@ -234,10 +269,10 @@ function RecipientHome() {
             <div>
               <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
               <QuickActionsGrid actions={[
-                { icon: '📸', label: 'Submit proof', path: '/recipient/submit' },
-                { icon: '💳', label: 'Withdraw', path: '/recipient/withdrawal' },
-                { icon: '📋', label: 'Status', path: '/recipient/submission-status' },
-                { icon: '⭐', label: 'Reputation', path: '/recipient/reputation' },
+                { icon: 'camera', label: 'Submit proof', path: '/recipient/submit' },
+                { icon: 'card', label: 'Withdraw', path: '/recipient/withdrawal' },
+                { icon: 'clipboard', label: 'Status', path: '/recipient/submission-status' },
+                { icon: 'star', label: 'Reputation', path: '/recipient/reputation' },
               ]} />
             </div>
           </div>
@@ -278,9 +313,9 @@ function ContractorHome() {
   const pendingBids = bids.filter((b) => b.status === 'pending')
 
   const attentionItems: AttentionItem[] = pendingBids.length > 0
-    ? pendingBids.map((b): AttentionItem => ({ icon: '📋', label: `Bid pending — ${b.jobTitle}`, sub: fmt(b.price), onClick: () => nav('/contractor/bids') }))
+    ? pendingBids.map((b): AttentionItem => ({ icon: 'clipboard', label: `Bid pending — ${b.jobTitle}`, sub: fmt(b.price), onClick: () => nav('/contractor/bids') }))
     : featured
-      ? [{ icon: '🔍', label: `New tender matching your trade: ${featured.title}`, sub: `${fmt(featured.budget)} · ${featured.location}`, onClick: () => nav(`/contractor/job/${featured.id}`) }]
+      ? [{ icon: 'search', label: `New tender matching your trade: ${featured.title}`, sub: `${fmt(featured.budget)} · ${featured.location}`, onClick: () => nav(`/contractor/job/${featured.id}`) }]
       : []
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
@@ -308,7 +343,7 @@ function ContractorHome() {
           stats={[
             { label: 'Active bids', value: '3' },
             { label: 'Completed jobs', value: '34' },
-            { label: 'Rating', value: '4.9 ★' },
+            { label: 'Rating', value: '4.9' },
           ]}
         />
 
@@ -319,12 +354,10 @@ function ContractorHome() {
             <div>
               <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
               <QuickActionsGrid actions={[
-                { icon: '🔍', label: 'Browse open jobs', path: '/contractor/jobs' },
-                { icon: '📋', label: 'My bids', path: '/contractor/bids' },
-                { icon: '📝', label: 'Active contract', path: '/contractor/contract' },
-                { icon: '💰', label: 'Earnings', path: '/contractor/earnings' },
-                { icon: '👤', label: 'Profile', path: '/contractor/profile' },
-                { icon: '📄', label: 'Contract doc', path: '/funder/contract-summary' },
+                { icon: 'search', label: 'Browse open jobs', path: '/contractor/jobs' },
+                { icon: 'clipboard', label: 'My bids', path: '/contractor/bids' },
+                { icon: 'wallet', label: 'Earnings', path: '/contractor/earnings' },
+                { icon: 'user', label: 'Profile', path: '/contractor/profile' },
               ]} />
             </div>
           </div>
@@ -366,15 +399,15 @@ function ContractorHome() {
 // ── Seller dashboard ────────────────────────────────────────────────────────────
 function SellerHome() {
   const nav = useNavigate()
-  const { name, landListings, offers } = useApp()
-  const mine = landListings.slice(0, 2)
+  const { name, landListings, offers, devUserId } = useApp()
+  const mine = landListings.filter((l) => l.sellerId && l.sellerId === devUserId)
   const pendingOffers = offers.filter((o) => o.status === 'pending' && mine.some((l) => l.id === o.listingId))
   const unverified = mine.find((l) => !l.verified)
 
   const attentionItems: AttentionItem[] = pendingOffers.length > 0
-    ? pendingOffers.map((o): AttentionItem => ({ icon: '🤝', label: `New offer: ${fmt(o.amount)}`, sub: o.message || 'Awaiting your response', onClick: () => nav(`/land/listing/${o.listingId}`) }))
+    ? pendingOffers.map((o): AttentionItem => ({ icon: 'handshake', label: `New offer: ${fmt(o.amount)}`, sub: o.message || 'Awaiting your response', onClick: () => nav(`/land/listing/${o.listingId}`) }))
     : unverified
-      ? [{ icon: '🕓', label: `Verification pending — ${unverified.title}`, sub: unverified.titleType, onClick: () => nav(`/land/listing/${unverified.id}`) }]
+      ? [{ icon: 'clock', label: `Verification pending — ${unverified.title}`, sub: unverified.titleType, onClick: () => nav(`/land/listing/${unverified.id}`) }]
       : []
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
@@ -402,10 +435,9 @@ function SellerHome() {
             <div>
               <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
               <QuickActionsGrid actions={[
-                { icon: '🏡', label: 'Browse all land', path: '/land/browse' },
-                { icon: '➕', label: 'Create listing', path: '/land/create' },
-                { icon: '📋', label: 'My listings', path: '/land/my-listings' },
-                { icon: '🔍', label: 'Schedule visit', path: '/land/schedule' },
+                { icon: 'home', label: 'Browse all land', path: '/land/browse' },
+                { icon: 'plus', label: 'Create listing', path: '/land/create' },
+                { icon: 'clipboard', label: 'My listings', path: '/land/my-listings' },
               ]} />
             </div>
           </div>

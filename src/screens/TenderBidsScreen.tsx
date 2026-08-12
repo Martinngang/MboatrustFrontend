@@ -16,9 +16,13 @@ import { useStartConversationMutation } from '../api/messaging'
 export function TenderBidsScreen() {
   const nav = useNavigate()
   const { jobId } = useParams()
-  const { devUserId } = useApp()
+  const { devUserId, jobs } = useApp()
   const { show: showToast } = useToast()
   const { data: bids, isLoading } = useBidsQuery({ projectId: jobId })
+  // An accepted bid only reaches 'closed' (mapTenderStatus collapses
+  // completed/cancelled together) via real completion — cancelling a
+  // tender is blocked once a bid is accepted (see projectController.cancel).
+  const job = jobs.find((j) => j.id === jobId)
   const updateStatus = useUpdateBidStatusMutation()
   const startConversation = useStartConversationMutation(devUserId)
   const [actingOn, setActingOn] = useState<string | null>(null)
@@ -70,7 +74,7 @@ export function TenderBidsScreen() {
       <div className="px-1">
         {!isLoading && (bids?.length ?? 0) === 0 ? (
           <EmptyState
-            icon="📋"
+            icon="clipboard"
             title="No bids yet"
             description="Once contractors submit bids on this tender, they'll show up here for you to compare and award."
           />
@@ -100,14 +104,32 @@ export function TenderBidsScreen() {
                   </button>
                 </div>
               ) : b.status === 'accepted' ? (
-                <button
-                  disabled={actingOn === b.id}
-                  onClick={() => message(b)}
-                  className="rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
-                  style={{ background: C.parchment, color: C.forest, fontFamily: FONT.sans }}
-                >
-                  {actingOn === b.id ? '…' : 'Message'}
-                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    disabled={actingOn === b.id}
+                    onClick={() => message(b)}
+                    className="rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
+                    style={{ background: C.parchment, color: C.forest, fontFamily: FONT.sans }}
+                  >
+                    {actingOn === b.id ? '…' : 'Message'}
+                  </button>
+                  <button
+                    onClick={() => nav(`/funder/contract-summary/${b.id}`)}
+                    className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    style={{ background: C.parchment, color: C.forest, fontFamily: FONT.sans }}
+                  >
+                    Contract
+                  </button>
+                  {job?.status === 'closed' && (
+                    <button
+                      onClick={() => nav(`/funder/rate-contractor/${jobId}`)}
+                      className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                      style={{ background: C.amber, color: C.forestDark, fontFamily: FONT.sans }}
+                    >
+                      Rate
+                    </button>
+                  )}
+                </div>
               ) : null
             )}
           />

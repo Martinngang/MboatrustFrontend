@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
 import { C, FONT, AppShell, Header } from '../components/MobileLayout'
 import { Switch } from '../components/Switch'
 import { useToast } from '../components/Toast'
+import { apiErrorMessage } from '../api/client'
+import { useNotificationPreferencesQuery, useUpdateNotificationPreferencesMutation, type NotificationChannelPrefs } from '../api/notificationPreferences'
 
 interface PrefRow {
   key: string
   label: string
   sub: string
-  defaults: { push: boolean; email: boolean }
+  defaults: NotificationChannelPrefs
 }
 
+// Same six categories the backend defines (utils/notificationCategories.js)
+// — kept in sync deliberately so every category here is real and settable.
 const ROWS: PrefRow[] = [
   { key: 'milestones', label: 'Milestone updates', sub: 'Submissions, approvals, releases', defaults: { push: true, email: true } },
   { key: 'bids', label: 'New bids & tenders', sub: 'Bids received, tenders matching your trade', defaults: { push: true, email: false } },
@@ -19,35 +22,31 @@ const ROWS: PrefRow[] = [
   { key: 'marketing', label: 'Platform tips & news', sub: 'Occasional product updates and tips', defaults: { push: false, email: false } },
 ]
 
-type Prefs = Record<string, { push: boolean; email: boolean }>
-const STORAGE_KEY = 'mboatrust-notification-prefs'
-
-function loadPrefs(): Prefs {
-  try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? 'null')
-    if (stored) return stored
-  } catch { /* ignore */ }
-  return Object.fromEntries(ROWS.map((r) => [r.key, r.defaults]))
-}
-
-/** Granular per-type, per-channel notification control — replaces the flat
- * on/off toggle Settings used to offer. Self-contained (localStorage) since
- * nothing else in this demo gates actual delivery on these values. */
+/** Granular per-type, per-channel notification control, backed by the real
+ * NotificationPreference document — replaces the old localStorage-only
+ * version nothing else actually read. */
 export function NotificationPreferencesScreen() {
   const { show: showToast } = useToast()
-  const [prefs, setPrefs] = useState<Prefs>(loadPrefs)
+  const { data: prefs } = useNotificationPreferencesQuery()
+  const updatePrefs = useUpdateNotificationPreferencesMutation()
 
-  useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)) } catch { /* ignore */ }
-  }, [prefs])
-
-  const toggle = (key: string, channel: 'push' | 'email') => {
-    setPrefs((p) => ({ ...p, [key]: { ...p[key], [channel]: !p[key]?.[channel] } }))
+  const toggle = async (key: string, channel: 'push' | 'email') => {
+    const current = prefs?.[key] ?? ROWS.find((r) => r.key === key)!.defaults
+    try {
+      await updatePrefs.mutateAsync({ [key]: { ...current, [channel]: !current[channel] } })
+    } catch (err) {
+      showToast({ title: 'Failed to update preference', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
-  const disableAllEmail = () => {
-    setPrefs((p) => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, { ...v, email: false }])))
-    showToast({ title: 'Email notifications disabled', tone: 'success' })
+  const disableAllEmail = async () => {
+    const patch = Object.fromEntries(ROWS.map((r) => [r.key, { ...(prefs?.[r.key] ?? r.defaults), email: false }]))
+    try {
+      await updatePrefs.mutateAsync(patch)
+      showToast({ title: 'Email notifications disabled', tone: 'success' })
+    } catch (err) {
+      showToast({ title: 'Failed to update preferences', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
   }
 
   return (
@@ -62,7 +61,7 @@ export function NotificationPreferencesScreen() {
             <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Email</span>
           </div>
           {ROWS.map((r, i) => {
-            const p = prefs[r.key] ?? r.defaults
+            const p = prefs?.[r.key] ?? r.defaults
             return (
               <div
                 key={r.key}

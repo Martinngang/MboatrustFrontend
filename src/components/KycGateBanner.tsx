@@ -1,12 +1,12 @@
 import { useNavigate } from 'react-router-dom'
 import { fmt } from '../context'
 import { FONT } from './MobileLayout'
-import { useCompliance, KYC_LARGE_TXN_THRESHOLD } from '../compliance'
+import { useMyKycStatusQuery, KYC_LARGE_TXN_THRESHOLD } from '../api/kyc'
 
 /** Whether a transaction of this size is blocked pending identity verification — used to both show the banner and disable the confirm button. */
 export function useKycGate(amount: number) {
-  const { myKyc } = useCompliance()
-  const blocked = amount > KYC_LARGE_TXN_THRESHOLD && myKyc.status !== 'verified'
+  const { data: status = 'unverified' } = useMyKycStatusQuery()
+  const blocked = amount > KYC_LARGE_TXN_THRESHOLD && status !== 'verified'
   return { blocked, threshold: KYC_LARGE_TXN_THRESHOLD }
 }
 
