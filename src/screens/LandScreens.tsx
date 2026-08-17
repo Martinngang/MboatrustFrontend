@@ -189,7 +189,7 @@ export function LandListingDetailScreen() {
       {/* Photo carousel */}
       <div className="relative h-56 sm:h-72 lg:h-96">
         <img src={photos[photoIdx]} alt={listing.title} className="w-full h-full object-cover" />
-        <button onClick={() => nav(-1)} className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+        <button onClick={() => nav(-1)} aria-label="Back" className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 3L5 8L10 13" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
           </svg>

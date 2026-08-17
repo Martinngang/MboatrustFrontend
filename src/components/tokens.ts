@@ -15,6 +15,11 @@
 export const C = {
   forest: 'var(--color-forest)',
   forestLight: 'var(--color-forest-light)',
+  // Small text sitting directly on the page background in both themes —
+  // neither forest nor forestLight alone passes WCAG AA contrast in both
+  // (see index.css's --color-nav-active for the numbers). Use this instead
+  // of forest/forestLight for that specific role.
+  navActive: 'var(--color-nav-active)',
   forestDark: 'var(--color-forest-dark)',
   amber: 'var(--color-amber)',
   amberLight: 'var(--color-amber-light)',

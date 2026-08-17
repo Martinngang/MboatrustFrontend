@@ -198,9 +198,18 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
               </button>
             )}
             <div className="min-w-0">
-              <div style={{ fontFamily: FONT.serif, color: titleColor }} className="font-bold text-base truncate">
+              {/* This Header renders on virtually every screen — its title
+                  is that page's actual heading, semantically, even though
+                  visually it's meant to look like a compact nav-bar label.
+                  Was a plain div (axe: "Document does not have a main
+                  landmark" / "page-has-heading-one" everywhere); Tailwind's
+                  preflight zeroes default h1 margin/size, so this changes
+                  nothing visually. ClusterHeading (SettingsScreen) already
+                  uses h2 for its sub-sections, so this slots in correctly
+                  above it rather than creating a second h1. */}
+              <h1 style={{ fontFamily: FONT.serif, color: titleColor }} className="font-bold text-base truncate">
                 {title}
-              </div>
+              </h1>
               {subtitle && (
                 <div style={{ fontFamily: FONT.mono, color: subtitleColor }} className="text-[10px] uppercase tracking-wider truncate">
                   {subtitle}
@@ -309,7 +318,7 @@ export function BottomNav() {
             key={tab.label}
             onClick={() => nav(tab.paths[0])}
             className="relative flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors active:scale-95"
-            style={{ color: active ? C.forest : C.inkSubtle }}
+            style={{ color: active ? C.navActive : C.inkSubtle }}
           >
             {active && (
               <motion.span
@@ -551,7 +560,7 @@ export function StepIndicator({ steps, current }: { steps: string[]; current: nu
             >
               {i < current ? <AppIcon name="check" size={11} strokeWidth={2.5} /> : i + 1}
             </div>
-            <span style={{ fontFamily: FONT.mono, color: i <= current ? C.forest : C.inkSubtle }} className="text-[10px] uppercase tracking-wide capitalize whitespace-nowrap">{s}</span>
+            <span style={{ fontFamily: FONT.mono, color: i <= current ? C.navActive : C.inkSubtle }} className="text-[10px] uppercase tracking-wide capitalize whitespace-nowrap">{s}</span>
           </div>
           {i < steps.length - 1 && <div className="flex-1 h-px" style={{ background: i < current ? C.forest : C.parchmentDark }} />}
         </div>

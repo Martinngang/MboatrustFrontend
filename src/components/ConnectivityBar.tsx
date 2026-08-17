@@ -1,5 +1,5 @@
 import { useOfflineQueue } from '../offlineQueue'
-import { FONT } from './MobileLayout'
+import { C, FONT } from './MobileLayout'
 
 /**
  * Persistent connection + sync status. Deliberately unobtrusive when there's
@@ -14,7 +14,7 @@ export function ConnectivityBar() {
     return (
       <div className="flex items-center gap-1.5 px-1 py-1">
         <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
-        <span style={{ fontFamily: FONT.mono, color: '#6B7280' }} className="text-[9px] uppercase tracking-wider">Online</span>
+        <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Online</span>
       </div>
     )
   }

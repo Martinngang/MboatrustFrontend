@@ -20,9 +20,18 @@
   --color-parchment-dark: #EAE7E0;
   --color-ink: #14171B;
   --color-ink-muted: #565B62;
-  --color-ink-subtle: #8B9099;
+  /* Was #8B9099 — measured 3.21:1 against white via axe-core, short of
+     WCAG AA. This value passes at 4.77:1 while staying dimmer than
+     --color-ink-muted (6.84:1), preserving the ink > muted > subtle order. */
+  --color-ink-subtle: #6E737C;
   --color-cream: #FCFBF9;
   --color-seal: #B23A2E;
+  /* Small active-nav-label text sits directly on the page background in
+     both themes — forest itself passes against white (5.35:1) but
+     forest-light doesn't (3.23:1); forest-light passes against the dark
+     surface (5.25:1) but forest itself falls just short there (3.99:1).
+     Neither single existing token works in both themes, hence its own. */
+  --color-nav-active: #0F7A52;
 }
 
 /* ── Theme tokens ──────────────────────────────────────────────────────────────
@@ -103,10 +112,20 @@
   --color-parchment-dark: #202227;
   --color-ink: #EDEBE6;
   --color-ink-muted: #9C9FA6;
-  --color-ink-subtle: #6C6F76;
+  /* Was #6C6F76 — measured 3.37:1 against --color-surface (#1B1C21) via
+     axe-core, short of WCAG AA's 4.5:1 for normal text. This value passes
+     while staying dimmer than --color-ink-muted, preserving the intended
+     ink > muted > subtle prominence order. This token wasn't covered by the
+     contrast audit documented above for forest/seal in this same block —
+     found via a full-page axe-core scan, not a deliberate choice. */
+  --color-ink-subtle: #8B8E95;
   --color-cream: #0A0A0D;
   --color-seal: #C94430;
   --color-surface: #1B1C21;
+  /* forestLight here (5.25:1 vs surface), not forest — see the :root
+     definition of this token for why neither single existing token works
+     in both themes. */
+  --color-nav-active: #17A369;
   --color-steel: #3F6EA8;
   --color-moss: #4A7A4A;
   --surface-glass-bg: rgba(20, 21, 25, 0.78);

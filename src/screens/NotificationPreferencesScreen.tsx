@@ -75,8 +75,8 @@ export function NotificationPreferencesScreen() {
                   <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{r.label}</div>
                   <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-0.5 text-[10px]">{r.sub}</div>
                 </div>
-                <Switch checked={p.push} onChange={() => toggle(r.key, 'push')} />
-                <Switch checked={p.email} onChange={() => toggle(r.key, 'email')} />
+                <Switch checked={p.push} onChange={() => toggle(r.key, 'push')} ariaLabel={`${r.label} — push`} />
+                <Switch checked={p.email} onChange={() => toggle(r.key, 'email')} ariaLabel={`${r.label} — email`} />
               </div>
             )
           })}

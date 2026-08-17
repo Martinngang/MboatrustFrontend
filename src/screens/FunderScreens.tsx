@@ -168,7 +168,7 @@ export function ProjectDetailScreen() {
       <div className="relative h-52 sm:h-64 lg:h-80">
         <img src={p.image} alt={p.title} className="w-full h-full object-cover" />
         <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(15,27,20,0.8), transparent 50%)' }} />
-        <button onClick={() => nav(-1)} className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+        <button onClick={() => nav(-1)} aria-label="Back" className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M10 3L5 8L10 13" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
@@ -809,7 +809,7 @@ export function FundProjectScreen() {
         {/* Foreign currency toggle */}
         <div className="flex items-center justify-between rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">Fund in a different currency</span>
-          <Switch checked={foreignCurrency} onChange={setForeignCurrency} />
+          <Switch checked={foreignCurrency} onChange={setForeignCurrency} ariaLabel="Fund in a different currency" />
         </div>
         {foreignCurrency && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>

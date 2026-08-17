@@ -479,7 +479,7 @@ export function SettingsScreen() {
       sub: theme === 'dark' ? 'On' : 'Off',
       action: toggleTheme,
       icon: 'sliders' as GlyphName,
-      right: <Switch checked={theme === 'dark'} onChange={() => toggleTheme()} />,
+      right: <Switch checked={theme === 'dark'} onChange={() => toggleTheme()} ariaLabel="Dark mode" />,
     },
   ]
   const accountItems = [
@@ -495,7 +495,7 @@ export function SettingsScreen() {
       sub: 'Face ID / fingerprint',
       action: () => setBiometric(!biometric),
       icon: 'fingerprint' as GlyphName,
-      right: <Switch checked={biometric} onChange={setBiometric} />,
+      right: <Switch checked={biometric} onChange={setBiometric} ariaLabel="Biometric login" />,
     },
     { label: 'ID verification (KYC/AML)', sub: `Status: ${kycLabel[kycStatus]}`, action: () => nav('/compliance/kyc'), icon: 'shield' as GlyphName },
   ]
@@ -506,7 +506,7 @@ export function SettingsScreen() {
           sub: pushBusy ? 'Updating…' : 'Milestone updates, bids, approvals',
           action: togglePush,
           icon: 'bell' as GlyphName,
-          right: <Switch checked={notifOn} onChange={togglePush} disabled={pushBusy} />,
+          right: <Switch checked={notifOn} onChange={togglePush} disabled={pushBusy} ariaLabel="Push notifications" />,
         }
       : { label: 'Push notifications', sub: 'Not supported in this browser', action: () => {}, icon: 'bell' as GlyphName },
     { label: 'Notification preferences', sub: 'Granular control per notification type', action: () => nav('/shared/notifications/preferences'), icon: 'sliders' as GlyphName },
@@ -584,9 +584,9 @@ export function SettingsScreen() {
                 className="w-full text-left rounded-xl px-3 py-2.5 flex items-start gap-2.5 transition-colors"
                 style={{ background: activeCluster === c.id ? C.parchment : 'transparent' }}
               >
-                <span className="w-1 rounded-full flex-shrink-0 mt-0.5" style={{ height: 28, background: activeCluster === c.id ? C.forest : 'transparent' }} />
+                <span className="w-1 rounded-full flex-shrink-0 mt-0.5" style={{ height: 28, background: activeCluster === c.id ? C.navActive : 'transparent' }} />
                 <span className="min-w-0">
-                  <span style={{ fontFamily: FONT.sans, color: activeCluster === c.id ? C.forest : C.ink }} className="block text-sm font-semibold">{c.label}</span>
+                  <span style={{ fontFamily: FONT.sans, color: activeCluster === c.id ? C.navActive : C.ink }} className="block text-sm font-semibold">{c.label}</span>
                   <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="block text-[10px] mt-0.5">{c.desc}</span>
                 </span>
               </button>
