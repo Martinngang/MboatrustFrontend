@@ -197,6 +197,9 @@ export function LanguageScreen() {
           </Tilt3D>
         ))}
       </div>
+      <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="mt-6 text-center text-xs leading-relaxed">
+        French currently covers this welcome flow — the rest of the app is English-only for now, regardless of what you pick here.
+      </p>
     </OnboardingShell>
   )
 }
