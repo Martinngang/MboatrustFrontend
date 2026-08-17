@@ -3,7 +3,7 @@ import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../context'
 import { useTheme } from '../theme'
 import { Tilt3D } from './Tilt3D'
-import type { ReactNode } from 'react'
+import type { ReactNode, KeyboardEvent } from 'react'
 // AppShell (sidebar/top-bar/command-palette) lives in ./shell/AppShell and is
 // re-exported below — kept out of this already-large file.
 
@@ -163,9 +163,23 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
     // ranges from a small step-indicator to a full hero stat block) stays
     // in normal flow below it and scrolls away, so a screen with a tall
     // children block never ends up with an oversized sticky header eating
-    // the viewport. Same background on both keeps the two looking like one
+    // the viewport. Both blocks paint their own `bg`, so they read as one
     // seamless block until the page is actually scrolled.
-    <div style={{ background: bg }}>
+    //
+    // Deliberately a Fragment, not a wrapping <div>: `position: sticky`
+    // can only stay "stuck" for as long as the viewport is still scrolling
+    // through its own containing block (its DOM parent) — it can't stick
+    // past that parent's bottom edge. A wrapping div here would make that
+    // parent just [sticky row + this screen's own `children` prop], which
+    // for the very common case of no `children` at all is barely taller
+    // than the sticky row itself, giving it almost no room to visibly
+    // stick before scrolling past its own container. Every screen renders
+    // <Header/> immediately followed by the rest of that screen's content
+    // as JSX siblings (inside AppShell, which has no extra wrapper around
+    // them — see ScreenErrorBoundary), so without this wrapper the sticky
+    // row's real containing block is the full page's content column,
+    // which is exactly the scroll range it needs.
+    <>
       <div
         className={`sticky top-0 z-30 px-5 pt-6 pb-4 lg:pt-5 ${!dark && !children ? 'border-b' : ''}`}
         style={{ borderColor: C.parchmentDark, background: bg }}
@@ -175,6 +189,7 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
             {back && (
               <button
                 onClick={onBack ?? (() => nav(-1))}
+                aria-label="Back"
                 className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors flex-shrink-0 ${dark ? '' : 'hover:bg-[var(--color-parchment)]'}`}
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -197,7 +212,7 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
         </div>
       </div>
       {children && <div className={`px-5 pb-4 ${dark ? '' : 'border-b'}`} style={{ borderColor: C.parchmentDark, background: bg }}>{children}</div>}
-    </div>
+    </>
   )
 }
 
@@ -457,18 +472,29 @@ export function Card({ children, className = '', onClick, variant = 'default', t
   // card can tilt for emphasis without being navigable to anywhere.
   const tilted = tilt ? <Tilt3D max={5}>{content}</Tilt3D> : content
   if (!onClick) return tilted
+  // A <div role="button"> rather than a real <button> — cards routinely wrap
+  // other interactive controls (buttons, switches, links) that a real
+  // <button> can't legally contain — but still needs to be a real keyboard
+  // target: tab-focusable and Enter/Space-activatable, same as GroupedLinks'
+  // row pattern (see SharedScreens.tsx), not just mouse/touch-only.
+  const a11yProps = {
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick,
+    onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } },
+  }
   if (tilt) {
-    return <div onClick={onClick} className="cursor-pointer">{tilted}</div>
+    return <div {...a11yProps} className="cursor-pointer">{tilted}</div>
   }
   if (variant === 'interactive') {
     return (
-      <motion.div onClick={onClick} whileHover={{ y: -3, boxShadow: C.shadowLg }} whileTap={{ scale: 0.985 }} className="cursor-pointer rounded-2xl">
+      <motion.div {...a11yProps} whileHover={{ y: -3, boxShadow: C.shadowLg }} whileTap={{ scale: 0.985 }} className="cursor-pointer rounded-2xl">
         {content}
       </motion.div>
     )
   }
   return (
-    <div onClick={onClick} className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg rounded-2xl">
+    <div {...a11yProps} className="cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-lg rounded-2xl">
       {content}
     </div>
   )

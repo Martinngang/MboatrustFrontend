@@ -19,6 +19,8 @@ import {
   useWithdrawOfferMutation,
 } from '../api/landOffers'
 import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
+import { useAddLandDocumentMutation } from '../api/land'
+import { useVerificationTasksQuery } from '../api/reputation'
 
 // ── Browse land ────────────────────────────────────────────────────────────────
 export function BrowseLandScreen() {
@@ -147,6 +149,11 @@ export function LandListingDetailScreen() {
   const [actingOn, setActingOn] = useState<string | null>(null)
   const isSeller = Boolean(devUserId && listing.sellerId && devUserId === listing.sellerId)
 
+  // Real, human, on-site verifier report — only exists when an admin has
+  // actually assigned a verifier and they've filed one.
+  const { data: verificationTasks = [] } = useVerificationTasksQuery({ targetType: 'land_listing', targetId: listing.id })
+  const siteVisitReport = verificationTasks.find((t) => t.status === 'submitted')
+
   const counterOffer = useCounterOfferMutation()
   const acceptOffer = useAcceptOfferMutation()
   const declineOffer = useDeclineOfferMutation()
@@ -248,13 +255,26 @@ export function LandListingDetailScreen() {
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Document verification status</div>
           <div className="space-y-2">
             {listing.docs.map((doc, i) => {
-              const verified = listing.verified || i === 0
+              // Real per-document status when we have it; `listing.verified`
+              // is only a fallback for mock/pre-auth preview data that never
+              // carried individual document records (see documentStatuses on
+              // LandListing). Previously this hardcoded the first document as
+              // always "verified" regardless of its real status.
+              const realStatus = listing.documentStatuses[i]?.verificationStatus
+              const flagged = realStatus === 'flagged'
+              const verified = realStatus ? realStatus === 'verified' : listing.verified
+              const tone = flagged ? 'error' : verified ? 'success' : 'warning'
               return (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: C.parchmentDark, background: verified ? 'var(--status-success-bg)' : 'var(--status-warning-bg)' }}>
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: verified ? C.forest : C.amber }}>
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: C.parchmentDark, background: `var(--status-${tone}-bg)` }}>
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: flagged ? 'var(--status-error-text)' : verified ? C.forest : C.amber }}>
                     {verified ? (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                         <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                      </svg>
+                    ) : flagged ? (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <line x1="2.5" y1="2.5" x2="7.5" y2="7.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                        <line x1="7.5" y1="2.5" x2="2.5" y2="7.5" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
                       </svg>
                     ) : (
                       <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -265,8 +285,8 @@ export function LandListingDetailScreen() {
                     )}
                   </div>
                   <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{doc}</span>
-                  <span style={{ fontFamily: FONT.mono, color: verified ? C.forest : 'var(--status-warning-text)' }} className="text-[9px] ml-auto uppercase tracking-wider">
-                    {verified ? 'Verified' : 'Pending'}
+                  <span style={{ fontFamily: FONT.mono, color: `var(--status-${tone}-text)` }} className="text-[9px] ml-auto uppercase tracking-wider">
+                    {flagged ? 'Flagged' : verified ? 'Verified' : 'Pending'}
                   </span>
                 </div>
               )
@@ -274,23 +294,26 @@ export function LandListingDetailScreen() {
           </div>
         </div>
 
-        {/* Site verification visit */}
-        {listing.verified && (
+        {/* Site verification visit — only rendered when a verifier was
+            actually assigned and has filed a real report, not just because
+            the listing happens to be marked verified. */}
+        {siteVisitReport && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Verification site visit</div>
             <div className="flex items-start gap-3">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-success-bg)' }}>
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: siteVisitReport.confirmedMatch === false ? 'var(--status-error-bg)' : 'var(--status-success-bg)' }}>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                  <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke={C.forest} strokeWidth="1.3" />
-                  <circle cx="9" cy="7" r="2" stroke={C.forest} strokeWidth="1.2" />
+                  <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke={siteVisitReport.confirmedMatch === false ? 'var(--status-error-text)' : C.forest} strokeWidth="1.3" />
+                  <circle cx="9" cy="7" r="2" stroke={siteVisitReport.confirmedMatch === false ? 'var(--status-error-text)' : C.forest} strokeWidth="1.2" />
                 </svg>
               </div>
               <div>
-                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">Site inspected by local agent</div>
-                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">
-                  "Plot boundaries match survey plan. Access road confirmed. Neighbouring plots clearly demarcated. No encroachments observed."
-                </p>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-1">Agent: Tabi R. · Inspected 14 Jul 2025</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">
+                  {siteVisitReport.confirmedMatch === false ? 'Site visit found a mismatch' : 'Site inspected by an independent verifier'}
+                </div>
+                {siteVisitReport.reportText && (
+                  <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">"{siteVisitReport.reportText}"</p>
+                )}
               </div>
             </div>
           </div>
@@ -626,19 +649,34 @@ export function PurchaseOfferScreen() {
 }
 
 // ── Create listing screen ──────────────────────────────────────────────────────
+const LISTING_DOC_TYPES: { type: string; label: string }[] = [
+  { type: 'title_deed', label: 'Title deed / ownership document' },
+  { type: 'tax_receipt', label: 'Land tax receipt (current year)' },
+  { type: 'survey_plan', label: 'Survey plan (geo-referenced)' },
+  { type: 'no_dispute_letter', label: 'No-dispute / no-objection letter' },
+]
+
 export function CreateListingScreen() {
   const nav = useNavigate()
   const { addListing } = useApp()
+  const addDocument = useAddLandDocumentMutation()
   const { show: showToast } = useToast()
   const [form, setForm] = useState({ title: '', region: '', city: '', size: '', price: '', titleType: '', description: '' })
   const [step, setStep] = useState<'details' | 'documents' | 'done'>('details')
-  const [docCount, setDocCount] = useState(0)
-  const [submitting, setSubmitting] = useState(false)
+  const [listingId, setListingId] = useState<string | null>(null)
+  // Per document type: which one is mid-upload right now, and which have
+  // succeeded — drives the tile's spinner/checkmark state.
+  const [uploadingType, setUploadingType] = useState<string | null>(null)
+  const [uploadedTypes, setUploadedTypes] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
 
-  const finish = async () => {
-    setSubmitting(true)
+  // The listing has to actually exist (with a real id) before any document
+  // can be attached to it — POST /land-listings/:id/documents needs one —
+  // so creation happens here, on leaving the details step, not at the end.
+  const proceedToDocuments = async () => {
+    setCreating(true)
     try {
-      await addListing({
+      const created = await addListing({
         title: form.title || 'Untitled listing',
         region: form.region,
         city: form.city,
@@ -651,17 +689,28 @@ export function CreateListingScreen() {
         disputed: false,
         image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
         description: form.description,
-        // Document capture in this step is a tap-to-simulate counter, not a
-        // real file picker — real document upload happens via the separate
-        // addDocument endpoint once this screen gets one (needs Cloudinary
-        // credentials configured either way, same gap as evidence photos).
-        docs: ['Purchase order', 'Local attestation (unverified)'].slice(0, Math.max(1, docCount)),
+        docs: [],
+        documentStatuses: [],
       })
-      setStep('done')
+      setListingId(created.id)
+      setStep('documents')
     } catch (err) {
-      showToast({ title: 'Failed to submit listing', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+      showToast({ title: 'Failed to create listing', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     } finally {
-      setSubmitting(false)
+      setCreating(false)
+    }
+  }
+
+  const uploadDocument = async (type: string, file: File | null) => {
+    if (!file || !listingId) return
+    setUploadingType(type)
+    try {
+      await addDocument.mutateAsync({ listingId, file, type })
+      setUploadedTypes((prev) => (prev.includes(type) ? prev : [...prev, type]))
+    } catch (err) {
+      showToast({ title: 'Upload failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setUploadingType(null)
     }
   }
 
@@ -741,35 +790,48 @@ export function CreateListingScreen() {
                 All documents are verified by our team before the listing goes live. Required: title deed or ownership letter, land tax receipt, survey plan, and no-dispute certificate.
               </p>
             </div>
-            {['Title deed / ownership document', 'Land tax receipt (current year)', 'Survey plan (geo-referenced)', 'No-dispute / no-objection letter'].map((doc, i) => (
-              <button key={doc} onClick={() => setDocCount((n) => Math.max(n, i + 1))}
-                className="w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all"
-                style={{ borderColor: docCount > i ? C.forest : C.parchmentDark, background: docCount > i ? 'var(--status-success-bg)' : C.white }}>
-                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: docCount > i ? C.forest : C.parchment }}>
-                  {docCount > i ? (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M3 7L5.5 9.5L11 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  ) : (
-                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M4 7H10M7 4V10" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
-                    </svg>
-                  )}
-                </div>
-                <div>
-                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{doc}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{docCount > i ? 'Uploaded' : 'Tap to upload'}</div>
-                </div>
-              </button>
-            ))}
+            {LISTING_DOC_TYPES.map(({ type, label }) => {
+              const uploaded = uploadedTypes.includes(type)
+              const uploading = uploadingType === type
+              return (
+                <label key={type}
+                  className="w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all cursor-pointer"
+                  style={{ borderColor: uploaded ? C.forest : C.parchmentDark, background: uploaded ? 'var(--status-success-bg)' : C.white, opacity: uploading ? 0.7 : 1 }}>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    disabled={uploading}
+                    onChange={(e) => uploadDocument(type, e.target.files?.[0] ?? null)}
+                  />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: uploaded ? C.forest : C.parchment }}>
+                    {uploaded ? (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M3 7L5.5 9.5L11 4" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                        <path d="M4 7H10M7 4V10" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
+                      </svg>
+                    )}
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{label}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">
+                      {uploading ? 'Uploading…' : uploaded ? 'Uploaded' : 'Tap to upload'}
+                    </div>
+                  </div>
+                </label>
+              )
+            })}
           </div>
         )}
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
-        <PillButton onClick={() => step === 'details' ? setStep('documents') : finish()} fullWidth disabled={submitting}>
-          {step === 'details' ? 'Next: Upload documents' : submitting ? 'Submitting…' : 'Submit listing for verification'}
+        <PillButton onClick={() => step === 'details' ? proceedToDocuments() : setStep('done')} fullWidth disabled={creating || uploadingType !== null}>
+          {step === 'details' ? (creating ? 'Creating…' : 'Next: Upload documents') : 'Submit listing for verification'}
         </PillButton>
       </div>
     </AppShell>

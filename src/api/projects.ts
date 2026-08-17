@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import { fetchRatingSummary } from './reputation'
-import type { Milestone, MilestoneApprover, Project } from '../context'
+import type { Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format'
 
@@ -10,12 +10,25 @@ interface BackendApprover {
   userId: { _id: string; fullName: string } | string
   status: 'pending' | 'approved' | 'rejected'
 }
+interface BackendEvidence {
+  _id: string
+  type: string
+  fileUrl: string
+  notes: string
+  geotag: { lat: number | null; lng: number | null } | null
+  capturedAt: string | null
+  createdAt: string
+  fileHash: string
+  locationMatch: boolean | null
+  timestampRecent: boolean | null
+  duplicateFlag: boolean
+}
 interface BackendMilestone {
   _id: string
   name: string
   amount: number
   status: string
-  evidence: unknown[]
+  evidence: BackendEvidence[]
   requiresCosigner: boolean
   requiresVideo: boolean
   approvers: BackendApprover[]
@@ -59,6 +72,20 @@ function mapApprover(a: BackendApprover): MilestoneApprover {
   }
 }
 
+function mapEvidence(e: BackendEvidence): MilestoneEvidence {
+  return {
+    id: e._id,
+    type: e.type,
+    fileUrl: e.fileUrl,
+    notes: e.notes || null,
+    geotag: e.geotag && e.geotag.lat != null && e.geotag.lng != null ? { lat: e.geotag.lat, lng: e.geotag.lng } : null,
+    capturedAt: e.capturedAt ?? e.createdAt,
+    locationMatch: e.locationMatch,
+    timestampRecent: e.timestampRecent,
+    duplicateFlag: e.duplicateFlag,
+  }
+}
+
 function mapMilestone(m: BackendMilestone): Milestone {
   return {
     id: m._id,
@@ -66,6 +93,7 @@ function mapMilestone(m: BackendMilestone): Milestone {
     amount: m.amount,
     status: m.status,
     proof: (m.evidence?.length ?? 0) > 0,
+    evidence: (m.evidence || []).map(mapEvidence),
     requiresCosigner: m.requiresCosigner,
     requiresVideo: m.requiresVideo,
     approvers: (m.approvers || []).map(mapApprover),
@@ -204,12 +232,13 @@ export interface SubmitEvidenceInput {
   file?: File
   fileUrl?: string
   geotag?: { lat: number; lng: number } | null
+  notes?: string
 }
 
 export function useSubmitEvidenceMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag }: SubmitEvidenceInput) => {
+    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag, notes }: SubmitEvidenceInput) => {
       const form = new FormData()
       form.append('type', 'photo')
       if (file) form.append('file', file)
@@ -218,6 +247,7 @@ export function useSubmitEvidenceMutation() {
         form.append('geotagLat', String(geotag.lat))
         form.append('geotagLng', String(geotag.lng))
       }
+      if (notes) form.append('notes', notes)
       const { data } = await api.post(`/projects/${projectId}/milestones/${milestoneId}/evidence`, form)
       return data.data
     },

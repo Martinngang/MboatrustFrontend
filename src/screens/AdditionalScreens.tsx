@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useQueries } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
@@ -1533,10 +1534,10 @@ interface FlaggedPattern {
 
 export function AdminFraudAnalyticsScreen() {
   const nav = useNavigate()
-  const { landListings, projects } = useApp()
-  const { data: pendingKycUsers } = useAdminUsersQuery({ kycStatus: 'pending', limit: 50 })
-  const { data: rejectedKycUsers } = useAdminUsersQuery({ kycStatus: 'rejected', limit: 50 })
-  const { data: riskFlags } = useRiskFlagsQuery()
+  const { landListings } = useApp()
+  const { data: pendingKycUsers, isError: pendingKycError } = useAdminUsersQuery({ kycStatus: 'pending', limit: 50 })
+  const { data: rejectedKycUsers, isError: rejectedKycError } = useAdminUsersQuery({ kycStatus: 'rejected', limit: 50 })
+  const { data: riskFlags, isError: riskFlagsError } = useRiskFlagsQuery()
   const { data: openDisputesData } = useDisputesQuery({ status: 'open' })
   const [activePatternId, setActivePatternId] = useState<string | null>(null)
 
@@ -1549,6 +1550,22 @@ export function AdminFraudAnalyticsScreen() {
     ...(rejectedKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Rejected' })),
     ...(pendingKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Pending review' })),
   ]
+
+  // `projects` from useApp() is the funder dashboard's list — scoped to
+  // projectType "funding" and capped at one page, so a fraud flag on a
+  // tender/land_purchase project (or just outside that page) would always
+  // resolve to "Unlinked project" here even though the project is real.
+  // Fetching each flagged id directly (any type, no cap) fixes that — this
+  // is an admin-wide view, it needs to see every project a flag points to.
+  const flaggedProjectIds = [...new Set(reusedEvidenceFlags.map((f) => String(f.detail.projectId ?? '')).filter(Boolean))]
+  const flaggedProjectQueries = useQueries({
+    queries: flaggedProjectIds.map((id) => ({
+      queryKey: ['project', id],
+      queryFn: async () => (await api.get<{ data: { title: string } }>(`/projects/${id}`)).data.data,
+      staleTime: 10_000,
+    })),
+  })
+  const flaggedProjectById = new Map(flaggedProjectIds.map((id, i) => [id, flaggedProjectQueries[i].data]))
 
   const patterns: FlaggedPattern[] = [
     {
@@ -1572,7 +1589,7 @@ export function AdminFraudAnalyticsScreen() {
       description: 'Milestone proof photos whose file hash matches evidence already submitted elsewhere — a strong sign of reused, non-authentic proof.',
       cases: reusedEvidenceFlags.map((f) => {
         const projectId = String(f.detail.projectId ?? '')
-        const project = projects.find((p) => p.id === projectId)
+        const project = flaggedProjectById.get(projectId)
         return { label: project?.title ?? 'Unlinked project', sub: `Flagged ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined }
       }),
     },
@@ -1600,6 +1617,25 @@ export function AdminFraudAnalyticsScreen() {
   ]
 
   const activePattern = patterns.find((p) => p.id === activePatternId) ?? null
+
+  // Every underlying query here is admin-gated on the backend — without this,
+  // a 403 on all of them just silently reads as "0 flagged cases / good
+  // standing" everywhere, which is a false all-clear, not an honest reflection
+  // of "you don't have access to see this."
+  if (pendingKycError || rejectedKycError || riskFlagsError) {
+    return (
+      <AppShell>
+        <Header title="Fraud & Dispute Analytics" back />
+        <div className="px-5 sm:mx-auto sm:max-w-md">
+          <EmptyState
+            icon="shield"
+            title="Access denied"
+            description="This area is restricted to platform admins. If you believe you should have access, contact an administrator."
+          />
+        </div>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell>

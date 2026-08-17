@@ -4,9 +4,35 @@ import { registerRoute, NavigationRoute } from 'workbox-routing'
 import { CacheFirst } from 'workbox-strategies'
 import { ExpirationPlugin } from 'workbox-expiration'
 import { CacheableResponsePlugin } from 'workbox-cacheable-response'
-import { syncAllQueuedEvidence } from './db/syncEvidence'
+import { initializeApp } from 'firebase/app'
+import { getMessaging, onBackgroundMessage } from 'firebase/messaging/sw'
+import { hasQueuedEvidence } from './db/syncEvidence'
 
 declare const self: ServiceWorkerGlobalScope
+
+// Same public web config as src/firebase.ts, reused here so a push that
+// arrives with no app tab open still shows a real system notification
+// instead of silently doing nothing — `getToken()` (see api/push.ts) only
+// works at all once this registration exists, since it's what Firebase
+// attaches the push subscription to.
+if (import.meta.env.VITE_FIREBASE_API_KEY) {
+  const firebaseApp = initializeApp({
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    messagingSenderId: (import.meta.env.VITE_FIREBASE_APP_ID as string | undefined)?.split(':')[1],
+  })
+  const messaging = getMessaging(firebaseApp)
+  onBackgroundMessage(messaging, (payload) => {
+    const title = payload.notification?.title || 'Mboa Trust'
+    self.registration.showNotification(title, {
+      body: payload.notification?.body,
+      icon: '/icons/icon-192.png',
+      data: payload.data,
+    })
+  })
+}
 
 // The Background Sync API isn't part of TypeScript's built-in DOM/webworker
 // libs yet (still not universally shipped — no Safari support), so it needs
@@ -51,16 +77,20 @@ registerRoute(
 const EVIDENCE_SYNC_TAG = 'sync-evidence'
 
 // Background Sync: the OS wakes this worker when connectivity returns, even if
-// no app tab is open. Not supported in Safari/iOS — the app's manual "Retry
-// sync" button (src/offlineQueue.tsx) is the fallback path for those browsers.
+// no app tab is open. The actual authenticated upload can only run on the main
+// thread (it needs the live Firebase/dev-bypass session), so this just notifies
+// any open client tabs to run their real sync — if none are open, the queue
+// stays put and gets picked up the next time the app opens or comes online
+// (see src/offlineQueue.tsx). Not supported in Safari/iOS — the app's manual
+// "Retry sync" button is the fallback path for those browsers.
 self.addEventListener('sync', (event) => {
   const syncEvent = event as SyncEvent
   if (syncEvent.tag !== EVIDENCE_SYNC_TAG) return
   syncEvent.waitUntil(
-    syncAllQueuedEvidence().then(async ({ synced, failed }) => {
-      if (synced === 0 && failed === 0) return
+    hasQueuedEvidence().then(async (hasWork) => {
+      if (!hasWork) return
       const clients = await self.clients.matchAll({ type: 'window' })
-      for (const client of clients) client.postMessage({ type: 'evidence-sync-complete', synced, failed })
+      for (const client of clients) client.postMessage({ type: 'evidence-sync-requested' })
     }),
   )
 })

@@ -74,7 +74,7 @@ export function MilestoneSubmitScreen() {
     if (isOnline) {
       setSubmitting(true)
       try {
-        await submitMilestoneProof(project.id, milestone.id, photoFiles[0], geo ? { lat: geo.lat, lng: geo.lng } : null)
+        await submitMilestoneProof(project.id, milestone.id, photoFiles, geo ? { lat: geo.lat, lng: geo.lng } : null, notes)
         setStep('submitted')
       } catch (err) {
         showToast({ title: 'Submission failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })

@@ -83,6 +83,13 @@ export default defineConfig(({ mode }) => {
       // forwards server-to-server instead, which isn't subject to that.
       proxy: {
         '/api': { target: process.env.BACKEND_URL || 'http://localhost:5000', changeOrigin: true },
+        // Socket.IO's own path, separate from '/api' — needs `ws: true` so
+        // the proxy forwards the WebSocket upgrade handshake too, not just
+        // plain HTTP. Without this the client (api/socket.ts, same-origin by
+        // default) tries to reach ws://<this dev server>/socket.io/, which
+        // nothing here answers, so every real-time connection silently fails
+        // and messaging only ever works via the REST POST response.
+        '/socket.io': { target: process.env.BACKEND_URL || 'http://localhost:5000', changeOrigin: true, ws: true },
       },
     },
     preview: {

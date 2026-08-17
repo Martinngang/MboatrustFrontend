@@ -26,12 +26,25 @@ export interface MilestoneApprover {
   status: 'pending' | 'approved' | 'rejected'
 }
 
+export interface MilestoneEvidence {
+  id: string
+  type: string
+  fileUrl: string
+  notes: string | null
+  geotag: { lat: number; lng: number } | null
+  capturedAt: string | null
+  locationMatch: boolean | null
+  timestampRecent: boolean | null
+  duplicateFlag: boolean
+}
+
 export interface Milestone {
   id: string
   title: string
   amount: number
   status: string
   proof: boolean
+  evidence: MilestoneEvidence[]
   requiresCosigner: boolean
   requiresVideo: boolean
   approvers: MilestoneApprover[]
@@ -97,6 +110,11 @@ export interface LandListing {
   image: string
   description: string
   docs: string[]
+  /** Per-document real verification status, in the same order as `docs` —
+   * separate from `docs` (a bare list of type labels) because whether a
+   * specific uploaded document has actually been checked matters for
+   * display, not just what document types exist. */
+  documentStatuses: { type: string; verificationStatus: string }[]
 }
 
 export interface Contractor {
@@ -207,7 +225,7 @@ export interface AppState {
   projectsLoading: boolean
   addProject: (p: Omit<Project, 'id'>) => Promise<Project>
   fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => Promise<{ paymentUrl?: string; status: string }>
-  submitMilestoneProof: (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => Promise<void>
+  submitMilestoneProof: (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string) => Promise<void>
   approveMilestone: (projectId: string, milestoneId: string) => Promise<{ project: Project; releasedEscrow: unknown }>
   disputeMilestone: (projectId: string, milestoneId: string, reason?: string) => Promise<void>
 
@@ -318,10 +336,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [isLoggedIn, role])
 
   const projectsQuery = useProjectsQuery()
-  // Shows mock data instantly while the first real fetch is in flight, then
-  // swaps to real backend data — avoids every existing screen that assumes
-  // `projects[0]` exists needing a loading-state guard added for this pass.
-  const projects = projectsQuery.data ?? MOCK_PROJECTS
+  // Shows mock data only while the *first* real fetch is genuinely still in
+  // flight — never once it's settled. Falling back to fake data on `isError`
+  // too (the old `?? MOCK_PROJECTS`) meant a single failed fetch (a proxy
+  // blip, a brief backend restart) permanently stranded a logged-in user on
+  // fabricated project/milestone/recipient data for the rest of the session,
+  // with no visual difference from the real thing and no way to recover
+  // short of restarting the app. An empty list at least degrades honestly —
+  // existing empty-states already handle "no projects" fine.
+  const projects = projectsQuery.data ?? (projectsQuery.isLoading ? MOCK_PROJECTS : [])
   const createProjectMutation = useCreateProjectMutation()
   const fundProjectMutation = useFundProjectMutation()
   const submitEvidenceMutation = useSubmitEvidenceMutation()
@@ -329,26 +352,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const disputeMilestoneMutation = useDisputeMilestoneMutation()
 
   const jobsQuery = useJobsQuery()
-  const jobs = jobsQuery.data ?? MOCK_JOBS
+  const jobs = jobsQuery.data ?? (jobsQuery.isLoading ? MOCK_JOBS : [])
   const createJobMutation = useCreateJobMutation()
   const bidsQuery = useBidsQuery(devUserId ? { contractorId: devUserId } : {})
   const bids = devUserId ? (bidsQuery.data ?? []) : []
   const createBidMutation = useCreateBidMutation()
 
   const landListingsQuery = useLandListingsQuery()
-  const landListings = landListingsQuery.data ?? MOCK_LAND
+  const landListings = landListingsQuery.data ?? (landListingsQuery.isLoading ? MOCK_LAND : [])
   const createListingMutation = useCreateListingMutation()
   const updateVerificationStatusMutation = useUpdateVerificationStatusMutation()
 
   const contractorProfilesQuery = useContractorProfilesQuery()
-  const contractors = contractorProfilesQuery.data ?? MOCK_CONTRACTORS
+  const contractors = contractorProfilesQuery.data ?? (contractorProfilesQuery.isLoading ? MOCK_CONTRACTORS : [])
   // No filter = "mine" server-side (every offer the caller is a party to,
   // as buyer or as the seller of the listing) — see api/landOffers.ts.
   const landOffersQuery = useLandOffersQuery({}, Boolean(devUserId))
   const offers = devUserId ? (landOffersQuery.data ?? []) : []
 
   const notificationsQuery = useNotificationsQuery(Boolean(devUserId))
-  const notifications = isLoggedIn ? (notificationsQuery.data?.items ?? MOCK_NOTIFICATIONS) : []
+  const notifications = isLoggedIn ? (notificationsQuery.data?.items ?? (notificationsQuery.isLoading ? MOCK_NOTIFICATIONS : [])) : []
   const markNotificationReadMutation = useMarkNotificationReadMutation()
   const markAllNotificationsReadMutation = useMarkAllNotificationsReadMutation()
 
@@ -363,8 +386,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     logActivity({ type: 'project_funded', icon: 'lock', title: 'Funds secured', detail: p ? `${fmt(amount)} moved into escrow for ${p.title}` : fmt(amount), path: `/funder/project/${id}` })
     return result
   }
-  const submitMilestoneProof = async (projectId: string, milestoneId: string, file?: File, geotag?: { lat: number; lng: number } | null) => {
-    await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag })
+  const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string) => {
+    // The backend stores one Evidence sub-document per file (POST .../evidence
+    // accepts a single file), so a multi-photo submission is one call per
+    // photo, sequential to keep evidence order deterministic and avoid
+    // hammering the fraud-analysis pipeline with a burst of parallel uploads.
+    // The recipient's notes describe the submission as a whole, not any one
+    // photo, but there's nowhere else to store them — attached to every
+    // evidence entry created in this batch so a reviewer sees them regardless
+    // of which entry they're looking at.
+    for (const file of files) {
+      await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag, notes })
+    }
     const p = projects.find((x) => x.id === projectId)
     const m = p?.milestones.find((x) => x.id === milestoneId)
     logActivity({ type: 'milestone_submitted', icon: 'camera', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
@@ -452,9 +485,9 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Emmanuel Njang',
     recipientRating: 4.8,
     milestones: [
-      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
     description: 'A community borehole serving 340 households in Bamenda North who currently walk 4km for clean water. Work started February 2025.',
@@ -472,9 +505,9 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Fatima Oumarou',
     recipientRating: 4.9,
     milestones: [
-      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&h=220&fit=crop&auto=format',
     description: 'Replacement of the collapsed roof on Bloc C of the Government Primary School, Maroua. 280 pupils affected.',
@@ -492,10 +525,10 @@ export const MOCK_PROJECTS: Project[] = [
     recipient: 'Dr. Ngole Mbah',
     recipientRating: 4.7,
     milestones: [
-      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
     ],
     image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&h=220&fit=crop&auto=format',
     description: 'Renovation of the only maternity unit serving 8 villages in Limbe District. Building has not been maintained since 2009.',
@@ -595,6 +628,7 @@ export const MOCK_LAND: LandListing[] = [
     image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
     description: 'Corner plot in a quiet residential street, Bastos neighbourhood. 15 minutes from Yaoundé city centre. All utilities on street.',
     docs: ['Title deed No. 2847/CNT', 'Land tax receipt 2024', 'Survey plan (geo-referenced)', 'No dispute certificate'],
+    documentStatuses: [],
   },
   {
     id: 'l2',
@@ -611,6 +645,7 @@ export const MOCK_LAND: LandListing[] = [
     image: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=400&h=250&fit=crop&auto=format',
     description: 'Fertile agricultural plot 4km from Bafoussam ring road. Currently producing arabica coffee. Pending freehold title being processed.',
     docs: ['Customary rights letter', 'Local council attestation', 'Survey plan', 'Title registration receipt'],
+    documentStatuses: [],
   },
   {
     id: 'l3',
@@ -628,6 +663,7 @@ export const MOCK_LAND: LandListing[] = [
     image: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=400&h=250&fit=crop&auto=format',
     description: 'Commercial plot on the Bonabéri industrial corridor. High footfall area, suitable for warehouse or retail. Documents submitted for platform verification.',
     docs: ['Purchase order', 'Local attestation (unverified)'],
+    documentStatuses: [],
   },
   {
     id: 'l4',
@@ -645,6 +681,7 @@ export const MOCK_LAND: LandListing[] = [
     image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format',
     description: 'Corner plot in Bastos neighbourhood, Yaoundé. Recently listed — please note this closely matches another active listing on the platform.',
     docs: ['Title deed (copy)', 'Land tax receipt 2024'],
+    documentStatuses: [],
   },
 ]
 

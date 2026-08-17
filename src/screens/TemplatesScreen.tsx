@@ -23,6 +23,11 @@ export function TemplatesScreen() {
       <Header title="Project Templates" subtitle={`${templates.length} saved`} back />
 
       <div className="px-5 py-4">
+        {templates.length > 0 && (
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-4 text-xs leading-relaxed">
+            Templates you save here are ready to reuse for the rest of this session, but aren't stored on your account yet — they reset the next time you reload.
+          </p>
+        )}
         {templates.length === 0 ? (
           <EmptyState
             icon="puzzle"

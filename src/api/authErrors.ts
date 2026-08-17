@@ -45,7 +45,10 @@ export function firebaseErrorCode(err: unknown): string | null {
 export function friendlyAuthError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
   const code = firebaseErrorCode(err)
   if (code && MESSAGES[code]) return MESSAGES[code]
-  if (err instanceof Error && err.message && !code) return err.message
+  // Anything without a recognized `auth/*` code — a raw IndexedDB/network
+  // internals error, not a Firebase Auth failure — falls back to the generic
+  // message. Showing `err.message` verbatim here previously leaked internal
+  // strings like "Database is closing/hidden" straight to end users.
   return fallback
 }
 

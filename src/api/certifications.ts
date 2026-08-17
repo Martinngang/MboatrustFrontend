@@ -61,8 +61,12 @@ export function useAllCertificationsQuery() {
 export function useCreateCertificationMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ name, issuer }: { name: string; issuer: string }) => {
-      const { data } = await api.post<{ data: BackendCertification }>('/contractor-certifications', { title: name, issuer })
+    mutationFn: async ({ name, issuer, file }: { name: string; issuer: string; file: File }) => {
+      const form = new FormData()
+      form.append('title', name)
+      form.append('issuer', issuer)
+      form.append('file', file)
+      const { data } = await api.post<{ data: BackendCertification }>('/contractor-certifications', form)
       return mapCertification(data.data)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['certifications'] }),

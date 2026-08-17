@@ -113,6 +113,20 @@ function describe(n: BackendNotification): Described {
         body: 'You have a new message.',
         path: p.conversationId ? `/messages/${p.conversationId}` : undefined,
       }
+    case 'dispute_raised':
+      return {
+        icon: 'flag', category: 'milestones', title: 'Dispute raised',
+        body: 'A dispute was raised on one of your projects.',
+        stat: { label: 'Disputed', tone: 'error' },
+        path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
+      }
+    case 'dispute_resolved':
+      return {
+        icon: 'checkCircle', category: 'milestones', title: 'Dispute resolved',
+        body: `Your dispute was marked "${statusLabel(p.status).toLowerCase()}".`,
+        stat: { label: statusLabel(p.status), tone: statusTone(p.status) },
+        path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
+      }
     default:
       return { icon: 'bell', category: 'messages', title: n.type.replace(/_/g, ' '), body: '' }
   }

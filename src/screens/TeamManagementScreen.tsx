@@ -25,7 +25,7 @@ export function TeamManagementScreen() {
   const submitInvite = () => {
     if (!form.name.trim() || !form.email.trim()) return
     inviteMember({ name: form.name.trim(), email: form.email.trim(), role: form.role })
-    showToast({ title: 'Invitation sent', description: `${form.name.trim()} added as ${ROLE_META[form.role].label}`, tone: 'success' })
+    showToast({ title: 'Member added', description: `${form.name.trim()} added as ${ROLE_META[form.role].label}. No email is sent yet — let them know directly.`, tone: 'success' })
     setInviteOpen(false)
     setForm({ name: '', email: '', role: 'viewer' })
   }
@@ -40,6 +40,9 @@ export function TeamManagementScreen() {
       />
 
       <div className="px-5 py-4">
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-4 text-xs leading-relaxed">
+          A preview of who's on your team. Roles here don't send an email invite or restrict access elsewhere in the app yet, and the list resets when you reload.
+        </p>
         <StaggerList className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">
           {members.map((m) => (
             <StaggerItem key={m.id}>
@@ -133,7 +136,7 @@ export function TeamManagementScreen() {
         onCancel={() => setRemovingId(null)}
         onConfirm={() => { if (removingId) removeMember(removingId); setRemovingId(null) }}
         title="Remove this person?"
-        description={removeTarget ? `${removeTarget.name} will lose access to this workspace.` : undefined}
+        description={removeTarget ? `${removeTarget.name} will be removed from this list.` : undefined}
         confirmLabel="Remove"
         danger
       />

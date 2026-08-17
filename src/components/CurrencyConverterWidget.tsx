@@ -62,7 +62,10 @@ export function CurrencyConverterWidget({ defaultAmount, onResultChange }: {
           style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
         />
         <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1.5">
-          {result ? `Live rate: 1 ${currency.code} = XAF ${result.rate.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}` : isFetching ? 'Fetching live rate…' : ''}
+          {/* Backend uses a fixed reference table (conversionService.js), not
+              a live market feed — "live" here would overstate accuracy for
+              a number that drives real escrow/payout amounts. */}
+          {result ? `Reference rate: 1 ${currency.code} = XAF ${result.rate.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}` : isFetching ? 'Calculating…' : ''}
         </div>
       </div>
 

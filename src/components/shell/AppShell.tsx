@@ -1,11 +1,8 @@
 import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
-import { C, BottomNav, NotificationBell, UserAvatar } from '../MobileLayout'
-import { ConnectivityBar } from '../ConnectivityBar'
-import { InstallButton } from '../InstallButton'
+import { C, BottomNav } from '../MobileLayout'
 import { pageVariants, pageTransition } from '../motion'
-import { useNotificationsDrawer } from '../NotificationsDrawer'
 import { ScreenErrorBoundary } from '../ErrorBoundary'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
@@ -14,12 +11,14 @@ import { TopBar } from './TopBar'
  * search → command palette, quick-create, avatar menu), wrapping every
  * authenticated screen. Same exported name/signature as the AppShell this
  * replaces, so none of the ~13 screen files that do `<AppShell>...</AppShell>`
- * need to change. */
+ * need to change. TopBar renders at every breakpoint (see its own comment) —
+ * this file used to also render a second, ad-hoc mobile-only utility row
+ * here, inside the scrolling <main>. That row wasn't sticky or fixed, so it
+ * scrolled out of view immediately; it's gone now that TopBar itself covers
+ * mobile. */
 export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boolean }) {
   const loc = useLocation()
-  const nav = useNavigate()
   const reduceMotion = useReducedMotion()
-  const { toggle: toggleNotifications } = useNotificationsDrawer()
 
   return (
     // fixed + inset-0 (not h-dvh): pins all four edges directly to the
@@ -56,14 +55,6 @@ export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boo
               Motion's drag/tap gestures, dnd-kit's sensors, or a future
               addition — can ever suppress vertical touch panning here. */}
           <main className="min-h-0 overflow-y-auto overscroll-contain" style={{ touchAction: 'pan-y' }}>
-            <div className="flex items-center justify-between gap-2 px-4 pt-3 lg:hidden" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
-              <InstallButton />
-              <div className="flex items-center gap-2">
-                <ConnectivityBar />
-                <NotificationBell onClick={toggleNotifications} />
-                <UserAvatar onClick={() => nav('/shared/profile')} />
-              </div>
-            </div>
             <AnimatePresence mode="wait">
               <motion.div
                 key={loc.pathname}

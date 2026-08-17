@@ -8,6 +8,7 @@ import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
 import { FeeBreakdown } from '../components/FeeBreakdown'
 import { useTransactionsQuery, type Transaction } from '../api/transactions'
 import { useVideoSessionsQuery, useRequestVideoSessionMutation, useScheduleVideoSessionMutation } from '../api/videoVerification'
+import { useVerificationTasksQuery } from '../api/reputation'
 import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
 import { useStartConversationMutation } from '../api/messaging'
 import type { Approver } from '../verification'
@@ -152,7 +153,7 @@ export function ProjectDetailScreen() {
   const startConversation = useStartConversationMutation(devUserId)
 
   const messageRecipient = async () => {
-    if (!p.recipientId) return
+    if (!p.recipientId || p.recipientId === devUserId) return
     try {
       const conversation = await startConversation.mutateAsync({ contextType: 'project', contextId: p.id, otherUserId: p.recipientId })
       nav(`/messages/${conversation.id}`)
@@ -255,9 +256,11 @@ export function ProjectDetailScreen() {
             </div>
           </div>
         </button>
-        <PillButton onClick={messageRecipient} variant="ghost" fullWidth disabled={!p.recipientId || startConversation.isPending}>
-          {startConversation.isPending ? 'Starting…' : 'Message recipient'}
-        </PillButton>
+        {p.recipientId && p.recipientId !== devUserId && (
+          <PillButton onClick={messageRecipient} variant="ghost" fullWidth disabled={startConversation.isPending}>
+            {startConversation.isPending ? 'Starting…' : 'Message recipient'}
+          </PillButton>
+        )}
 
         {/* Activity */}
         <div>
@@ -278,8 +281,13 @@ export function ProjectDetailScreen() {
             </svg>
           </button>
         )}
-        {p.status === 'active' && (
-          <PillButton onClick={() => nav('/funder/fund', { state: { projectId: p.id } })} fullWidth>Add funds to escrow</PillButton>
+        {/* 'open' covers a project that was created but never successfully funded
+            (payment abandoned or failed) — without this it has no recovery path,
+            since funding otherwise only happens inline during creation. */}
+        {(p.status === 'active' || p.status === 'open') && (
+          <PillButton onClick={() => nav('/funder/fund', { state: { projectId: p.id } })} fullWidth>
+            {p.status === 'open' ? 'Fund this project' : 'Add funds to escrow'}
+          </PillButton>
         )}
         {p.status === 'completed' && (
           <PillButton onClick={() => nav(`/funder/rate-recipient/${p.id}`)} fullWidth>Rate this recipient</PillButton>
@@ -646,6 +654,12 @@ export function FundProjectScreen() {
   const [createdId, setCreatedId] = useState<string | null>(null)
   const [foreignCurrency, setForeignCurrency] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  // Frozen at submit time — `amount` below is derived from `existing.raised`,
+  // which the fund mutation's cache invalidation updates as soon as it
+  // succeeds. Without this, the success screen (rendered after that update)
+  // would recompute `amount` as the tiny *remaining* shortfall instead of
+  // showing what was actually just paid.
+  const [paidAmount, setPaidAmount] = useState<number | null>(null)
 
   const amount = draft
     ? (draft.milestones && draft.milestones.length > 0
@@ -659,6 +673,7 @@ export function FundProjectScreen() {
 
   const confirmPayment = async () => {
     setSubmitting(true)
+    setPaidAmount(amount)
     try {
       if (draft) {
         const milestones: Milestone[] = (draft.milestones ?? []).map((m) => ({
@@ -667,6 +682,7 @@ export function FundProjectScreen() {
           amount: Number(m.amount) || 0,
           status: 'pending',
           proof: false,
+          evidence: [],
           requiresCosigner: !!m.requiresMultiApproval,
           requiresVideo: !!m.requiresVideo,
           approvers: [],
@@ -717,7 +733,7 @@ export function FundProjectScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-2">Funds secured in escrow</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed mb-2">
-            {fmt(amount)} is now held in escrow for <strong>{title}</strong>.
+            {fmt(paidAmount ?? amount)} is now held in escrow for <strong>{title}</strong>.
           </p>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed mb-8">
             Funds will be released to the recipient only when milestone proof is verified and you approve.
@@ -836,6 +852,12 @@ export function MilestoneReviewScreen() {
   const milestone = project.milestones.find((m) => m.status === 'under_review') ?? project.milestones[0]
   const [decision, setDecision] = useState<'approve' | 'dispute' | null>(null)
   const [approving, setApproving] = useState(false)
+
+  // Real, human, on-site verifier report — not every milestone has one
+  // (only ones an admin assigned a verifier to), so the section below only
+  // renders when a task actually exists and has a submitted report.
+  const { data: verificationTasks = [] } = useVerificationTasksQuery({ targetType: 'milestone', targetId: milestone.id })
+  const verifierReport = verificationTasks.find((t) => t.status === 'submitted')
 
   // The backend is the source of truth for multi-sig: it auto-registers
   // whoever decides as an approver on their first decision and only
@@ -963,63 +985,86 @@ export function MilestoneReviewScreen() {
         {/* Proof photos */}
         <div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submitted photo evidence</div>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&h=200&fit=crop&auto=format',
-              'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=300&h=200&fit=crop&auto=format',
-            ].map((src, i) => (
-              <div key={i} className="relative rounded-xl overflow-hidden aspect-video">
-                <img src={src} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                  <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[9px]">Photo {i + 1}</div>
+          {milestone.evidence.length === 0 ? (
+            <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No photo evidence submitted yet.</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {milestone.evidence.map((e, i) => (
+                <div key={e.id} className="relative rounded-xl overflow-hidden aspect-video">
+                  <img src={e.fileUrl} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1" style={{ background: 'rgba(0,0,0,0.6)' }}>
+                    <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[9px]">Photo {i + 1}</div>
+                  </div>
+                  {e.duplicateFlag && (
+                    <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded" style={{ background: 'var(--status-error-bg)' }}>
+                      <div style={{ fontFamily: FONT.mono, color: 'var(--status-error-text)' }} className="text-[8px] font-semibold">Flagged</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Geotag — from whichever evidence entry actually has one */}
+        {(() => {
+          const withGeotag = milestone.evidence.find((e) => e.geotag)
+          if (!withGeotag) return null
+          const { lat, lng } = withGeotag.geotag!
+          const locationLooksOff = withGeotag.locationMatch === false
+          return (
+            <div className="rounded-2xl border p-4" style={{ borderColor: locationLooksOff ? 'var(--status-error-bg)' : C.parchmentDark, background: C.white }}>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Geo verification</div>
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: locationLooksOff ? 'var(--status-error-bg)' : 'var(--status-info-bg)' }}>
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                    <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke={locationLooksOff ? 'var(--status-error-text)' : 'var(--status-info-text)'} strokeWidth="1.3" />
+                    <circle cx="9" cy="7" r="2" stroke={locationLooksOff ? 'var(--status-error-text)' : 'var(--status-info-text)'} strokeWidth="1.2" />
+                  </svg>
+                </div>
+                <div>
+                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{locationLooksOff ? "Location doesn't match project site" : 'Location confirmed'}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs mt-0.5">{lat.toFixed(5)}, {lng.toFixed(5)} — {project.location}</div>
+                  {withGeotag.capturedAt && (
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
+                      Submitted: {new Date(withGeotag.capturedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Geotag */}
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Geo verification</div>
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-info-bg)' }}>
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M9 2C6.2 2 4 4.2 4 7C4 11 9 16 9 16C9 16 14 11 14 7C14 4.2 11.8 2 9 2Z" stroke="var(--status-info-text)" strokeWidth="1.3" />
-                <circle cx="9" cy="7" r="2" stroke="var(--status-info-text)" strokeWidth="1.2" />
-              </svg>
             </div>
-            <div>
-              <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">Location confirmed</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs mt-0.5">5°56'42"N 10°9'26"E — {project.location}</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">Submitted: 19 Jul 2025, 14:23 WAT</div>
-            </div>
-          </div>
-        </div>
+          )
+        })()}
 
-        {/* Verifier report */}
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Independent verifier report</div>
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
+        {/* Independent verifier report — only shown when a verifier was actually assigned and has filed a report */}
+        {verifierReport && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Independent verifier report</div>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: verifierReport.confirmedMatch === false ? 'var(--status-error-text)' : C.forest }}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              </div>
+              <span style={{ fontFamily: FONT.sans, color: verifierReport.confirmedMatch === false ? 'var(--status-error-text)' : C.forest }} className="text-xs font-semibold">
+                {verifierReport.confirmedMatch === false ? "Site visit did not confirm the evidence" : 'Site visit confirmed by an independent verifier'}
+              </span>
             </div>
-            <span style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">Site visit confirmed by local agent</span>
+            {verifierReport.reportText && (
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">"{verifierReport.reportText}"</p>
+            )}
           </div>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
-            "Work matches submitted photos and site conditions. Milestone criteria satisfied."
-          </p>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-2">Agent: Njikam P. · Verified 18 Jul 2025</div>
-        </div>
+        )}
 
-        {/* Recipient notes */}
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Recipient notes</div>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm italic">
-            "Work completed on schedule. Ready for the next stage once approved."
-          </p>
-        </div>
+        {/* Recipient notes — real text from the submission, when the recipient left any */}
+        {milestone.evidence.some((e) => e.notes) && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Recipient notes</div>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm italic">
+              "{milestone.evidence.find((e) => e.notes)?.notes}"
+            </p>
+          </div>
+        )}
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>

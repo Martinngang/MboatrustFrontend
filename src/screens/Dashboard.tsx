@@ -21,9 +21,8 @@ export function HomeScreen() {
 }
 
 // Deliberate ~350ms polish beat on the highest-traffic screen in the app —
-// this project has no real fetch layer, so this is a placeholder-to-content
-// swap, not a genuine loading state. Shared across all 4 role homes so the
-// dashboard entrance always feels the same beat.
+// shown regardless of how fast the real data actually loads, so the
+// dashboard entrance always feels the same beat across all 4 role homes.
 function DashboardSkeleton() {
   return (
     <AppShell>
@@ -166,7 +165,7 @@ function FunderHome() {
               <div className="p-5">
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Portfolio insight</div>
                 <div style={{ fontFamily: FONT.serif }} className="mt-2 text-lg font-semibold">Balanced, verified, and ready to scale</div>
-                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">Your dashboard is now tuned for bigger screens with a richer information hierarchy and more breathing room.</p>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">Every active project, milestone, and dispute in one place — verified before your money ever moves.</p>
               </div>
             </Card>
           </div>

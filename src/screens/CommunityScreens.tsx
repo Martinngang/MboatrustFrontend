@@ -380,6 +380,7 @@ export function ReferralScreen() {
 
         <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
           Share your link with someone who hasn't joined yet. You're rewarded once they sign up and complete their first project or contract.
+          Earned rewards are tracked here and paid out separately by our team — not sent automatically.
         </p>
 
         <div>

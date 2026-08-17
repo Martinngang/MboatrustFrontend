@@ -17,6 +17,7 @@ import { useToast } from '../components/Toast'
 import { PasswordField, TextField, InlineAlert, Spinner } from '../components/AuthControls'
 import { useNotificationsDrawer } from '../components/NotificationsDrawer'
 import { AppIcon, GoogleGlyph, type IconName } from '../components/icons'
+import { useSetDeviceTokenMutation, requestPushToken, isPushAvailable } from '../api/push'
 
 // ── Design language ────────────────────────────────────────────────────────
 // Mboa Trust already speaks a distinctive dialect — parchment paper, forest
@@ -403,7 +404,44 @@ export function SettingsScreen() {
   const { data: kycStatus = 'unverified' } = useMyKycStatusQuery()
   const kycLabel: Record<KycStatus, string> = { unverified: 'Not verified', pending: 'Under review', verified: 'Verified', rejected: 'Rejected — action needed' }
   const { theme, toggleTheme } = useTheme()
-  const [notifOn, setNotifOn] = useState(true)
+  const { show: showPushToast } = useToast()
+  const setDeviceToken = useSetDeviceTokenMutation()
+  // Reflects the browser's actual permission state on load rather than
+  // defaulting to "on" — the old version always showed the switch enabled
+  // regardless of whether push had ever actually been granted, and toggling
+  // it did nothing beyond flipping local component state (reset on every
+  // reload, never touched the backend's fcmDeviceToken, so notificationService
+  // could never actually deliver a push either way).
+  const [notifOn, setNotifOn] = useState(() => isPushAvailable() && Notification.permission === 'granted')
+  const [pushBusy, setPushBusy] = useState(false)
+  const togglePush = async () => {
+    if (pushBusy) return
+    setPushBusy(true)
+    try {
+      if (notifOn) {
+        await setDeviceToken.mutateAsync(null)
+        setNotifOn(false)
+        return
+      }
+      const token = await requestPushToken()
+      if (!token) {
+        showPushToast({
+          title: 'Could not enable push notifications',
+          description: Notification.permission === 'denied'
+            ? 'Notifications are blocked for this site in your browser settings.'
+            : 'Please try again.',
+          tone: 'error',
+        })
+        return
+      }
+      await setDeviceToken.mutateAsync(token)
+      setNotifOn(true)
+    } catch (err) {
+      showPushToast({ title: 'Could not update push notifications', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setPushBusy(false)
+    }
+  }
   const [biometric, setBiometric] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [exporting, setExporting] = useState(false)
@@ -462,13 +500,15 @@ export function SettingsScreen() {
     { label: 'ID verification (KYC/AML)', sub: `Status: ${kycLabel[kycStatus]}`, action: () => nav('/compliance/kyc'), icon: 'shield' as GlyphName },
   ]
   const notificationItems = [
-    {
-      label: 'Push notifications',
-      sub: 'Milestone updates, bids, approvals',
-      action: () => setNotifOn(!notifOn),
-      icon: 'bell' as GlyphName,
-      right: <Switch checked={notifOn} onChange={setNotifOn} />,
-    },
+    isPushAvailable()
+      ? {
+          label: 'Push notifications',
+          sub: pushBusy ? 'Updating…' : 'Milestone updates, bids, approvals',
+          action: togglePush,
+          icon: 'bell' as GlyphName,
+          right: <Switch checked={notifOn} onChange={togglePush} disabled={pushBusy} />,
+        }
+      : { label: 'Push notifications', sub: 'Not supported in this browser', action: () => {}, icon: 'bell' as GlyphName },
     { label: 'Notification preferences', sub: 'Granular control per notification type', action: () => nav('/shared/notifications/preferences'), icon: 'sliders' as GlyphName },
   ]
   const privacyItems = [
@@ -1079,7 +1119,7 @@ export function ProfileScreen() {
             ...(key === 'contractor' || key === 'funder' ? [
               { label: 'Manage subscription', sub: key === 'contractor' ? 'Pro Contractor plan — waived per-bid fees' : 'Power Funder plan for diaspora groups', action: () => nav('/account/subscription'), icon: 'sparkles' as GlyphName },
             ] : []),
-            { label: 'Currency converter', sub: 'Live exchange rate & fee calculator', action: () => nav('/tools/currency-converter'), icon: 'swap' },
+            { label: 'Currency converter', sub: 'Reference exchange rate & fee calculator', action: () => nav('/tools/currency-converter'), icon: 'swap' },
           ]}
         />
 

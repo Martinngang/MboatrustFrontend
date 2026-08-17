@@ -152,7 +152,7 @@ export interface BackendVerificationTask {
   target: { title: string; location: string; milestoneTitle?: string; projectId?: string } | null
 }
 
-export function useVerificationTasksQuery(filter: { verifierId?: string } = {}) {
+export function useVerificationTasksQuery(filter: { verifierId?: string; targetType?: 'milestone' | 'land_listing'; targetId?: string } = {}) {
   return useQuery({
     queryKey: ['verificationTasks', filter],
     queryFn: async (): Promise<BackendVerificationTask[]> => {

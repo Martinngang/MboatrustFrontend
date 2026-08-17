@@ -12,6 +12,9 @@ let currentDevUserId: string | null = null
 export function setDevUserId(id: string | null) {
   currentDevUserId = id
 }
+export function getDevUserId(): string | null {
+  return currentDevUserId
+}
 
 // Relative by default (not an absolute localhost URL) so it resolves
 // against whatever origin the page was actually loaded from — a hardcoded

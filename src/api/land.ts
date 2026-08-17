@@ -50,6 +50,7 @@ function mapListing(doc: BackendLandListing, sellerRating: number): LandListing 
     image: doc.imageUrl || DEFAULT_IMAGE,
     description: doc.description || '',
     docs: doc.documents.map((d) => d.type),
+    documentStatuses: doc.documents.map((d) => ({ type: d.type, verificationStatus: d.verificationStatus })),
   }
 }
 
@@ -96,6 +97,22 @@ export function useCreateListingMutation() {
         price: l.price,
       })
       return mapListing(data.data, NEW_SELLER_RATING)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
+  })
+}
+
+export function useAddLandDocumentMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ listingId, file, type }: { listingId: string; file: File; type: string }): Promise<LandListing> => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('type', type)
+      const { data } = await api.post<{ data: BackendLandListing }>(`/land-listings/${listingId}/documents`, form)
+      const sellerId = typeof data.data.sellerId === 'object' ? data.data.sellerId._id : data.data.sellerId
+      const rating = await fetchRatingSummary(sellerId)
+      return mapListing(data.data, rating.average ?? NEW_SELLER_RATING)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
   })

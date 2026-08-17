@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { useApp, type AppNotification, type NotifCategory } from '../context'
 import { C, FONT, STATUS_TONE_VARS } from './tokens'
@@ -21,6 +21,7 @@ export function useNotificationsDrawer() {
 
 export function NotificationsDrawerProvider({ children }: { children: ReactNode }) {
   const { authChecked } = useApp()
+  const location = useLocation()
   const [isOpen, setIsOpen] = useState(false)
   const open = () => setIsOpen(true)
   const close = () => setIsOpen(false)
@@ -34,6 +35,16 @@ export function NotificationsDrawerProvider({ children }: { children: ReactNode 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isOpen])
+
+  // The drawer already closes itself when a notification's own "View
+  // details" link navigates — but any other navigation while it's open (the
+  // sidebar, a keyboard shortcut, browser back/forward) left it open with
+  // its full-screen backdrop still covering the new page underneath,
+  // silently swallowing clicks on whatever just loaded.
+  useEffect(() => {
+    setIsOpen(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname])
 
   return (
     <NotificationsDrawerContext.Provider value={{ open, close, toggle }}>

@@ -54,6 +54,9 @@ export function NotificationPreferencesScreen() {
       <Header title="Notification Preferences" subtitle="Choose push or email, per notification type" back />
 
       <div className="px-5 py-4 sm:mx-auto sm:max-w-2xl">
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-4 text-xs leading-relaxed">
+          Push preferences take effect immediately. Email preferences are saved here for when email delivery goes live — no email is sent yet.
+        </p>
         <div className="rounded-2xl border overflow-hidden" style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}>
           <div className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b px-4 py-2.5" style={{ borderColor: C.parchmentDark }}>
             <span />

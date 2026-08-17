@@ -17,15 +17,15 @@ export function AddCertificationScreen() {
 
   const [name, setName] = useState('')
   const [issuer, setIssuer] = useState('')
-  const [uploaded, setUploaded] = useState(false)
+  const [file, setFile] = useState<File | null>(null)
   const [submitted, setSubmitted] = useState(false)
 
-  const canSubmit = name.trim() !== '' && issuer.trim() !== '' && uploaded
+  const canSubmit = name.trim() !== '' && issuer.trim() !== '' && file !== null
 
   const submit = async () => {
-    if (!canSubmit) return
+    if (!canSubmit || !file) return
     try {
-      await createCertification.mutateAsync({ name, issuer })
+      await createCertification.mutateAsync({ name, issuer, file })
       setSubmitted(true)
     } catch (err) {
       showToast({ title: 'Failed to submit certificate', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -71,12 +71,12 @@ export function AddCertificationScreen() {
         </div>
         <div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Certificate document</div>
-          <button
-            onClick={() => setUploaded(true)}
-            className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-            style={{ borderColor: uploaded ? C.forest : C.parchmentDark, background: uploaded ? 'var(--status-success-bg)' : C.white }}
+          <label
+            className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all cursor-pointer"
+            style={{ borderColor: file ? C.forest : C.parchmentDark, background: file ? 'var(--status-success-bg)' : C.white }}
           >
-            {uploaded ? (
+            <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {file ? (
               <>
                 <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
                   <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
@@ -97,7 +97,7 @@ export function AddCertificationScreen() {
                 <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">JPG, PNG or PDF</span>
               </>
             )}
-          </button>
+          </label>
         </div>
       </div>
 
