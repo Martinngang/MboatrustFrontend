@@ -130,8 +130,22 @@ export function OfflineQueueProvider({ children }: { children: ReactNode }) {
       if (navigator.onLine) {
         syncNow()
       } else if (backgroundSyncSupported) {
-        const reg = await navigator.serviceWorker.ready
-        await (reg as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register(SYNC_TAG)
+        // The item is already safely queued above regardless of what
+        // happens here — this just registers a second, OS-level trigger to
+        // wake the app when connectivity returns, on top of the `online`
+        // event listener (see below) that already covers the same case.
+        // A browser can refuse this for reasons that have nothing to do
+        // with whether queuing worked (background sync disabled by policy,
+        // engagement heuristics, no permission yet) — letting that reject
+        // the whole enqueue() call would leave the caller's UI stuck
+        // without ever showing its "saved for sync" confirmation, even
+        // though the evidence was never actually at risk.
+        try {
+          const reg = await navigator.serviceWorker.ready
+          await (reg as ServiceWorkerRegistration & { sync: { register: (tag: string) => Promise<void> } }).sync.register(SYNC_TAG)
+        } catch (err) {
+          console.warn('[offlineQueue] background sync registration failed — the online-event listener will still sync when connectivity returns', err)
+        }
       }
       return item
     },
