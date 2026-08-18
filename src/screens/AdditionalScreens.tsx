@@ -1709,6 +1709,7 @@ export function AdminFraudAnalyticsScreen() {
   // regardless of which heuristic flagged it first.
   const aiFlaggedFlags = (riskFlags ?? []).filter((f) => f.flagType === 'ai_flagged' || (f.aiRiskScore ?? 0) >= 70)
   const landListingRiskFlags = (riskFlags ?? []).filter((f) => f.flagType === 'land_listing_risk')
+  const escrowAnomalyFlags = (riskFlags ?? []).filter((f) => f.flagType === 'escrow_anomaly')
   const openDisputes = openDisputesData ?? []
   const kycIssues = [
     ...(rejectedKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Rejected' })),
@@ -1722,7 +1723,7 @@ export function AdminFraudAnalyticsScreen() {
   // Fetching each flagged id directly (any type, no cap) fixes that — this
   // is an admin-wide view, it needs to see every project a flag points to.
   const flaggedProjectIds = [...new Set(
-    [...reusedEvidenceFlags, ...duplicateGeotagFlags, ...aiFlaggedFlags]
+    [...reusedEvidenceFlags, ...duplicateGeotagFlags, ...aiFlaggedFlags, ...escrowAnomalyFlags]
       .map((f) => String(f.detail.projectId ?? ''))
       .filter(Boolean)
   )]
@@ -1810,6 +1811,26 @@ export function AdminFraudAnalyticsScreen() {
           sub: `${f.aiRiskScore != null ? `AI risk ${f.aiRiskScore}/100 · ` : ''}${f.severity} severity · ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
           onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined,
           aiNote: f.aiRationale,
+        }
+      }),
+    },
+    {
+      id: 'escrow-anomaly', icon: 'wallet', title: 'Escrow payout anomalies',
+      description: 'Milestone releases or refunds flagged for unusual velocity or amount — reviewed after the fact, never blocking a real payout.',
+      cases: escrowAnomalyFlags.map((f) => {
+        const projectId = String(f.detail.projectId ?? '')
+        const project = flaggedProjectById.get(projectId)
+        const reasons = (f.detail.reasons as { type: string }[] | undefined) ?? []
+        const reasonLabels: Record<string, string> = {
+          project_velocity: 'Multiple payouts on this project in quick succession',
+          amount_outlier: 'Payout far larger than this project’s typical milestone',
+          beneficiary_velocity: 'Multiple payouts to the same recipient in quick succession',
+        }
+        const reasonText = reasons.map((r) => reasonLabels[r.type] ?? r.type).join(' · ') || 'Flagged'
+        return {
+          label: project?.title ?? 'Unlinked project',
+          sub: `${reasonText} · ${f.severity} severity`,
+          onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined,
         }
       }),
     },
