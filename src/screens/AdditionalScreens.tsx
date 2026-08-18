@@ -14,8 +14,9 @@ import { useToast } from '../components/Toast'
 import { api, apiErrorMessage } from '../api/client'
 import { useUpsertMyContractorProfileMutation } from '../api/contractors'
 import { useBidsQuery } from '../api/tenders'
-import { useCreateRatingMutation } from '../api/reputation'
+import { useCreateRatingMutation, useRatingSummaryQuery } from '../api/reputation'
 import { useAllCertificationsQuery, useDecideCertificationMutation } from '../api/certifications'
+import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } from '../api/verifierProfiles'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
@@ -735,11 +736,16 @@ export function VerifierRegistrationScreen() {
   const nav = useNavigate()
   const { registerVerifier } = useVerification()
   const [step, setStep] = useState<'info' | 'id'>('info')
-  const [form, setForm] = useState({ name: '', phone: '', region: '' })
-  const [idUploaded, setIdUploaded] = useState(false)
+  const [form, setForm] = useState({ specialty: '', region: '', bio: '' })
+  const [idFile, setIdFile] = useState<File | null>(null)
 
   const finish = () => {
-    registerVerifier({ name: form.name || 'New Verifier', phone: form.phone, region: form.region || 'Cameroon', idUploaded })
+    registerVerifier({
+      specialties: form.specialty.trim() ? [form.specialty.trim()] : [],
+      regions: form.region.trim() ? [form.region.trim()] : [],
+      bio: form.bio.trim(),
+      file: idFile,
+    })
     nav('/verifier/dashboard')
   }
 
@@ -753,17 +759,16 @@ export function VerifierRegistrationScreen() {
         {step === 'info' ? (
           <>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">
-              Verifiers visit project and land sites in person to confirm that submitted evidence matches reality. You'll be assigned tasks near your region.
+              Verifiers visit project and land sites in person to confirm that submitted evidence matches reality. This starts a real application — an admin reviews it before you're granted the verifier role and start receiving assignments.
             </p>
             {[
-              { key: 'name', label: 'Full name', placeholder: 'e.g. Njikam Paul' },
-              { key: 'phone', label: 'Phone number', placeholder: '+237 6XX XXX XXX' },
+              { key: 'specialty', label: 'What do you verify?', placeholder: 'e.g. Water & Sanitation, Electrical' },
               { key: 'region', label: 'Region you cover', placeholder: 'e.g. North West Region' },
             ].map(({ key, label, placeholder }) => (
               <div key={key}>
                 <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">{label}</label>
                 <input
-                  value={form[key as keyof typeof form]}
+                  value={form[key as 'specialty' | 'region']}
                   onChange={(e) => setForm({ ...form, [key]: e.target.value })}
                   placeholder={placeholder}
                   className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
@@ -771,26 +776,42 @@ export function VerifierRegistrationScreen() {
                 />
               </div>
             ))}
-            <PillButton onClick={() => setStep('id')} fullWidth disabled={!form.name.trim() || !form.phone.trim()}>Next: ID verification</PillButton>
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Relevant experience (optional)</label>
+              <textarea
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                rows={3}
+                placeholder="e.g. 5 years as a site engineer, familiar with borehole and roofing inspections"
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+              />
+            </div>
+            <PillButton onClick={() => setStep('id')} fullWidth disabled={!form.specialty.trim() || !form.region.trim()}>Next: ID verification</PillButton>
           </>
         ) : (
           <>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">
-              Upload a government-issued ID. Verifiers must be identity-verified before receiving assignments.
+              Upload a government-issued ID. Verifiers must be identity-verified before an admin can approve their application.
             </p>
-            <button
-              onClick={() => setIdUploaded(true)}
-              className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all"
-              style={{ borderColor: idUploaded ? C.forest : C.parchmentDark, background: idUploaded ? 'var(--status-success-bg)' : C.white }}
+            <label
+              className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all cursor-pointer"
+              style={{ borderColor: idFile ? C.forest : C.parchmentDark, background: idFile ? 'var(--status-success-bg)' : C.white }}
             >
-              {idUploaded ? (
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                className="hidden"
+                onChange={(e) => setIdFile(e.target.files?.[0] ?? null)}
+              />
+              {idFile ? (
                 <>
                   <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
                     <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                       <path d="M4 11L9 16L18 6" stroke="white" strokeWidth="2" strokeLinecap="round" />
                     </svg>
                   </div>
-                  <span style={{ fontFamily: FONT.sans, color: C.forest }} className="text-sm font-semibold">ID uploaded</span>
+                  <span style={{ fontFamily: FONT.sans, color: C.forest }} className="text-sm font-semibold">{idFile.name}</span>
                 </>
               ) : (
                 <>
@@ -804,8 +825,8 @@ export function VerifierRegistrationScreen() {
                   <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">JPG, PNG or PDF</span>
                 </>
               )}
-            </button>
-            <PillButton onClick={finish} fullWidth disabled={!idUploaded}>Complete registration</PillButton>
+            </label>
+            <PillButton onClick={finish} fullWidth disabled={!idFile}>Complete registration</PillButton>
           </>
         )}
       </div>
@@ -817,21 +838,32 @@ export function VerifierRegistrationScreen() {
 export function VerifierDashboard() {
   const nav = useNavigate()
   const { verifierProfile } = useVerification()
-  const { devUserId } = useApp()
+  const { devUserId, name } = useApp()
   const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
+  const { data: ratingSummary } = useRatingSummaryQuery(devUserId ?? undefined)
   const verifierTasks = (rawTasks ?? []).map(mapVerificationTask)
   const [view, setView] = useState<'list' | 'map'>('list')
 
-  if (!verifierProfile) {
+  if (!verifierProfile || verifierProfile.applicationStatus !== 'approved') {
+    const isPending = verifierProfile?.applicationStatus === 'pending'
+    const isRejected = verifierProfile?.applicationStatus === 'rejected'
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: 'var(--status-info-bg)', color: 'var(--status-info-text)' }}>
-            <AppIcon name="compass" size={30} strokeWidth={1.5} />
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: isRejected ? 'var(--status-error-bg)' : 'var(--status-info-bg)', color: isRejected ? 'var(--status-error-text)' : 'var(--status-info-text)' }}>
+            <AppIcon name={isPending ? 'hourglass' : isRejected ? 'alert' : 'compass'} size={30} strokeWidth={1.5} />
           </div>
-          <div style={{ fontFamily: FONT.serif }} className="mb-2 text-lg font-bold">Register as a verifier</div>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-6 max-w-sm text-sm">Complete a short profile to start receiving verification assignments.</p>
-          <PillButton onClick={() => nav('/verifier/register')}>Get started</PillButton>
+          <div style={{ fontFamily: FONT.serif }} className="mb-2 text-lg font-bold">
+            {isPending ? 'Application under review' : isRejected ? "Application wasn't approved" : 'Register as a verifier'}
+          </div>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-6 max-w-sm text-sm">
+            {isPending
+              ? "An admin is reviewing your application. You'll start receiving assignments once approved."
+              : isRejected
+                ? 'You can update your application details and ID document, then resubmit for review.'
+                : 'Complete a short application to start receiving verification assignments.'}
+          </p>
+          {!isPending && <PillButton onClick={() => nav('/verifier/register')}>{isRejected ? 'Resubmit application' : 'Get started'}</PillButton>}
         </div>
       </AppShell>
     )
@@ -849,12 +881,12 @@ export function VerifierDashboard() {
       <DashboardShell>
         <DashboardHero
           eyebrow="Local Verifier"
-          title={verifierProfile.name}
+          title={verifierProfile.userName || name}
           background={`linear-gradient(135deg, ${C.moss} 0%, ${C.forest} 100%)`}
           stats={[
             { label: 'Pending', value: String(pending.length) },
             { label: 'In progress', value: String(inProgress.length) },
-            { label: 'Rating', value: verifierProfile.rating > 0 ? verifierProfile.rating.toFixed(1) : '—' },
+            { label: 'Rating', value: ratingSummary && ratingSummary.count > 0 ? ratingSummary.average!.toFixed(1) : '—' },
           ]}
           action={
             <button onClick={() => nav('/verifier/profile')} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
@@ -1165,14 +1197,17 @@ export function VerifierReportScreen() {
 
 // ── Verifier profile / reputation ──────────────────────────────────────────────
 export function VerifierProfileScreen() {
-  const { verifierProfile, verifierTasks } = useVerification()
-  const submittedTasks = verifierTasks.filter((t) => t.status === 'submitted')
+  const { name, devUserId } = useApp()
+  const { verifierProfile } = useVerification()
+  const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
+  const { data: ratingSummary } = useRatingSummaryQuery(devUserId ?? undefined)
+  const submittedTasks = (rawTasks ?? []).map(mapVerificationTask).filter((t) => t.status === 'submitted')
 
   if (!verifierProfile) {
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">You haven't registered as a verifier yet.</p>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">You haven't applied as a verifier yet.</p>
         </div>
       </AppShell>
     )
@@ -1183,11 +1218,11 @@ export function VerifierProfileScreen() {
       <Header title="Verifier Profile" back tone="dark" background={C.forest}>
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold" style={{ background: 'rgba(255,255,255,0.15)', fontFamily: FONT.serif }}>
-            {verifierProfile.name[0]}
+            {(verifierProfile.userName || name || '?')[0]}
           </div>
           <div>
-            <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{verifierProfile.name}</div>
-            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-wider mt-0.5">{verifierProfile.region}</div>
+            <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{verifierProfile.userName || name}</div>
+            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-wider mt-0.5">{verifierProfile.regions.join(', ') || 'No region set'}</div>
           </div>
         </div>
       </Header>
@@ -1195,9 +1230,9 @@ export function VerifierProfileScreen() {
       <div className="px-5 py-5 space-y-4 sm:mx-auto sm:max-w-2xl">
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Completed', value: String(verifierProfile.completedTasks) },
-            { label: 'Rating', value: verifierProfile.rating > 0 ? verifierProfile.rating.toFixed(1) : '—' },
-            { label: 'ID status', value: verifierProfile.idUploaded ? 'Verified' : 'Pending' },
+            { label: 'Completed', value: String(submittedTasks.length) },
+            { label: 'Rating', value: ratingSummary && ratingSummary.count > 0 ? ratingSummary.average!.toFixed(1) : '—' },
+            { label: 'Application', value: verifierProfile.applicationStatus === 'approved' ? 'Approved' : verifierProfile.applicationStatus === 'pending' ? 'Pending' : 'Rejected' },
           ].map(({ label, value }) => (
             <Card key={label}>
               <div className="p-3 text-center">
@@ -1207,6 +1242,17 @@ export function VerifierProfileScreen() {
             </Card>
           ))}
         </div>
+
+        {verifierProfile.specialties.length > 0 && (
+          <div>
+            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Specialties</p>
+            <div className="flex flex-wrap gap-2">
+              {verifierProfile.specialties.map((s) => (
+                <span key={s} className="rounded-full px-3 py-1 text-xs" style={{ background: C.parchment, color: C.inkMuted, fontFamily: FONT.sans }}>{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Recent reports</p>
@@ -1241,9 +1287,13 @@ export function AdminPanelScreen() {
   const { data: certifications = [] } = useAllCertificationsQuery()
   const decideCertificationMutation = useDecideCertificationMutation()
   const decideCertification = (certId: string, status: 'verified' | 'rejected') => decideCertificationMutation.mutate({ certId, status })
+  const { data: verifierApplications = [] } = useVerifierApplicationsQuery()
+  const decideVerifierApplicationMutation = useDecideVerifierApplicationMutation()
+  const decideVerifierApplication = (id: string, decision: 'approve' | 'reject') => decideVerifierApplicationMutation.mutate({ id, decision })
   const { data: openDisputes = [] } = useDisputesQuery({ status: 'open' })
   const [tab, setTab] = useState<'overview' | 'verifications' | 'disputes' | 'users'>('overview')
   const pendingCertifications = certifications.filter((c) => c.status === 'pending')
+  const pendingVerifierApplications = verifierApplications.filter((v) => v.applicationStatus === 'pending')
 
   const [roleFilter, setRoleFilter] = useState<string>('all')
   const { data: usersData, isLoading: usersLoading } = useAdminUsersQuery({ role: roleFilter === 'all' ? undefined : roleFilter, limit: 50 })
@@ -1329,8 +1379,34 @@ export function AdminPanelScreen() {
         {tab === 'verifications' && (
           <StaggerList className="space-y-3">
             <div className="rounded-xl p-3 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
-              <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">{pendingCertifications.length} pending certifications</div>
+              <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">{pendingVerifierApplications.length} pending verifier applications · {pendingCertifications.length} pending certifications</div>
             </div>
+
+            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Verifier applications</p>
+            {verifierApplications.map((v) => (
+              <Card key={v.id}>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{v.userName ?? 'Applicant'}</div>
+                    <StatusBadge status={v.applicationStatus === 'approved' ? 'verified' : v.applicationStatus === 'rejected' ? 'rejected' : 'pending'} />
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">
+                    {v.specialties.join(', ') || 'No specialties'} · {v.regions.join(', ') || 'No region'}
+                  </div>
+                  {v.applicationStatus === 'pending' && (
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={() => decideVerifierApplication(v.id, 'approve')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}>Approve</button>
+                      <button onClick={() => decideVerifierApplication(v.id, 'reject')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+            {verifierApplications.length === 0 && (
+              <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No verifier applications yet.</div></Card>
+            )}
+
+            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest pt-2">Contractor certifications</p>
             {certifications.map((c) => (
               <Card key={c.id}>
                 <div className="p-4">

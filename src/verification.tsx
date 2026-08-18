@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
+import { useApp } from './context'
+import {
+  useMyVerifierProfileQuery,
+  useUpsertVerifierProfileMutation,
+  type VerifierProfileRecord,
+} from './api/verifierProfiles'
 
 // ── Evidence metadata (anti-fraud indicators) ──────────────────────────────────
 // Type only — the real values now come from the backend's own evidence
@@ -43,15 +49,6 @@ export interface VerifierAssignment {
   eta: string
 }
 
-export interface VerifierProfile {
-  name: string
-  phone: string
-  region: string
-  idUploaded: boolean
-  completedTasks: number
-  rating: number
-}
-
 // ── Reputation & red flags ───────────────────────────────────────────────────────
 export type RiskLevel = 'new' | 'good_standing' | 'flagged'
 
@@ -64,56 +61,29 @@ export interface Approver {
   status: 'approved' | 'pending'
 }
 
-// ── Seed / mock data ────────────────────────────────────────────────────────────
-const SEED_VERIFIER_TASKS: VerifierTask[] = [
-  { id: 'vt1', type: 'milestone', projectId: 'p1', projectTitle: 'Borehole — Bamenda North', milestoneTitle: 'Drilling & casing', location: 'Bamenda, NW Region', dueDate: '24 Jul 2026', status: 'pending' },
-  { id: 'vt2', type: 'land', projectId: 'l1', projectTitle: '800m² residential plot — Bastos, Yaoundé', location: 'Bastos, Yaoundé', dueDate: '26 Jul 2026', status: 'pending' },
-  { id: 'vt3', type: 'milestone', projectId: 'p3', projectTitle: 'Maternity clinic renovation — Limbe', milestoneTitle: 'Foundation & walls', location: 'Limbe, SW Region', dueDate: '20 Jul 2026', status: 'in_progress' },
-  {
-    id: 'vt4', type: 'milestone', projectId: 'p2', projectTitle: 'Primary school roof — Maroua', milestoneTitle: 'Final roofing & inspection', location: 'Maroua, Far North', dueDate: '15 Jul 2026', status: 'submitted',
-    report: { match: true, notes: 'Roofing matches submitted proof. No issues observed on site.', photos: 3, submittedAt: '15 Jul 2026' },
-  },
-]
-
-const SEED_VERIFIER_PROFILE: VerifierProfile = {
-  name: 'Njikam P.', phone: '+237 677 000 111', region: 'North West Region', idUploaded: true, completedTasks: 47, rating: 4.9,
-}
-
 // ── Context ──────────────────────────────────────────────────────────────────────
+// Backed by the real verifier-profiles API (see api/verifierProfiles.ts) —
+// verifier is a trust-elevating role (Phase 0's role-escalation fix made it
+// admin-grant-only), so registerVerifier submits a real application for
+// admin review rather than granting anything itself.
 interface VerificationContextValue {
-  verifierProfile: VerifierProfile | null
-  registerVerifier: (p: Pick<VerifierProfile, 'name' | 'phone' | 'region' | 'idUploaded'>) => void
-
-  verifierTasks: VerifierTask[]
-  startTask: (taskId: string) => void
-  submitTaskReport: (taskId: string, report: { match: boolean; notes: string; photos: number }) => void
+  verifierProfile: VerifierProfileRecord | null | undefined
+  registerVerifier: (input: { specialties: string[]; regions: string[]; bio?: string; file?: File | null }) => void
 }
 
 const VerificationContext = createContext<VerificationContextValue>({} as VerificationContextValue)
 
 export function VerificationProvider({ children }: { children: ReactNode }) {
-  const [verifierProfile, setVerifierProfile] = useState<VerifierProfile | null>(SEED_VERIFIER_PROFILE)
-  const [verifierTasks, setVerifierTasks] = useState<VerifierTask[]>(SEED_VERIFIER_TASKS)
+  const { isLoggedIn } = useApp()
+  const { data: verifierProfile } = useMyVerifierProfileQuery(isLoggedIn)
+  const upsert = useUpsertVerifierProfileMutation()
 
-  const registerVerifier = (p: Pick<VerifierProfile, 'name' | 'phone' | 'region' | 'idUploaded'>) => {
-    setVerifierProfile({ ...p, completedTasks: 0, rating: 0 })
-  }
-
-  const startTask = (taskId: string) => {
-    setVerifierTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, status: 'in_progress' } : t)))
-  }
-  const submitTaskReport = (taskId: string, report: { match: boolean; notes: string; photos: number }) => {
-    setVerifierTasks((ts) => ts.map((t) => (t.id === taskId ? { ...t, status: 'submitted', report: { ...report, submittedAt: 'Just now' } } : t)))
-    setVerifierProfile((p) => (p ? { ...p, completedTasks: p.completedTasks + 1 } : p))
+  const registerVerifier = (input: { specialties: string[]; regions: string[]; bio?: string; file?: File | null }) => {
+    upsert.mutate(input)
   }
 
   return (
-    <VerificationContext.Provider
-      value={{
-        verifierProfile, registerVerifier,
-        verifierTasks, startTask, submitTaskReport,
-      }}
-    >
+    <VerificationContext.Provider value={{ verifierProfile, registerVerifier }}>
       {children}
     </VerificationContext.Provider>
   )
