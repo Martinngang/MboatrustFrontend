@@ -16,6 +16,7 @@ import { useFeeCalculation } from '../feeConfig'
 import { ChipGroup } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { Switch } from '../components/Switch'
 import { ConfirmDialog, Modal } from '../components/Modal'
 import { AppIcon } from '../components/icons'
@@ -98,6 +99,13 @@ export function BrowseProjectsScreen() {
             illustration="tilt"
           />
         ) : (
+          <DeferredReveal
+            skeleton={
+              <div className="space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+                {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} className="h-56" />)}
+              </div>
+            }
+          >
           <StaggerList className="space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
             {filtered.map((p) => {
               const pct = Math.round((p.raised / p.totalAmount) * 100)
@@ -136,6 +144,7 @@ export function BrowseProjectsScreen() {
               )
             })}
           </StaggerList>
+          </DeferredReveal>
         )}
       </div>
     </AppShell>
@@ -449,7 +458,7 @@ export function CreateProjectScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={proceed} fullWidth disabled={step === 'details' && !canContinue}>
           {step === 'details' ? 'Continue' : 'Next: Define milestones'}
         </PillButton>
@@ -627,7 +636,7 @@ export function MilestonesScreen() {
         </div>
       </Modal>
 
-      <div className="px-5 pb-8 pt-4 border-t" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={proceed} fullWidth disabled={!milestones.some((m) => m.title.trim() && Number(m.amount) > 0)}>
           Save &amp; continue to payment
         </PillButton>
@@ -831,7 +840,7 @@ export function FundProjectScreen() {
         <KycGateBanner amount={amount} />
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={() => step === 'select' ? setStep('confirm') : confirmPayment()} fullWidth disabled={kycBlocked || submitting}>
           {submitting ? 'Processing…' : step === 'select' ? `Pay ${fmt(amount)} via ${method === 'momo' ? 'MTN MoMo' : 'Orange Money'}` : 'Confirm payment'}
         </PillButton>
@@ -1067,7 +1076,7 @@ export function MilestoneReviewScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t space-y-3 backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         {requiresMultiSig && myApprovalDone ? (
           <div className="rounded-xl border p-3 text-center" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
             <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">Your sign-off is recorded — waiting on the other approvers before funds release.</span>
@@ -1192,7 +1201,7 @@ export function VideoVerificationScheduleScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={confirm} fullWidth disabled={!date || !time || !meetingUrl || !existing || scheduleSession.isPending}>
           {scheduleSession.isPending ? 'Scheduling…' : 'Confirm call time'}
         </PillButton>
@@ -1281,7 +1290,7 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={() => setConfirming(true)} fullWidth disabled={!type}>
           Submit dispute
         </PillButton>
