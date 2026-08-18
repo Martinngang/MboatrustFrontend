@@ -24,7 +24,18 @@ export function PooledFundingScreen() {
   const nav = useNavigate()
   const { id } = useParams()
   const { projects, devUserId } = useApp()
-  const project = projects.find((p) => p.id === id) ?? projects[0]
+  const foundProject = projects.find((p) => p.id === id)
+  if (id && !foundProject) {
+    return (
+      <AppShell>
+        <Header title="Group Funding" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="handshake" title="Project not found" description="This project may have been removed, or the link is incorrect." />
+        </div>
+      </AppShell>
+    )
+  }
+  const project = foundProject ?? projects[0]
   const { data: list = [], isLoading: listLoading } = usePooledContributionsQuery({ projectId: project.id })
   const pct = Math.round((project.raised / project.totalAmount) * 100)
   const shareLink = `mboatrust.app/#/funder/project/${project.id}`
@@ -129,7 +140,18 @@ export function InviteCoFunderScreen() {
   const { projectId } = useParams()
   const { projects } = useApp()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === projectId) ?? projects[0]
+  const foundProject = projects.find((p) => p.id === projectId)
+  if (projectId && !foundProject) {
+    return (
+      <AppShell>
+        <Header title="Invite a Co-funder" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="handshake" title="Project not found" description="This project may have been removed, or the link is incorrect." />
+        </div>
+      </AppShell>
+    )
+  }
+  const project = foundProject ?? projects[0]
   const inviteCoFunder = useInviteCoFunderMutation()
 
   const [query, setQuery] = useState('')
@@ -242,7 +264,18 @@ export function RecurringContributionSetupScreen() {
   const { projectId } = useParams()
   const { projects, phone } = useApp()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === projectId) ?? projects[0]
+  const foundProject = projects.find((p) => p.id === projectId)
+  if (projectId && !foundProject) {
+    return (
+      <AppShell>
+        <Header title="Recurring Contribution" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="refresh" title="Project not found" description="This project may have been removed, or the link is incorrect." />
+        </div>
+      </AppShell>
+    )
+  }
+  const project = foundProject ?? projects[0]
   const contribute = useContributeMutation()
 
   const [amount, setAmount] = useState('')

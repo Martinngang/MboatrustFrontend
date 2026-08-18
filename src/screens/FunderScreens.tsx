@@ -157,7 +157,20 @@ export function ProjectDetailScreen() {
   const { id } = useParams()
   const { projects, devUserId } = useApp()
   const { show: showToast } = useToast()
-  const p = projects.find((x) => x.id === id) ?? projects[0]
+  // id undefined (no specific project requested) falls back to projects[0]
+  // as before; id given but not found must NOT silently substitute a
+  // different real project — that's a fund/message screen, not read-only.
+  const found = projects.find((x) => x.id === id)
+  if (id && !found) {
+    return (
+      <AppShell noNav>
+        <div className="px-5 py-5">
+          <EmptyState icon="clipboard" title="Project not found" description="This project may have been removed, or the link is incorrect." action={<PillButton onClick={() => nav('/home')}>Back to home</PillButton>} />
+        </div>
+      </AppShell>
+    )
+  }
+  const p = found ?? projects[0]
   const pct = Math.round((p.raised / p.totalAmount) * 100)
   const startConversation = useStartConversationMutation(devUserId)
 
@@ -313,7 +326,18 @@ export function RecipientProfileScreen() {
   const nav = useNavigate()
   const { id } = useParams()
   const { projects } = useApp()
-  const anchor = projects.find((p) => p.id === id) ?? projects[0]
+  const foundAnchor = projects.find((p) => p.id === id)
+  if (id && !foundAnchor) {
+    return (
+      <AppShell>
+        <Header title="Recipient" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="user" title="Project not found" description="This project may have been removed, or the link is incorrect." />
+        </div>
+      </AppShell>
+    )
+  }
+  const anchor = foundAnchor ?? projects[0]
   const recipientProjects = projects.filter((p) => p.recipient === anchor.recipient)
   const totalReceived = recipientProjects.flatMap((p) => p.milestones).filter((m) => m.status === 'released').reduce((s, m) => s + m.amount, 0)
 
@@ -1109,7 +1133,18 @@ export function VideoVerificationScheduleScreen() {
   const { projectId, milestoneId } = useParams()
   const { projects } = useApp()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === projectId) ?? projects[0]
+  const foundProject = projects.find((p) => p.id === projectId)
+  if (projectId && !foundProject) {
+    return (
+      <AppShell noNav>
+        <Header title="Video Verification" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="video" title="Project not found" description="This project may have been removed, or the link is incorrect." />
+        </div>
+      </AppShell>
+    )
+  }
+  const project = foundProject ?? projects[0]
   const milestone = project.milestones.find((m) => m.id === milestoneId) ?? project.milestones[0]
 
   const { data: sessions = [], isLoading } = useVideoSessionsQuery(project.id, milestone.id)

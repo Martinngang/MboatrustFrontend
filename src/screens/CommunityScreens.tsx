@@ -431,27 +431,6 @@ interface ShowcaseProject {
   completedDate: string
 }
 
-const SEED_SHOWCASE: ShowcaseProject[] = [
-  {
-    id: 'sc1', title: 'Community borehole — Bafoussam', category: 'Water & Sanitation', region: 'West Region',
-    beforeImage: 'https://images.unsplash.com/photo-1594818379496-da1e345b0ded?w=500&h=340&fit=crop&auto=format',
-    afterImage: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=500&h=340&fit=crop&auto=format',
-    fundedAmount: 2100000, completedDate: 'Mar 2026',
-  },
-  {
-    id: 'sc2', title: 'Village health post — Ebolowa', category: 'Healthcare', region: 'South Region',
-    beforeImage: 'https://images.unsplash.com/photo-1590212151175-e58edd96185b?w=500&h=340&fit=crop&auto=format',
-    afterImage: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=500&h=340&fit=crop&auto=format',
-    fundedAmount: 3400000, completedDate: 'Jan 2026',
-  },
-  {
-    id: 'sc3', title: 'Market stall roofing — Kumba', category: 'Infrastructure', region: 'SW Region',
-    beforeImage: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=500&h=340&fit=crop&auto=format',
-    afterImage: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=500&h=340&fit=crop&auto=format',
-    fundedAmount: 1250000, completedDate: 'Nov 2025',
-  },
-]
-
 const SHOWCASE_FALLBACK_BEFORE = 'https://images.unsplash.com/photo-1594818379496-da1e345b0ded?w=500&h=340&fit=crop&auto=format'
 
 export function PublicShowcaseScreen() {
@@ -473,7 +452,7 @@ export function PublicShowcaseScreen() {
       completedDate: 'Completed',
     }))
 
-  const all = [...SEED_SHOWCASE, ...realCompleted]
+  const all = realCompleted
   const categories = ['All', ...Array.from(new Set(all.map((p) => p.category)))]
   const regions = ['All', ...Array.from(new Set(all.map((p) => p.region)))]
   const filtered = all.filter((p) => (category === 'All' || p.category === category) && (region === 'All' || p.region === region))
