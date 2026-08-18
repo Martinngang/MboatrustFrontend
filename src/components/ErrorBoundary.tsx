@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { C, FONT } from './tokens'
+import { api } from '../api/client'
 
 /** Catches a render crash in the routed screen content only — Sidebar/
  * TopBar/BottomNav live outside this boundary (as AppShell siblings of
@@ -16,6 +17,14 @@ export class ScreenErrorBoundary extends Component<{ children: ReactNode }, { er
 
   componentDidCatch(error: Error, info: { componentStack: string }) {
     console.error('[ScreenErrorBoundary]', error, info.componentStack)
+    // Best-effort, swallowed on failure — a crash report must never itself
+    // crash or block the fallback UI from rendering. Unauthenticated on the
+    // backend (POST /system-events) since a crash can happen before login.
+    api.post('/system-events', {
+      type: 'frontend_crash',
+      source: 'ScreenErrorBoundary',
+      detail: { message: error.message, stack: error.stack?.slice(0, 2000), componentStack: info.componentStack?.slice(0, 2000), path: window.location.hash },
+    }).catch(() => {})
   }
 
   render() {

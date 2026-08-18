@@ -23,6 +23,36 @@ export function usePlatformStatsQuery() {
   })
 }
 
+// ── System health (admin) ────────────────────────────────────────────────
+export interface SystemEvent {
+  _id: string
+  type: string
+  severity: 'info' | 'warning' | 'error'
+  source: string
+  detail: Record<string, unknown>
+  userId: string | null
+  createdAt: string
+}
+export interface SystemHealth {
+  db: { connected: boolean }
+  config: Record<string, boolean>
+  since: string
+  countByType: Record<string, number>
+  countBySeverity: Record<string, number>
+  recentEvents: SystemEvent[]
+}
+
+export function useSystemHealthQuery() {
+  return useQuery({
+    queryKey: ['systemHealth'],
+    queryFn: async (): Promise<SystemHealth> => {
+      const { data } = await api.get<{ data: SystemHealth }>('/admin/system-health')
+      return data.data
+    },
+    staleTime: 15_000,
+  })
+}
+
 // ── Admin user management ───────────────────────────────────────────────
 export interface AdminUser {
   id: string

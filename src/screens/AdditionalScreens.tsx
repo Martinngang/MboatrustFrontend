@@ -21,7 +21,7 @@ import { useContractsQuery, useCompleteContractMutation, useTerminateContractMut
 import { useProjectQuery } from '../api/projects'
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
 import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
-import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation } from '../api/admin'
+import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation, useSystemHealthQuery } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
 
@@ -1352,7 +1352,8 @@ export function AdminPanelScreen() {
   const decideVerifierApplicationMutation = useDecideVerifierApplicationMutation()
   const decideVerifierApplication = (id: string, decision: 'approve' | 'reject') => decideVerifierApplicationMutation.mutate({ id, decision })
   const { data: openDisputes = [] } = useDisputesQuery({ status: 'open' })
-  const [tab, setTab] = useState<'overview' | 'verifications' | 'disputes' | 'users'>('overview')
+  const { data: systemHealth } = useSystemHealthQuery()
+  const [tab, setTab] = useState<'overview' | 'verifications' | 'disputes' | 'users' | 'health'>('overview')
   const pendingCertifications = certifications.filter((c) => c.status === 'pending')
   const pendingVerifierApplications = verifierApplications.filter((v) => v.applicationStatus === 'pending')
 
@@ -1387,7 +1388,7 @@ export function AdminPanelScreen() {
     <AppShell>
       <Header title="Admin Panel" back>
         <Tabs
-          tabs={[{ id: 'overview', label: 'Overview' }, { id: 'verifications', label: 'Verifications' }, { id: 'disputes', label: 'Disputes' }, { id: 'users', label: 'Users' }]}
+          tabs={[{ id: 'overview', label: 'Overview' }, { id: 'verifications', label: 'Verifications' }, { id: 'disputes', label: 'Disputes' }, { id: 'users', label: 'Users' }, { id: 'health', label: 'System Health' }]}
           value={tab}
           onChange={(v) => setTab(v as typeof tab)}
           variant="pill"
@@ -1568,6 +1569,86 @@ export function AdminPanelScreen() {
               </Card>
             ))}
           </StaggerList>
+        )}
+
+        {tab === 'health' && (
+          <div className="space-y-4">
+            <Card>
+              <div className="p-4 flex items-center gap-3">
+                <div
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ background: systemHealth?.db.connected ? C.forest : 'var(--status-error-text)' }}
+                />
+                <div>
+                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">
+                    {systemHealth ? (systemHealth.db.connected ? 'Database connected' : 'Database disconnected') : 'Checking…'}
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">
+                    Events shown from the last 7 days
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {systemHealth && (
+              <div>
+                <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Integrations configured</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(systemHealth.config).map(([name, configured]) => (
+                    <span
+                      key={name}
+                      className="rounded-full px-3 py-1 text-xs capitalize"
+                      style={{
+                        background: configured ? 'var(--status-success-bg)' : C.parchment,
+                        color: configured ? 'var(--status-success-text)' : C.inkMuted,
+                        fontFamily: FONT.sans,
+                      }}
+                    >
+                      {name} {configured ? '✓' : '—'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {systemHealth && Object.keys(systemHealth.countBySeverity).length > 0 && (
+              <div>
+                <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Events by severity</p>
+                <div className="grid grid-cols-3 gap-3">
+                  {(['error', 'warning', 'info'] as const).map((severity) => (
+                    <Card key={severity}>
+                      <div className="p-3 text-center">
+                        <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{systemHealth.countBySeverity[severity] ?? 0}</div>
+                        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5 capitalize">{severity}</div>
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Recent events</p>
+              <div className="space-y-2">
+                {(systemHealth?.recentEvents ?? []).length === 0 && (
+                  <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No system events recorded.</div></Card>
+                )}
+                {(systemHealth?.recentEvents ?? []).map((e) => (
+                  <Card key={e._id}>
+                    <div className="p-3">
+                      <div className="flex items-start justify-between gap-2 mb-0.5">
+                        <div style={{ fontFamily: FONT.sans }} className="text-xs font-semibold">{e.type}</div>
+                        <StatusBadge status={e.severity === 'error' ? 'rejected' : e.severity === 'warning' ? 'pending' : 'verified'} />
+                      </div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">
+                        {e.source} · {new Date(e.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </AppShell>
