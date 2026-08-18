@@ -177,7 +177,7 @@ export function JobDetailScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t space-y-3 backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={() => nav(`/contractor/bid/${job.id}`)} fullWidth>Submit a bid</PillButton>
         <PillButton onClick={() => nav('/funder/contractors')} variant="secondary" fullWidth>Compare with other contractors</PillButton>
       </div>
@@ -295,7 +295,7 @@ export function SubmitBidScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!form.price || submitting}>{submitting ? 'Submitting…' : 'Submit bid'}</PillButton>
       </div>
     </AppShell>
@@ -324,6 +324,13 @@ export function MyBidsScreen() {
           />
         </div>
       ) : (
+      <DeferredReveal
+        skeleton={
+          <div className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-32" />)}
+          </div>
+        }
+      >
       <StaggerList className="px-5 py-4 space-y-3 sm:grid sm:grid-cols-2 sm:gap-3 sm:space-y-0">
         {rows.map((bid, i) => {
           const job = jobs.find((j) => j.id === bid.jobId)
@@ -357,6 +364,7 @@ export function MyBidsScreen() {
           )
         })}
       </StaggerList>
+      </DeferredReveal>
       )}
     </AppShell>
   )
