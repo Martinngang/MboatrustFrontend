@@ -19,7 +19,7 @@ import { useAllCertificationsQuery, useDecideCertificationMutation } from '../ap
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
-import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask } from '../api/reputation'
+import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask } from '../api/reputation'
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
@@ -1522,6 +1522,12 @@ interface FlaggedCase {
   sub: string
   onOpen?: () => void
   compactBadge?: ReactNode
+  /** Gemini's one-line "why this looks suspicious" — only present when the
+   * AI second opinion actually ran and returned something (see
+   * evidenceAnalysisService.getAiSecondOpinion). Rendered as a distinct
+   * italic note, not folded into `sub`, so it reads as "the AI said" rather
+   * than as another heuristic fact. */
+  aiNote?: string | null
 }
 
 interface FlaggedPattern {
@@ -1538,6 +1544,7 @@ export function AdminFraudAnalyticsScreen() {
   const { data: pendingKycUsers, isError: pendingKycError } = useAdminUsersQuery({ kycStatus: 'pending', limit: 50 })
   const { data: rejectedKycUsers, isError: rejectedKycError } = useAdminUsersQuery({ kycStatus: 'rejected', limit: 50 })
   const { data: riskFlags, isError: riskFlagsError } = useRiskFlagsQuery()
+  const { data: riskSummary } = useRiskFlagSummaryQuery()
   const { data: openDisputesData } = useDisputesQuery({ status: 'open' })
   const [activePatternId, setActivePatternId] = useState<string | null>(null)
 
@@ -1545,6 +1552,12 @@ export function AdminFraudAnalyticsScreen() {
   const disputedListings = landListings.filter((l) => l.disputed)
   const reusedEvidenceFlags = (riskFlags ?? []).filter((f) => f.flagType === 'reused_evidence')
   const multipleDisputeFlags = (riskFlags ?? []).filter((f) => f.flagType === 'multiple_disputes')
+  const duplicateGeotagFlags = (riskFlags ?? []).filter((f) => f.flagType === 'duplicate_geotag')
+  // ai_flagged is its own flagType, but reused_evidence/duplicate_geotag
+  // flags can *also* carry an AI second opinion (aiRiskScore set) — this
+  // pattern is specifically "the AI weighed in and rated it high-risk",
+  // regardless of which heuristic flagged it first.
+  const aiFlaggedFlags = (riskFlags ?? []).filter((f) => f.flagType === 'ai_flagged' || (f.aiRiskScore ?? 0) >= 70)
   const openDisputes = openDisputesData ?? []
   const kycIssues = [
     ...(rejectedKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Rejected' })),
@@ -1557,7 +1570,11 @@ export function AdminFraudAnalyticsScreen() {
   // resolve to "Unlinked project" here even though the project is real.
   // Fetching each flagged id directly (any type, no cap) fixes that — this
   // is an admin-wide view, it needs to see every project a flag points to.
-  const flaggedProjectIds = [...new Set(reusedEvidenceFlags.map((f) => String(f.detail.projectId ?? '')).filter(Boolean))]
+  const flaggedProjectIds = [...new Set(
+    [...reusedEvidenceFlags, ...duplicateGeotagFlags, ...aiFlaggedFlags]
+      .map((f) => String(f.detail.projectId ?? ''))
+      .filter(Boolean)
+  )]
   const flaggedProjectQueries = useQueries({
     queries: flaggedProjectIds.map((id) => ({
       queryKey: ['project', id],
@@ -1590,7 +1607,42 @@ export function AdminFraudAnalyticsScreen() {
       cases: reusedEvidenceFlags.map((f) => {
         const projectId = String(f.detail.projectId ?? '')
         const project = flaggedProjectById.get(projectId)
-        return { label: project?.title ?? 'Unlinked project', sub: `Flagged ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`, onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined }
+        const aiSuffix = f.aiRiskScore != null ? ` · AI risk ${f.aiRiskScore}/100` : ''
+        return {
+          label: project?.title ?? 'Unlinked project',
+          sub: `Flagged ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${aiSuffix}`,
+          onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined,
+          aiNote: f.aiRationale,
+        }
+      }),
+    },
+    {
+      id: 'duplicate-geotag', icon: 'mapPin', title: 'Duplicate geotag flags',
+      description: 'Milestone evidence whose GPS location doesn’t match the project site, or repeats a location already used elsewhere — a sign the photo wasn’t taken where it claims.',
+      cases: duplicateGeotagFlags.map((f) => {
+        const projectId = String(f.detail.projectId ?? '')
+        const project = flaggedProjectById.get(projectId)
+        const aiSuffix = f.aiRiskScore != null ? ` · AI risk ${f.aiRiskScore}/100` : ''
+        return {
+          label: project?.title ?? 'Unlinked project',
+          sub: `Flagged ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${aiSuffix}`,
+          onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined,
+          aiNote: f.aiRationale,
+        }
+      }),
+    },
+    {
+      id: 'ai-flagged', icon: 'sparkles', title: 'AI-flagged high risk',
+      description: 'Evidence Gemini rated as high-risk on a second opinion, or flagged directly — review these first; the AI only weighs in when a heuristic already looked off.',
+      cases: aiFlaggedFlags.map((f) => {
+        const projectId = String(f.detail.projectId ?? '')
+        const project = flaggedProjectById.get(projectId)
+        return {
+          label: project?.title ?? 'Unlinked project',
+          sub: `${f.aiRiskScore != null ? `AI risk ${f.aiRiskScore}/100 · ` : ''}${f.severity} severity · ${new Date(f.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
+          onOpen: project ? () => nav(`/funder/project/${projectId}`) : undefined,
+          aiNote: f.aiRationale,
+        }
       }),
     },
     {
@@ -1642,6 +1694,21 @@ export function AdminFraudAnalyticsScreen() {
       <Header title="Fraud & Dispute Analytics" subtitle="Flagged patterns across the platform" back />
 
       <div className="px-5 py-5 space-y-3 sm:mx-auto sm:max-w-3xl">
+        {riskSummary && riskSummary.aiFlaggedCount > 0 && (
+          <Card variant="glass">
+            <div className="p-4 flex items-center gap-4">
+              <span style={{ color: C.forest }}><AppIcon name="sparkles" size={20} /></span>
+              <div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">
+                  Gemini has weighed in on {riskSummary.aiFlaggedCount} flagged item{riskSummary.aiFlaggedCount === 1 ? '' : 's'}
+                </div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mt-0.5">
+                  Average AI risk score: {riskSummary.avgAiRiskScore != null ? Math.round(riskSummary.avgAiRiskScore) : '—'}/100
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
         <StaggerList className="grid gap-3 sm:grid-cols-2">
           {patterns.map((p) => (
             <StaggerItem key={p.id}>
@@ -1674,6 +1741,9 @@ export function AdminFraudAnalyticsScreen() {
                         <div className="min-w-0">
                           <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{c.label}</div>
                           <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{c.sub}</div>
+                          {c.aiNote && (
+                            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs italic mt-1.5 leading-relaxed">"{c.aiNote}"</p>
+                          )}
                         </div>
                         {c.compactBadge}
                       </div>

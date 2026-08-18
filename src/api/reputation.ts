@@ -118,20 +118,42 @@ export function useResolveDisputeMutation() {
 export interface BackendRiskFlag {
   _id: string
   userId: { _id: string; fullName: string } | string
-  flagType: 'multiple_disputes' | 'duplicate_geotag' | 'reused_evidence'
+  flagType: 'multiple_disputes' | 'duplicate_geotag' | 'reused_evidence' | 'ai_flagged'
   severity: 'low' | 'medium' | 'high'
   detail: Record<string, unknown>
+  /** Set only when Gemini returned a usable second opinion on flagged
+   * evidence (see evidenceAnalysisService.getAiSecondOpinion) — null
+   * whenever AI is unconfigured/disabled/timed out, never an error state. */
+  aiRiskScore: number | null
+  aiRationale: string | null
   createdAt: string
 }
 
-export function useRiskFlagsQuery() {
+export function useRiskFlagsQuery(filter: { flagType?: string; severity?: string; minAiRiskScore?: number } = {}) {
   return useQuery({
-    queryKey: ['riskFlags'],
+    queryKey: ['riskFlags', filter],
     queryFn: async (): Promise<BackendRiskFlag[]> => {
-      const { data } = await api.get<{ data: BackendRiskFlag[] }>('/risk-flags')
+      const { data } = await api.get<{ data: BackendRiskFlag[] }>('/risk-flags', { params: filter })
       return data.data
     },
     staleTime: 10_000,
+  })
+}
+
+export interface RiskFlagSummary {
+  countByFlagType: Record<string, number>
+  countBySeverity: Record<string, number>
+  avgAiRiskScore: number | null
+  aiFlaggedCount: number
+}
+export function useRiskFlagSummaryQuery() {
+  return useQuery({
+    queryKey: ['riskFlagSummary'],
+    queryFn: async (): Promise<RiskFlagSummary> => {
+      const { data } = await api.get<{ data: RiskFlagSummary }>('/risk-flags/summary')
+      return data.data
+    },
+    staleTime: 30_000,
   })
 }
 
