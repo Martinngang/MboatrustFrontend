@@ -41,7 +41,7 @@ export function TeamManagementScreen() {
 
       <div className="px-5 py-4">
         <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-4 text-xs leading-relaxed">
-          A preview of who's on your team. Roles here don't send an email invite or restrict access elsewhere in the app yet, and the list resets when you reload.
+          Who's on your team. Inviting someone doesn't send an email yet — let them know directly — and roles here don't restrict access elsewhere in the app yet, but the list is saved to your account.
         </p>
         <StaggerList className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">
           {members.map((m) => (

@@ -25,7 +25,7 @@ export function TemplatesScreen() {
       <div className="px-5 py-4">
         {templates.length > 0 && (
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-4 text-xs leading-relaxed">
-            Templates you save here are ready to reuse for the rest of this session, but aren't stored on your account yet — they reset the next time you reload.
+            Templates you save here are stored on your account and ready to reuse any time you set up a new project.
           </p>
         )}
         {templates.length === 0 ? (

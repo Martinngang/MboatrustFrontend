@@ -1,66 +1,42 @@
-import { createContext, useContext, useState, type ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
+import { useApp } from './context'
+import {
+  useProjectTemplatesQuery,
+  useCreateProjectTemplateMutation,
+  useDeleteProjectTemplateMutation,
+  type ProjectTemplateRecord,
+  type TemplateMilestoneRecord,
+} from './api/projectTemplates'
 
-export interface TemplateMilestone {
-  title: string
-  amount: number
-  description: string
-}
-
-export interface ProjectTemplate {
-  id: string
-  name: string
-  category: string
-  milestones: TemplateMilestone[]
-}
+export type TemplateMilestone = TemplateMilestoneRecord
+export type ProjectTemplate = ProjectTemplateRecord
 
 interface TemplatesState {
   templates: ProjectTemplate[]
-  addTemplate: (t: Omit<ProjectTemplate, 'id'>) => ProjectTemplate
+  addTemplate: (t: Omit<ProjectTemplate, 'id'>) => void
   deleteTemplate: (id: string) => void
 }
 
 const TemplatesContext = createContext<TemplatesState | null>(null)
 
-let idCounter = 1
-const nextId = () => `tpl${idCounter++}`
-
-const SEED_TEMPLATES: ProjectTemplate[] = [
-  {
-    id: 'tpl-seed-1',
-    name: 'Borehole / water point',
-    category: 'Water & Sanitation',
-    milestones: [
-      { title: 'Site survey & permits', amount: 400000, description: 'Site assessment, permits, community sign-off' },
-      { title: 'Drilling & casing', amount: 1400000, description: 'Drilling, casing installation, water testing' },
-      { title: 'Pump installation & testing', amount: 1400000, description: 'Pump install, commissioning, handover' },
-    ],
-  },
-  {
-    id: 'tpl-seed-2',
-    name: 'Roof repair',
-    category: 'Housing',
-    milestones: [
-      { title: 'Materials procurement', amount: 300000, description: 'Roofing sheets, timber, fixings' },
-      { title: 'Structural work', amount: 400000, description: 'Frame repair and reinforcement' },
-      { title: 'Final roofing & inspection', amount: 200000, description: 'Roofing, sealing, final inspection' },
-    ],
-  },
-]
-
 /** Lets funders save a project's milestone breakdown as a reusable template
- * for recurring project types, and reapply one when starting a new project
- * (see MilestonesScreen). Frontend-only state, consistent with the rest of
- * the app's mock data model. */
+ * and reapply one when starting a new project (see MilestonesScreen).
+ * Backed by the real project-templates API — thin context bridge so every
+ * existing useTemplates() call site keeps working unchanged. Mutations are
+ * fire-and-forget, matching the original synchronous-looking
+ * addTemplate/deleteTemplate shape — no call site awaits or reads the
+ * return value. */
 export function TemplatesProvider({ children }: { children: ReactNode }) {
-  const [templates, setTemplates] = useState<ProjectTemplate[]>(SEED_TEMPLATES)
+  const { isLoggedIn } = useApp()
+  const { data: templates = [] } = useProjectTemplatesQuery(isLoggedIn)
+  const create = useCreateProjectTemplateMutation()
+  const remove = useDeleteProjectTemplateMutation()
 
   const addTemplate = (t: Omit<ProjectTemplate, 'id'>) => {
-    const created = { ...t, id: nextId() }
-    setTemplates((ts) => [created, ...ts])
-    return created
+    create.mutate(t)
   }
   const deleteTemplate = (id: string) => {
-    setTemplates((ts) => ts.filter((t) => t.id !== id))
+    remove.mutate(id)
   }
 
   return (
