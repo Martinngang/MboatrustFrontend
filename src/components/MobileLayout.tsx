@@ -233,32 +233,32 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
 // eating a tab; "Menu" is the hub for everything else (see ProfileScreen).
 export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths: string[] }[]> = {
   funder: [
-    { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <GridIcon />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/create'] },
-    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
-    { icon: <ReceiptIcon />, label: 'Activity', paths: ['/activity'] },
-    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
+    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/create'] },
+    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
+    { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   recipient: [
-    { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <GridIcon />, label: 'Projects', paths: ['/recipient/projects', '/recipient/submit', '/recipient/submission-status', '/recipient/history'] },
-    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
-    { icon: <WalletIcon />, label: 'Wallet', paths: ['/recipient/withdrawal'] },
-    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
+    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/recipient/projects', '/recipient/submit', '/recipient/submission-status', '/recipient/history'] },
+    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
+    { icon: <AppIcon name="wallet" size={20} />, label: 'Wallet', paths: ['/recipient/withdrawal'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   contractor: [
-    { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <BriefcaseIcon />, label: 'Jobs', paths: ['/workspace/jobs', '/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
-    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
-    { icon: <WalletIcon />, label: 'Earnings', paths: ['/contractor/earnings'] },
-    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
+    { icon: <AppIcon name="briefcase" size={20} />, label: 'Jobs', paths: ['/workspace/jobs', '/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
+    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
+    { icon: <AppIcon name="wallet" size={20} />, label: 'Earnings', paths: ['/contractor/earnings'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   seller: [
-    { icon: <HomeIcon />, label: 'Home', paths: ['/home'] },
-    { icon: <MapIcon />, label: 'Browse', paths: ['/workspace/land', '/land/browse', '/land/listing'] },
-    { icon: <MessageIcon />, label: 'Messages', paths: ['/messages'] },
-    { icon: <GridIcon />, label: 'My Listings', paths: ['/land/my-listings', '/land/create'] },
-    { icon: <UserIcon />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
+    { icon: <AppIcon name="mapPin" size={20} />, label: 'Browse', paths: ['/workspace/land', '/land/browse', '/land/listing'] },
+    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
+    { icon: <AppIcon name="grid" size={20} />, label: 'My Listings', paths: ['/land/my-listings', '/land/create'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
 }
 
@@ -268,10 +268,10 @@ export const FUNDER_TABS = TAB_ROUTES.funder
 // frequent-but-not-top-5 destinations don't require a trip through the Menu
 // hub. Same three for every role: broadly useful, not role-exclusive.
 export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[] = [
-  { icon: <ReceiptIcon />, label: 'Activity log', path: '/activity' },
-  { icon: <UsersIcon />, label: 'Community', path: '/groups/dashboard' },
-  { icon: <ConverterIcon />, label: 'Currency converter', path: '/tools/currency-converter' },
-  { icon: <GearIcon />, label: 'Settings', path: '/shared/settings' },
+  { icon: <AppIcon name="receipt" size={18} />, label: 'Activity log', path: '/activity' },
+  { icon: <AppIcon name="users" size={18} />, label: 'Community', path: '/groups/dashboard' },
+  { icon: <AppIcon name="swap" size={18} />, label: 'Currency converter', path: '/tools/currency-converter' },
+  { icon: <AppIcon name="settings" size={18} />, label: 'Settings', path: '/shared/settings' },
 ]
 
 // Administrative tier — verifier & platform-staff tools. Visually and
@@ -355,100 +355,6 @@ export function PageShell({ children, className = '', background = C.cream }: { 
         {children}
       </div>
     </div>
-  )
-}
-
-// ── Icon components ───────────────────────────────────────────────────────────
-function HomeIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M3 9L10 3L17 9V17H13V13H7V17H3V9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  )
-}
-function GridIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="3" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="11" y="3" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="3" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="11" y="11" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  )
-}
-function MessageIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M2 4.5C2 3.7 2.7 3 3.5 3H16.5C17.3 3 18 3.7 18 4.5V12.5C18 13.3 17.3 14 16.5 14H7L3 17.5V14H3.5C2.7 14 2 13.3 2 12.5V4.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  )
-}
-function ReceiptIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M5 2H15V18L12 16L10 18L8 16L5 18V2Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-      <line x1="8" y1="7" x2="12" y2="7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="8" y1="10" x2="12" y2="10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  )
-}
-function UserIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="7" r="3.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M3 18C3 14.5 6 12 10 12C14 12 17 14.5 17 18" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-function UsersIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-      <circle cx="7" cy="7" r="3" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M1.5 17C1.5 13.5 4 11 7 11C10 11 12.5 13.5 12.5 17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M13 11.3C15.3 11.9 17 14.1 17 17" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M12 4.2C13.2 4.6 14 5.7 14 7C14 8.3 13.2 9.4 12 9.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-function ConverterIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-      <path d="M3 7H15M15 7L11.5 3.5M15 7L11.5 10.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M17 13H5M5 13L8.5 9.5M5 13L8.5 16.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-function GearIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-      <circle cx="10" cy="10" r="2.6" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M10 2.5V4.5M10 15.5V17.5M17.5 10H15.5M4.5 10H2.5M15.3 4.7L13.9 6.1M6.1 13.9L4.7 15.3M15.3 15.3L13.9 13.9M6.1 6.1L4.7 4.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-    </svg>
-  )
-}
-function WalletIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="2" y="5" width="16" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M2 9H18" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="14" cy="13" r="1.5" fill="currentColor" />
-    </svg>
-  )
-}
-function BriefcaseIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect x="2" y="7" width="16" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M7 7V5C7 4 7.7 3 9 3H11C12.3 3 13 4 13 5V7" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  )
-}
-function MapIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <path d="M10 2C7 2 5 4.5 5 7C5 11 10 17 10 17C10 17 15 11 15 7C15 4.5 13 2 10 2Z" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="10" cy="7" r="2" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
   )
 }
 

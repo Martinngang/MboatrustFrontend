@@ -78,9 +78,14 @@ export const C = {
 // Converge new screens on this pairing table instead of drifting per-screen.
 
 export const FONT = {
-  serif: "'Playfair Display', Georgia, serif",
+  // Was 'Playfair Display'/'DM Mono' — the Obsidian rebrand (see index.css's
+  // @import comment) replaced these with Fraunces/JetBrains Mono, but this
+  // object was never updated to match, so every screen importing FONT from
+  // MobileLayout.tsx (a pure re-export of this file) was silently rendering
+  // the pre-rebrand fonts app-wide.
+  serif: "'Fraunces', Georgia, serif",
   sans: "'Inter', system-ui, sans-serif",
-  mono: "'DM Mono', 'Courier New', monospace",
+  mono: "'JetBrains Mono', 'Courier New', monospace",
 }
 
 // ── Status tones ─────────────────────────────────────────────────────────────
