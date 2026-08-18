@@ -118,7 +118,7 @@ export function useResolveDisputeMutation() {
 export interface BackendRiskFlag {
   _id: string
   userId: { _id: string; fullName: string } | string
-  flagType: 'multiple_disputes' | 'duplicate_geotag' | 'reused_evidence' | 'ai_flagged'
+  flagType: 'multiple_disputes' | 'duplicate_geotag' | 'reused_evidence' | 'ai_flagged' | 'land_listing_risk'
   severity: 'low' | 'medium' | 'high'
   detail: Record<string, unknown>
   /** Set only when Gemini returned a usable second opinion on flagged

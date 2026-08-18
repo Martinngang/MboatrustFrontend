@@ -1634,6 +1634,7 @@ export function AdminFraudAnalyticsScreen() {
   // pattern is specifically "the AI weighed in and rated it high-risk",
   // regardless of which heuristic flagged it first.
   const aiFlaggedFlags = (riskFlags ?? []).filter((f) => f.flagType === 'ai_flagged' || (f.aiRiskScore ?? 0) >= 70)
+  const landListingRiskFlags = (riskFlags ?? []).filter((f) => f.flagType === 'land_listing_risk')
   const openDisputes = openDisputesData ?? []
   const kycIssues = [
     ...(rejectedKycUsers?.users ?? []).map((u) => ({ name: u.fullName, sub: 'Rejected' })),
@@ -1668,6 +1669,23 @@ export function AdminFraudAnalyticsScreen() {
         label: l.title, sub: `Matches ${landListings.find((o) => o.id === l.duplicateOfListingId)?.title ?? 'another listing'}`,
         onOpen: () => nav(`/land/listing/${l.id}`), compactBadge: <LandFlagBadge listing={l} compact />,
       })),
+    },
+    {
+      id: 'land-listing-risk', icon: 'home', title: 'Land listing risk flags',
+      description: 'Listings auto-flagged at submission — either matching an existing listing, or priced far outside the regional median for their size.',
+      cases: landListingRiskFlags.map((f) => {
+        const listingId = String(f.detail.listingId ?? '')
+        const listing = landListings.find((l) => l.id === listingId)
+        const priceOutlier = f.detail.priceOutlier as { ratio: number; comparableCount: number } | null
+        const reason = f.detail.duplicateOfListingId ? 'Duplicate listing' : priceOutlier ? `Price ${priceOutlier.ratio.toFixed(1)}x regional median (${priceOutlier.comparableCount} comparables)` : 'Flagged'
+        const aiSuffix = f.aiRiskScore != null ? ` · AI risk ${f.aiRiskScore}/100` : ''
+        return {
+          label: listing?.title ?? 'Unlinked listing',
+          sub: `${reason}${aiSuffix}`,
+          onOpen: listing ? () => nav(`/land/listing/${listingId}`) : undefined,
+          aiNote: f.aiRationale,
+        }
+      }),
     },
     {
       id: 'disputed-land', icon: 'scale', title: 'Disputed land listings',
