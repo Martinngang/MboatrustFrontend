@@ -72,7 +72,7 @@ export function KycExplainerScreen() {
       </div>
 
       {(status === 'unverified' || status === 'rejected') && (
-        <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
           <PillButton onClick={() => nav('/compliance/kyc/verify')} fullWidth>
             {status === 'rejected' ? 'Resubmit verification' : 'Start verification'}
           </PillButton>
@@ -229,7 +229,7 @@ export function KycVerifyScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton
           onClick={() => {
             if (step === 'id') setStep('review')
