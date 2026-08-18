@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { fetchRatingSummary } from './reputation'
+import { getNextPageParam, type PageMeta } from './pagination'
 import type { LandListing } from '../context'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format'
@@ -64,6 +65,27 @@ export function useLandListingsQuery() {
       )
       return data.data.map((l, i) => mapListing(l, ratings[i].average ?? NEW_SELLER_RATING))
     },
+    staleTime: 10_000,
+  })
+}
+
+/** Paginated feed for BrowseLandScreen specifically — useLandListingsQuery
+ * above stays as-is (used broadly across the app for dashboards/admin
+ * lookups that legitimately want the full small dataset); only the
+ * high-traffic browse screen needs real "load more" instead of silently
+ * capping at the backend's default page size. */
+export function useLandListingsInfiniteQuery(limit = 12) {
+  return useInfiniteQuery({
+    queryKey: ['landListings', 'infinite'],
+    queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: LandListing[]; meta: PageMeta }> => {
+      const { data } = await api.get<{ data: BackendLandListing[]; meta: PageMeta }>('/land-listings', { params: { page: pageParam, limit } })
+      const ratings = await Promise.all(
+        data.data.map((l) => (typeof l.sellerId === 'object' ? fetchRatingSummary(l.sellerId._id) : Promise.resolve({ average: null, count: 0 })))
+      )
+      return { items: data.data.map((l, i) => mapListing(l, ratings[i].average ?? NEW_SELLER_RATING)), meta: data.meta }
+    },
+    initialPageParam: 1,
+    getNextPageParam,
     staleTime: 10_000,
   })
 }

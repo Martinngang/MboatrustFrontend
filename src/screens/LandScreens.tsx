@@ -20,7 +20,7 @@ import {
   useWithdrawOfferMutation,
 } from '../api/landOffers'
 import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
-import { useAddLandDocumentMutation, useRecommendedListingsQuery } from '../api/land'
+import { useAddLandDocumentMutation, useRecommendedListingsQuery, useLandListingsInfiniteQuery } from '../api/land'
 import { useVerificationTasksQuery } from '../api/reputation'
 import { AppIcon } from '../components/icons'
 
@@ -63,7 +63,8 @@ function RecommendedForYouRow() {
 // ── Browse land ────────────────────────────────────────────────────────────────
 export function BrowseLandScreen() {
   const nav = useNavigate()
-  const { landListings } = useApp()
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useLandListingsInfiniteQuery()
+  const landListings = data?.pages.flatMap((p) => p.items) ?? []
   const [view, setView] = useState<'list' | 'map'>('list')
   const [region, setRegion] = useState('All')
   const regions = ['All', 'Centre', 'Littoral', 'West', 'South West']
@@ -123,7 +124,7 @@ export function BrowseLandScreen() {
             )
           })}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : !isLoading && filtered.length === 0 ? (
         <div className="px-5 py-4">
           <EmptyState
             icon="mapPin"
@@ -176,6 +177,18 @@ export function BrowseLandScreen() {
               </StaggerItem>
             ))}
           </StaggerList>
+          {hasNextPage && (
+            <div className="px-5 pb-4 flex justify-center">
+              <button
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="px-5 py-2.5 rounded-full text-sm font-semibold border"
+                style={{ borderColor: C.parchmentDark, color: C.ink, fontFamily: FONT.sans, opacity: isFetchingNextPage ? 0.6 : 1 }}
+              >
+                {isFetchingNextPage ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
         </DeferredReveal>
       )}
     </AppShell>

@@ -23,6 +23,8 @@ import { AppIcon } from '../components/icons'
 import { useTemplates } from '../templates'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
+import { useProjectsInfiniteQuery } from '../api/projects'
+import { useContractorProfilesInfiniteQuery } from '../api/contractors'
 
 interface DraftMilestone { id: number; title: string; amount: string; description: string; requiresMultiApproval?: boolean; requiresVideo?: boolean }
 
@@ -50,7 +52,8 @@ interface DraftProject {
 // ── Browse projects ────────────────────────────────────────────────────────────
 export function BrowseProjectsScreen() {
   const nav = useNavigate()
-  const { projects } = useApp()
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useProjectsInfiniteQuery()
+  const projects = data?.pages.flatMap((p) => p.items) ?? []
   const [filter, setFilter] = useState('All')
   const [query, setQuery] = useState('')
   const categories = ['All', 'Water & Sanitation', 'Education', 'Healthcare']
@@ -91,7 +94,7 @@ export function BrowseProjectsScreen() {
       </Header>
 
       <div className="px-5 py-4">
-        {filtered.length === 0 ? (
+        {!isLoading && filtered.length === 0 ? (
           <EmptyState
             icon="search"
             title="No projects found"
@@ -144,6 +147,18 @@ export function BrowseProjectsScreen() {
               )
             })}
           </StaggerList>
+          {hasNextPage && (
+            <div className="pt-2 flex justify-center">
+              <button
+                onClick={() => fetchNextPage()}
+                disabled={isFetchingNextPage}
+                className="px-5 py-2.5 rounded-full text-sm font-semibold border"
+                style={{ borderColor: C.parchmentDark, color: C.ink, fontFamily: FONT.sans, opacity: isFetchingNextPage ? 0.6 : 1 }}
+              >
+                {isFetchingNextPage ? 'Loading…' : 'Load more'}
+              </button>
+            </div>
+          )}
           </DeferredReveal>
         )}
       </div>
@@ -1431,7 +1446,8 @@ export function TransactionHistoryScreen() {
 // general "browse the contractor marketplace" surface, backed by the real
 // /contractor-profiles directory rather than a per-tender bid list.
 export function BidComparisonScreen() {
-  const { contractors } = useApp()
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useContractorProfilesInfiniteQuery()
+  const contractors = data?.pages.flatMap((p) => p.items) ?? []
 
   return (
     <AppShell noNav>
@@ -1478,6 +1494,18 @@ export function BidComparisonScreen() {
           </div>
         ))}
       </div>
+      {hasNextPage && (
+        <div className="px-5 pb-4 flex justify-center">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="px-5 py-2.5 rounded-full text-sm font-semibold border"
+            style={{ borderColor: C.parchmentDark, color: C.ink, fontFamily: FONT.sans, opacity: isFetchingNextPage ? 0.6 : 1 }}
+          >
+            {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
     </AppShell>
   )
 }

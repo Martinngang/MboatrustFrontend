@@ -13,11 +13,13 @@ import { useRatingsQuery } from '../api/reputation'
 import { useTransactionsQuery } from '../api/transactions'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
+import { useJobsInfiniteQuery } from '../api/tenders'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
 export function BrowseJobsScreen() {
   const nav = useNavigate()
-  const { jobs } = useApp()
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useJobsInfiniteQuery()
+  const jobs = data?.pages.flatMap((p) => p.items) ?? []
   const [filter, setFilter] = useState('All')
   const [sortDesc, setSortDesc] = useState(true)
   const categories = ['All', 'Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure']
@@ -53,7 +55,7 @@ export function BrowseJobsScreen() {
         </div>
       </Header>
 
-      {filtered.length === 0 ? (
+      {!isLoading && filtered.length === 0 ? (
         <div className="px-5 py-4">
           <EmptyState
             icon="search"
@@ -98,6 +100,18 @@ export function BrowseJobsScreen() {
           </StaggerItem>
         ))}
       </StaggerList>
+      {hasNextPage && (
+        <div className="px-5 pb-4 flex justify-center">
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="px-5 py-2.5 rounded-full text-sm font-semibold border"
+            style={{ borderColor: C.parchmentDark, color: C.ink, fontFamily: FONT.sans, opacity: isFetchingNextPage ? 0.6 : 1 }}
+          >
+            {isFetchingNextPage ? 'Loading…' : 'Load more'}
+          </button>
+        </div>
+      )}
       </DeferredReveal>
       )}
     </AppShell>

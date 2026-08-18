@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
+import { getNextPageParam, type PageMeta } from './pagination'
 import type { Contractor } from '../context'
 
 interface BackendContractorProfile {
@@ -41,6 +42,24 @@ export function useContractorProfilesQuery() {
       const { data } = await api.get<{ data: BackendContractorProfile[] }>('/contractor-profiles')
       return data.data.map(mapContractor)
     },
+    staleTime: 10_000,
+  })
+}
+
+/** Paginated feed for the contractor directory (BidComparisonScreen)
+ * specifically — useContractorProfilesQuery above stays as-is (used for
+ * tender-matching lookups that legitimately want the full small dataset);
+ * only the high-traffic browse screen needs real "load more" instead of
+ * silently capping at the backend's default page size. */
+export function useContractorProfilesInfiniteQuery(limit = 12) {
+  return useInfiniteQuery({
+    queryKey: ['contractorProfiles', 'infinite'],
+    queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: Contractor[]; meta: PageMeta }> => {
+      const { data } = await api.get<{ data: BackendContractorProfile[]; meta: PageMeta }>('/contractor-profiles', { params: { page: pageParam, limit } })
+      return { items: data.data.map(mapContractor), meta: data.meta }
+    },
+    initialPageParam: 1,
+    getNextPageParam,
     staleTime: 10_000,
   })
 }

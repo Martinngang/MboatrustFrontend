@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
+import { getNextPageParam, type PageMeta } from './pagination'
 import type { Bid, JobPosting } from '../context'
 
 interface BackendMilestone { _id: string; name: string; amount: number; status: string }
@@ -78,6 +79,25 @@ export function useJobsQuery() {
       const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
       return data.data.map((p, i) => mapJob(p, counts[i]))
     },
+    staleTime: 10_000,
+  })
+}
+
+/** Paginated feed for BrowseJobsScreen specifically — useJobsQuery above
+ * stays as-is (used broadly for dashboards/workspace boards that
+ * legitimately want the full small dataset); only the high-traffic browse
+ * screen needs real "load more" instead of silently capping at the
+ * backend's default page size. */
+export function useJobsInfiniteQuery(limit = 10) {
+  return useInfiniteQuery({
+    queryKey: ['jobs', 'infinite'],
+    queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: JobPosting[]; meta: PageMeta }> => {
+      const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'tender', page: pageParam, limit } })
+      const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+      return { items: data.data.map((p, i) => mapJob(p, counts[i])), meta: data.meta }
+    },
+    initialPageParam: 1,
+    getNextPageParam,
     staleTime: 10_000,
   })
 }

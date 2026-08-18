@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { fetchRatingSummary } from './reputation'
+import { getNextPageParam, type PageMeta } from './pagination'
 import type { Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format'
@@ -144,6 +145,28 @@ export function useProjectsQuery() {
       ])
       return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
     },
+    staleTime: 10_000,
+  })
+}
+
+/** Paginated feed for BrowseProjectsScreen specifically — useProjectsQuery
+ * above stays as-is (used broadly for dashboards/admin lookups that
+ * legitimately want the full small dataset); only the high-traffic browse
+ * screen needs real "load more" instead of silently capping at the
+ * backend's default page size. */
+export function useProjectsInfiniteQuery(limit = 12) {
+  return useInfiniteQuery({
+    queryKey: ['projects', 'infinite'],
+    queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: Project[]; meta: PageMeta }> => {
+      const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'funding', page: pageParam, limit } })
+      const [fundings, ratings] = await Promise.all([
+        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
+        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
+      ])
+      return { items: data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING)), meta: data.meta }
+    },
+    initialPageParam: 1,
+    getNextPageParam,
     staleTime: 10_000,
   })
 }
