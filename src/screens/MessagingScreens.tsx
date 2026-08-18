@@ -6,6 +6,7 @@ import { useConversationsQuery, useConversationMessagesQuery, useConversationRea
 import { C, FONT, AppShell, Header } from '../components/MobileLayout'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { SkeletonList } from '../components/Skeleton'
 
 // ── Conversation list ──────────────────────────────────────────────────────────
 export function ConversationListScreen() {
@@ -17,7 +18,9 @@ export function ConversationListScreen() {
     <AppShell>
       <Header title="Messages" back />
 
-      {!isLoading && (conversations?.length ?? 0) === 0 ? (
+      {isLoading ? (
+        <div className="p-4"><SkeletonList rows={5} /></div>
+      ) : (conversations?.length ?? 0) === 0 ? (
         <EmptyState
           icon="message"
           title="No conversations yet"
@@ -99,7 +102,7 @@ export function ChatDetailScreen() {
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t px-5 pb-6 pt-3 sm:mx-auto sm:w-full sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="flex items-center gap-2 border-t px-5 pb-6 pt-3 backdrop-blur-xl sm:mx-auto sm:w-full sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}
