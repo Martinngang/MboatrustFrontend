@@ -6,6 +6,7 @@ import { C, FONT, AppShell, Card, Stars, StatusBadge, ProgressBar, PillButton, H
 import { Chip } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useRatingSummaryQuery, useRatingsQuery, useCreateRatingMutation } from '../api/reputation'
@@ -269,7 +270,7 @@ export function MilestoneSubmitScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         {!isOnline && photos.length > 0 && (
           <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-center text-xs mb-3">You're offline — this will be saved on your device and sync automatically once you're back online.</p>
         )}
@@ -341,7 +342,7 @@ export function WithdrawalScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={() => setStep('success')} fullWidth>Withdraw now</PillButton>
       </div>
     </AppShell>
@@ -452,6 +453,13 @@ export function RecipientProjectsScreen() {
             action={<PillButton onClick={() => nav('/funder/create')}>Create a request</PillButton>}
           />
         ) : (
+          <DeferredReveal
+            skeleton={
+              <div className="space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+                {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-40" />)}
+              </div>
+            }
+          >
           <StaggerList className="space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
             {filtered.map((p) => {
               const pct = Math.round((p.raised / p.totalAmount) * 100)
@@ -484,6 +492,7 @@ export function RecipientProjectsScreen() {
               )
             })}
           </StaggerList>
+          </DeferredReveal>
         )}
       </div>
     </AppShell>
@@ -605,7 +614,7 @@ export function RateRecipientScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={rating === 0 || createRating.isPending}>
           {createRating.isPending ? 'Submitting…' : 'Submit rating'}
         </PillButton>
