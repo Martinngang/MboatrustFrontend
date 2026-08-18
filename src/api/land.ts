@@ -136,3 +136,28 @@ export function useUpdateVerificationStatusMutation() {
   })
 }
 
+// ── Recommended for you (opt-in, additive to the main browse feed) ──────
+export interface RecommendedListing {
+  listingId: string
+  title: string
+  region: string
+  city: string
+  price: number
+  sizeSqm: number
+  imageUrl: string
+  verificationStatus: string
+  score: { total: number; breakdown: Record<string, number> }
+}
+
+export function useRecommendedListingsQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['recommendedListings'],
+    queryFn: async (): Promise<RecommendedListing[]> => {
+      const { data } = await api.get<{ data: RecommendedListing[] }>('/land-listings/recommended')
+      return data.data
+    },
+    enabled,
+    staleTime: 30_000,
+  })
+}
+

@@ -20,8 +20,45 @@ import {
   useWithdrawOfferMutation,
 } from '../api/landOffers'
 import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
-import { useAddLandDocumentMutation } from '../api/land'
+import { useAddLandDocumentMutation, useRecommendedListingsQuery } from '../api/land'
 import { useVerificationTasksQuery } from '../api/reputation'
+import { AppIcon } from '../components/icons'
+
+/** Opt-in row above the main feed — never a replacement for it. Ranked off
+ * the viewer's own real offer history when they have one (see
+ * landMatchingService), verification status, and seller reputation. */
+function RecommendedForYouRow() {
+  const nav = useNavigate()
+  const { isLoggedIn } = useApp()
+  const { data: recommended, isLoading } = useRecommendedListingsQuery(isLoggedIn)
+  if (!isLoggedIn || isLoading || !recommended || recommended.length === 0) return null
+
+  return (
+    <div className="px-5 pt-4">
+      <div className="flex items-center gap-2 mb-3">
+        <AppIcon name="sparkles" size={14} style={{ color: C.forest }} />
+        <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Recommended for you</p>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-5 px-5">
+        {recommended.map((r) => (
+          <button
+            key={r.listingId}
+            onClick={() => nav(`/land/listing/${r.listingId}`)}
+            className="flex-shrink-0 w-48 text-left rounded-xl overflow-hidden border"
+            style={{ borderColor: C.parchmentDark, background: C.cream }}
+          >
+            <img src={r.imageUrl} alt={r.title} className="w-full h-24 object-cover" />
+            <div className="p-2.5">
+              <div style={{ fontFamily: FONT.serif }} className="font-bold text-xs truncate">{r.title}</div>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{r.city}, {r.region}</div>
+              <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-sm font-bold mt-1">{fmt(r.price)}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 // ── Browse land ────────────────────────────────────────────────────────────────
 export function BrowseLandScreen() {
@@ -56,6 +93,8 @@ export function BrowseLandScreen() {
           <ChipGroup options={regions} value={region} onChange={(v) => setRegion(v as string)} />
         </div>
       </Header>
+
+      {view === 'list' && <RecommendedForYouRow />}
 
       {view === 'map' ? (
         <div className="flex-1 relative mx-5 my-4 rounded-2xl overflow-hidden" style={{ minHeight: '400px', background: C.parchment }}>
