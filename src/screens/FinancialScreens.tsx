@@ -7,6 +7,7 @@ import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, PillButton, Header, 
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { SkeletonList } from '../components/Skeleton'
 import { ConfirmDialog } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
@@ -24,7 +25,7 @@ export function PooledFundingScreen() {
   const { id } = useParams()
   const { projects, devUserId } = useApp()
   const project = projects.find((p) => p.id === id) ?? projects[0]
-  const { data: list = [] } = usePooledContributionsQuery({ projectId: project.id })
+  const { data: list = [], isLoading: listLoading } = usePooledContributionsQuery({ projectId: project.id })
   const pct = Math.round((project.raised / project.totalAmount) * 100)
   const shareLink = `mboatrust.app/#/funder/project/${project.id}`
 
@@ -33,23 +34,27 @@ export function PooledFundingScreen() {
       <Header title="Group Funding" subtitle={project.title} back />
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div className="flex justify-between mb-2">
-            <div>
-              <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold">{fmt(project.raised)}</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">raised of {fmt(project.totalAmount)}</div>
+        <Card>
+          <div className="p-4">
+            <div className="flex justify-between mb-2">
+              <div>
+                <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold">{fmt(project.raised)}</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">raised of {fmt(project.totalAmount)}</div>
+              </div>
+              <div className="text-right">
+                <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-xl font-bold">{pct}%</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">funded</div>
+              </div>
             </div>
-            <div className="text-right">
-              <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-xl font-bold">{pct}%</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">funded</div>
-            </div>
+            <ProgressBar pct={pct} />
           </div>
-          <ProgressBar pct={pct} />
-        </div>
+        </Card>
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Contributors ({list.length})</p>
-          {list.length === 0 ? (
+          {listLoading ? (
+            <SkeletonList rows={3} />
+          ) : list.length === 0 ? (
             <EmptyState icon="handshake" title="No contributors yet" description="Be the first, or invite someone." illustration="tilt" />
           ) : (
             <StaggerList className="space-y-2">
@@ -218,7 +223,7 @@ export function InviteCoFunderScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={invite} fullWidth disabled={!selected || !Number(amount) || inviteCoFunder.isPending}>{inviteCoFunder.isPending ? 'Sending…' : 'Send invitation'}</PillButton>
       </div>
     </AppShell>
@@ -318,7 +323,7 @@ export function RecurringContributionSetupScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!canSubmit || contribute.isPending}>{contribute.isPending ? 'Charging…' : 'Set up recurring contribution'}</PillButton>
       </div>
     </AppShell>
