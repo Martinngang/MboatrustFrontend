@@ -188,7 +188,7 @@ export function ContractorOnboardingScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={() => {
           if (step === 'verify') setStep('skills')
           else if (step === 'skills') setStep('portfolio')
@@ -315,7 +315,7 @@ export function PostJobScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!canSubmit || submitting}>{submitting ? 'Publishing…' : 'Publish job'}</PillButton>
       </div>
     </AppShell>
@@ -427,7 +427,7 @@ export function ContractSummaryScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl space-y-2" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl space-y-2" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         {contract.status === 'active' && (
           <div className="flex gap-2">
             <button
@@ -545,7 +545,7 @@ export function RateContractorScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={rating === 0 || createRating.isPending}>
           {createRating.isPending ? 'Submitting…' : 'Submit rating'}
         </PillButton>
@@ -720,7 +720,7 @@ export function LandScheduleVisitScreen() {
       </div>
 
       {!isSeller && (
-        <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
           <PillButton onClick={submit} fullWidth disabled={validDates.length === 0 || requestVisit.isPending}>
             {requestVisit.isPending ? 'Sending…' : 'Request visit'}
           </PillButton>
@@ -1008,7 +1008,7 @@ export function VerifierTaskDetailScreen() {
       </div>
 
       {task.status !== 'submitted' && (
-        <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+        <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
           <PillButton onClick={begin} fullWidth>{task.status === 'in_progress' ? 'Continue verification' : 'Start verification'}</PillButton>
         </div>
       )}
@@ -1156,7 +1156,7 @@ export function VerifierReportScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!decision || photos.length === 0 || submitting}>{submitting ? 'Submitting…' : 'Submit verification report'}</PillButton>
       </div>
     </AppShell>

@@ -707,13 +707,13 @@ const SLIDES: { icon: IconName; title: string; body: string; color: string }[] =
     icon: 'hardHat',
     title: 'Find verified contractors',
     body: 'Every contractor on the platform has been ID-verified and reviewed. Post a job, receive bids, compare prices and ratings, and award the contract — all in one place.',
-    color: '#3D2D0F',
+    color: C.emeraldDark,
   },
   {
     icon: 'home',
     title: 'Safe land investment',
     body: 'Browse land listings with verified ownership documents, dispute-free certificates, and site inspection reports. No funds move until documents are confirmed clean.',
-    color: '#1A3050',
+    color: C.gold,
   },
 ]
 
@@ -780,7 +780,7 @@ export function HelpScreen() {
         </div>
 
         {/* Nav */}
-        <div className="px-6 py-6 border-t flex gap-3 sm:mx-auto sm:max-w-xl sm:w-full" style={{ background: C.white, borderColor: C.parchmentDark }}>
+        <div className="px-6 py-6 border-t backdrop-blur-xl flex gap-3 sm:mx-auto sm:max-w-xl sm:w-full" style={{ background: C.glassBg, borderColor: C.glassBorder, boxShadow: C.shadowLg }}>
           {slide > 0 ? (
             <button
               onClick={() => setSlide((s) => s - 1)}

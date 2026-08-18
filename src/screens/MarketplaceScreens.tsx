@@ -101,7 +101,7 @@ export function AddCertificationScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!canSubmit || createCertification.isPending}>{createCertification.isPending ? 'Submitting…' : 'Submit for verification'}</PillButton>
       </div>
     </AppShell>

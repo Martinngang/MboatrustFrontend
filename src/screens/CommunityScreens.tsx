@@ -17,6 +17,7 @@ import { InstallButton } from '../components/InstallButton'
 import { EmptyState } from '../components/EmptyState'
 import { ChipGroup } from '../components/Chip'
 import { StaggerList, StaggerItem } from '../components/Stagger'
+import { Skeleton, SkeletonList } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 
 // ── Diaspora group: organization profile setup ────────────────────────────────
@@ -217,6 +218,10 @@ export function GroupDashboardScreen() {
     return (
       <AppShell>
         <Header title="Group Dashboard" back />
+        <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
+          <Skeleton variant="block" height={140} />
+          <SkeletonList rows={3} />
+        </div>
       </AppShell>
     )
   }
@@ -385,6 +390,7 @@ export function ReferralScreen() {
 
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Your referrals</p>
+          {isLoading && <SkeletonList rows={2} />}
           {!isLoading && referrals.filter((r) => r.status !== 'invited').length === 0 && (
             <Card>
               <div className="p-4 text-center">
