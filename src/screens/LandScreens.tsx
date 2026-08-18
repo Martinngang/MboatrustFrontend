@@ -553,7 +553,7 @@ export function ContactSellerScreen() {
         </div>
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!message.trim() || sending}>{sending ? 'Sending…' : 'Send message'}</PillButton>
       </div>
     </AppShell>
@@ -656,7 +656,7 @@ export function PurchaseOfferScreen() {
 
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         <PillButton onClick={submit} fullWidth disabled={!amount || Number(amount) <= 0 || createOffer.isPending}>{createOffer.isPending ? 'Submitting…' : 'Submit offer'}</PillButton>
       </div>
     </AppShell>
@@ -880,6 +880,13 @@ export function MyListingsScreen() {
           />
         </div>
       ) : (
+        <DeferredReveal
+          skeleton={
+            <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+              {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-24" />)}
+            </div>
+          }
+        >
         <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
           {mine.map((l) => {
             const listingOffers = offers.filter((o) => o.listingId === l.id && ['pending', 'countered'].includes(o.status))
@@ -905,6 +912,7 @@ export function MyListingsScreen() {
             )
           })}
         </StaggerList>
+        </DeferredReveal>
       )}
     </AppShell>
   )
