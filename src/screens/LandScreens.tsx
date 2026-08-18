@@ -238,10 +238,12 @@ export function LandListingDetailScreen() {
             { label: 'Verification', value: listing.verified ? 'Complete' : 'In progress' },
             { label: 'Disputes', value: listing.disputed ? 'Yes — flagged' : listing.duplicateOfListingId ? 'Duplicate flagged' : 'None found' },
           ].map(({ label, value }) => (
-            <div key={label} className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
-              <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{value}</div>
-            </div>
+            <Card key={label}>
+              <div className="p-3">
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{value}</div>
+              </div>
+            </Card>
           ))}
         </div>
 
@@ -307,7 +309,8 @@ export function LandListingDetailScreen() {
             actually assigned and has filed a real report, not just because
             the listing happens to be marked verified. */}
         {siteVisitReport && (
-          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <Card>
+          <div className="p-4">
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Verification site visit</div>
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: siteVisitReport.confirmedMatch === false ? 'var(--status-error-bg)' : 'var(--status-success-bg)' }}>
@@ -326,11 +329,13 @@ export function LandListingDetailScreen() {
               </div>
             </div>
           </div>
+          </Card>
         )}
 
         {/* Seller */}
         {listing.seller && (
-          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <Card>
+          <div className="p-4">
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Seller</div>
             <div className="flex items-center gap-3">
               <div className="w-11 h-11 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
@@ -345,6 +350,7 @@ export function LandListingDetailScreen() {
               </div>
             </div>
           </div>
+          </Card>
         )}
 
         {!listing.verified && (
@@ -429,7 +435,7 @@ export function LandListingDetailScreen() {
         )}
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t space-y-3 sm:mx-auto sm:max-w-3xl" style={{ borderColor: C.parchmentDark, background: C.white }}>
+      <div className="px-5 pb-8 pt-4 border-t space-y-3 backdrop-blur-xl sm:mx-auto sm:max-w-3xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
         {isSeller ? (
           <PillButton onClick={() => nav(`/land/schedule/${listing.id}`)} variant="secondary" fullWidth>Manage visit requests</PillButton>
         ) : !interested ? (
