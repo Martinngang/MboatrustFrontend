@@ -1,4 +1,4 @@
-import { C, FONT } from './MobileLayout'
+import { C, FONT, STATUS_TONE_VARS } from './MobileLayout'
 
 export interface TimelineEvent {
   id: string
@@ -12,7 +12,8 @@ const DOT_COLOR: Record<TimelineEvent['status'], string> = {
   done: C.forest,
   current: C.amber,
   upcoming: C.parchmentDark,
-  flagged: '#DC2626',
+  // Was a hardcoded hex sitting next to otherwise theme-aware tokens.
+  flagged: STATUS_TONE_VARS.error.text,
 }
 
 /**

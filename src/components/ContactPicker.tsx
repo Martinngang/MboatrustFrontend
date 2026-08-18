@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { C, FONT } from './MobileLayout'
+import { C, FONT, STATUS_TONE_VARS } from './MobileLayout'
 
 export interface ContactSuggestion {
   name: string
@@ -66,7 +66,7 @@ export function ContactPicker({ suggestions, onChange }: {
               key={s.name}
               onClick={() => selectSuggested(s)}
               className="w-full flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all"
-              style={{ borderColor: selected === s.name ? C.forest : C.parchmentDark, background: selected === s.name ? '#F0FDF4' : C.white }}
+              style={{ borderColor: selected === s.name ? C.forest : C.parchmentDark, background: selected === s.name ? STATUS_TONE_VARS.success.bg : C.white }}
             >
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0" style={{ background: C.forest, fontFamily: FONT.serif }}>
                 {s.name[0]}

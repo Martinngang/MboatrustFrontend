@@ -1,5 +1,5 @@
 import { useOfflineQueue } from '../offlineQueue'
-import { C, FONT } from './MobileLayout'
+import { C, FONT, STATUS_TONE_VARS } from './MobileLayout'
 
 /**
  * Persistent connection + sync status. Deliberately unobtrusive when there's
@@ -13,18 +13,21 @@ export function ConnectivityBar() {
   if (isOnline && pendingCount === 0) {
     return (
       <div className="flex items-center gap-1.5 px-1 py-1">
-        <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: '#22C55E' }} />
+        <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: STATUS_TONE_VARS.success.text }} />
         <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">Online</span>
       </div>
     )
   }
 
-  const tone = isOnline ? { bg: '#FFF7E6', border: '#F5DCA0', dot: '#E8A020', text: '#92400E' } : { bg: '#FEF2F2', border: '#FECACA', dot: '#DC2626', text: '#991B1B' }
+  // Was 8 hardcoded light-only hex values across the two tones (same bug
+  // class as LandFlagBadge's pre-fix history) — routed through
+  // STATUS_TONE_VARS so this reflects dark mode instead of ignoring it.
+  const tone = isOnline ? STATUS_TONE_VARS.warning : STATUS_TONE_VARS.error
   const label = !isOnline ? 'Offline — will sync automatically' : isSyncing ? 'Syncing…' : `${pendingCount} pending sync`
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: tone.bg, borderColor: tone.border }}>
-      <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: tone.dot }} />
+    <div className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5" style={{ background: tone.bg, borderColor: tone.text }}>
+      <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: tone.text }} />
       <span style={{ fontFamily: FONT.mono, color: tone.text }} className="text-[9px] uppercase tracking-wider">{label}</span>
       {isOnline && pendingCount > 0 && !isSyncing && (
         <button onClick={syncNow} style={{ fontFamily: FONT.sans, color: tone.text }} className="text-[10px] font-bold underline">
