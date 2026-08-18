@@ -131,7 +131,7 @@ export function UserAvatar({ onClick, size = 32 }: { onClick: () => void; size?:
       onClick={onClick}
       aria-label="Profile"
       className="flex flex-shrink-0 items-center justify-center overflow-hidden rounded-full font-bold"
-      style={{ width: size, height: size, background: C.emerald, color: C.white, fontFamily: FONT.serif, fontSize: size * 0.42 }}
+      style={{ width: size, height: size, background: C.emerald, color: '#fff', fontFamily: FONT.serif, fontSize: size * 0.42 }}
     >
       {avatarUrl ? (
         <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
@@ -436,7 +436,12 @@ export function PillButton({ children, onClick, variant = 'primary', fullWidth, 
   children: ReactNode; onClick?: () => void; variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; fullWidth?: boolean; disabled?: boolean
 }) {
   const styles: Record<string, { background: string; color: string; border: string; boxShadow: string }> = {
-    primary: { background: C.forest, color: C.white, border: 'none', boxShadow: `0 8px 24px ${C.glowForest}` },
+    // color is a literal '#fff', not C.white/--color-surface — C.forest stays
+    // a fixed-hue green in both themes, but --color-surface intentionally
+    // flips from white to near-black for dark-mode card backgrounds. Using
+    // C.white here made every primary button's text render near-invisible
+    // (dark-on-green) in dark mode.
+    primary: { background: C.forest, color: '#fff', border: 'none', boxShadow: `0 8px 24px ${C.glowForest}` },
     secondary: { background: C.parchment, color: C.forest, border: `1px solid ${C.parchmentDark}`, boxShadow: C.shadowSm },
     ghost: { background: 'transparent', color: C.forest, border: `1px solid ${C.forest}`, boxShadow: 'none' },
     danger: { background: 'var(--status-error-bg)', color: 'var(--status-error-text)', border: '1px solid var(--status-error-bg)', boxShadow: C.shadowSm },

@@ -29,7 +29,7 @@ export class ScreenErrorBoundary extends Component<{ children: ReactNode }, { er
           <button
             onClick={() => (window.location.hash = '#/home')}
             className="mt-2 rounded-full px-5 py-2.5 text-sm font-semibold"
-            style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
           >
             Go to Home
           </button>

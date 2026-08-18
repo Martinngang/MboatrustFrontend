@@ -240,11 +240,11 @@ export function GroupDashboardScreen() {
           <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="text-xs mt-2 leading-relaxed">{group.description}</p>
           <div className="mt-4 flex items-center gap-6">
             <div>
-              <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold">{fmt(fundingSummary?.raised ?? 0)}</div>
+              <div style={{ fontFamily: FONT.serif, color: '#fff' }} className="text-2xl font-bold">{fmt(fundingSummary?.raised ?? 0)}</div>
               <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[9px] uppercase tracking-wider mt-0.5">Funded together</div>
             </div>
             <div>
-              <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold">{groupMembers.length}</div>
+              <div style={{ fontFamily: FONT.serif, color: '#fff' }} className="text-2xl font-bold">{groupMembers.length}</div>
               <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[9px] uppercase tracking-wider mt-0.5">Members</div>
             </div>
           </div>
@@ -362,7 +362,7 @@ export function ReferralScreen() {
             onClick={copyLink}
             disabled={!link}
             className="mt-4 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-50"
-            style={{ background: 'rgba(255,255,255,0.14)', color: C.white, fontFamily: FONT.sans }}
+            style={{ background: 'rgba(255,255,255,0.14)', color: '#fff', fontFamily: FONT.sans }}
           >
             {copied ? 'Copied!' : 'Copy link'}
           </button>
@@ -497,7 +497,7 @@ export function PublicShowcaseScreen() {
           <button
             onClick={() => nav('/language')}
             className="rounded-full px-4 py-2.5 text-sm font-bold"
-            style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
           >
             Get started
           </button>

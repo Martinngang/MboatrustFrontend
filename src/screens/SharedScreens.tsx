@@ -299,7 +299,7 @@ function LinkEmailPasswordForm({ onDone, onCancel }: { onDone: (providerId: stri
           onClick={submit}
           disabled={saving}
           className="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60"
-          style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+          style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
         >
           {saving && <Spinner size={14} color={C.white} />}
           {saving ? 'Saving…' : 'Save'}
@@ -793,7 +793,7 @@ export function HelpScreen() {
           <button
             onClick={() => slide < SLIDES.length - 1 ? setSlide((s) => s + 1) : nav('/home')}
             className="flex-1 py-3 rounded-xl font-semibold text-sm active:scale-[0.98] transition-transform"
-            style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
           >
             {slide < SLIDES.length - 1 ? 'Next' : "I'm ready"}
           </button>
@@ -1216,7 +1216,7 @@ export function SubscriptionScreen() {
           <>
             <div className="rounded-2xl p-5" style={{ background: C.forest }}>
               <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-widest">{meta.name}</div>
-              <div style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold mt-1">{price.toLocaleString('en-US')} XAF<span className="text-sm font-normal">/month</span></div>
+              <div style={{ fontFamily: FONT.serif, color: '#fff' }} className="text-2xl font-bold mt-1">{price.toLocaleString('en-US')} XAF<span className="text-sm font-normal">/month</span></div>
               <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.85)' }} className="text-xs mt-2 leading-relaxed">{meta.benefit}</p>
               {active && (
                 <div className="mt-3">

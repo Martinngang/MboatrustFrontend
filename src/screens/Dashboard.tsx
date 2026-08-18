@@ -258,7 +258,7 @@ function RecipientHome() {
                 <button
                   onClick={() => nav('/recipient/submit')}
                   className="w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-sm"
-                  style={{ background: C.forest, color: C.white, fontFamily: FONT.sans, boxShadow: `0 8px 20px ${C.glowForest}` }}
+                  style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans, boxShadow: `0 8px 20px ${C.glowForest}` }}
                 >
                   Submit milestone proof →
                 </button>

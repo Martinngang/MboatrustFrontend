@@ -185,7 +185,7 @@ export function DataTable<T>({ columns, rows, getRowId, onRowClick, rowActions, 
                 className="rounded-lg px-3 py-1.5 text-xs font-semibold"
                 style={a.danger
                   ? { background: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }
-                  : { background: C.emerald, color: C.white, fontFamily: FONT.sans }}
+                  : { background: C.emerald, color: '#fff', fontFamily: FONT.sans }}
               >
                 {a.label}
               </button>

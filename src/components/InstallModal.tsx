@@ -15,7 +15,7 @@ function StepRow({ n, children }: { n: number; children: ReactNode }) {
     <div className="flex items-center gap-3">
       <span
         className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
-        style={{ background: C.forest, color: C.white, fontFamily: FONT.mono }}
+        style={{ background: C.forest, color: '#fff', fontFamily: FONT.mono }}
       >
         {n}
       </span>
@@ -61,7 +61,7 @@ export function InstallModal() {
             </svg>
           </div>
           <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="mb-1 text-[10px] uppercase tracking-[0.3em]">Install the app</div>
-          <h2 style={{ fontFamily: FONT.serif, color: C.white }} className="text-2xl font-bold">Install Mboa Trust</h2>
+          <h2 style={{ fontFamily: FONT.serif, color: '#fff' }} className="text-2xl font-bold">Install Mboa Trust</h2>
           <p style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.75)' }} className="mt-2 text-sm leading-relaxed">Get the full app experience — right from your home screen.</p>
         </div>
 
@@ -85,7 +85,7 @@ export function InstallModal() {
               <button
                 onClick={promptNative}
                 className="w-full rounded-full py-3.5 text-sm font-bold transition-all active:scale-95"
-                style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
               >
                 Install now
               </button>
@@ -110,7 +110,7 @@ export function InstallModal() {
               <button
                 onClick={() => closeModal(true)}
                 className="mt-4 w-full rounded-full py-3.5 text-sm font-bold transition-all active:scale-95"
-                style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
               >
                 Got it
               </button>
@@ -123,7 +123,7 @@ export function InstallModal() {
               <button
                 onClick={() => closeModal(true)}
                 className="w-full rounded-full py-3.5 text-sm font-bold transition-all active:scale-95"
-                style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
               >
                 Got it
               </button>

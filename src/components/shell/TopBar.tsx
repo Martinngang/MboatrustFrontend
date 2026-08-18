@@ -83,7 +83,7 @@ export function TopBar() {
                 whileHover={{ y: -1 }}
                 whileTap={{ scale: 0.96 }}
                 className="hidden whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold lg:inline-flex"
-                style={{ background: C.emerald, color: C.white, boxShadow: `0 8px 20px ${C.glowForest}`, fontFamily: FONT.sans }}
+                style={{ background: C.emerald, color: '#fff', boxShadow: `0 8px 20px ${C.glowForest}`, fontFamily: FONT.sans }}
               >
                 + {quickCreate.label}
               </motion.button>
@@ -93,7 +93,7 @@ export function TopBar() {
                 aria-label={quickCreate.label}
                 title={quickCreate.label}
                 className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-lg font-semibold lg:hidden"
-                style={{ background: C.emerald, color: C.white, boxShadow: `0 8px 20px ${C.glowForest}` }}
+                style={{ background: C.emerald, color: '#fff', boxShadow: `0 8px 20px ${C.glowForest}` }}
               >
                 +
               </motion.button>

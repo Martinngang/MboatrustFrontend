@@ -76,7 +76,7 @@ export function BrowseLandScreen() {
             return (
               <button key={listing.id} onClick={() => nav(`/land/listing/${listing.id}`)}
                 className="absolute flex flex-col items-center" style={{ left: x, top: y, transform: 'translate(-50%, -100%)' }}>
-                <div className="rounded-full px-2 py-1 text-xs font-bold mb-1" style={{ background: listing.verified ? C.forest : C.amber, color: C.white, fontFamily: FONT.mono }}>
+                <div className="rounded-full px-2 py-1 text-xs font-bold mb-1" style={{ background: listing.verified ? C.forest : C.amber, color: listing.verified ? '#fff' : C.forestDark, fontFamily: FONT.mono }}>
                   {(listing.price / 1000000).toFixed(0)}M
                 </div>
                 <div className="w-2 h-2 rounded-full" style={{ background: listing.verified ? C.forest : C.amber }} />
@@ -113,7 +113,7 @@ export function BrowseLandScreen() {
                           <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                             <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
                           </svg>
-                          <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
+                          <span style={{ fontFamily: FONT.mono, color: '#fff' }} className="text-[9px] uppercase tracking-wider">Verified</span>
                         </div>
                       ) : (
                         <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
@@ -205,7 +205,7 @@ export function LandListingDetailScreen() {
         </button>
         <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
           {photos.map((_, i) => (
-            <button key={i} onClick={() => setPhotoIdx(i)} className="w-1.5 h-1.5 rounded-full transition-all" style={{ background: i === photoIdx ? C.white : 'rgba(255,255,255,0.4)' }} />
+            <button key={i} onClick={() => setPhotoIdx(i)} aria-label={`Photo ${i + 1} of ${photos.length}`} className="w-1.5 h-1.5 rounded-full transition-all" style={{ background: i === photoIdx ? '#fff' : 'rgba(255,255,255,0.4)' }} />
           ))}
         </div>
         {listing.verified ? (
@@ -213,7 +213,7 @@ export function LandListingDetailScreen() {
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
               <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[10px] uppercase tracking-wider">Verified listing</span>
+            <span style={{ fontFamily: FONT.mono, color: '#fff' }} className="text-[10px] uppercase tracking-wider">Verified listing</span>
           </div>
         ) : (
           <div className="absolute top-6 right-4 px-3 py-1.5 rounded-full" style={{ background: C.amber }}>

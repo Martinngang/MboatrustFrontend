@@ -362,7 +362,7 @@ export function ReputationScreen() {
     <AppShell>
       <Header title="My Reputation" back tone="dark" background={C.forest}>
         <div className="flex items-center gap-5">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold" style={{ background: 'rgba(255,255,255,0.15)', fontFamily: FONT.serif, color: C.white }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold" style={{ background: 'rgba(255,255,255,0.15)', fontFamily: FONT.serif, color: '#fff' }}>
             {initials}
           </div>
           <div>

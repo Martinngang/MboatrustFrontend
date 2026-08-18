@@ -11,9 +11,9 @@ export function NeighboringListingsMap({ listing }: { listing: LandListing }) {
   const others = landListings.filter((l) => l.id !== listing.id).slice(0, 2)
   const mockSoldPrice = Math.round((listing.price * 0.9) / 100000) * 100000
 
-  const pins: { key: string; label: string; onClick?: () => void; color: string }[] = [
-    ...others.map((l) => ({ key: l.id, label: `${(l.price / 1000000).toFixed(0)}M`, onClick: () => nav(`/land/listing/${l.id}`), color: l.verified ? C.forest : C.amber })),
-    { key: 'sold', label: `${(mockSoldPrice / 1000000).toFixed(1)}M · Sold`, color: C.inkSubtle },
+  const pins: { key: string; label: string; onClick?: () => void; color: string; textColor: string }[] = [
+    ...others.map((l) => ({ key: l.id, label: `${(l.price / 1000000).toFixed(0)}M`, onClick: () => nav(`/land/listing/${l.id}`), color: l.verified ? C.forest : C.amber, textColor: l.verified ? '#fff' : C.forestDark })),
+    { key: 'sold', label: `${(mockSoldPrice / 1000000).toFixed(1)}M · Sold`, color: C.inkSubtle, textColor: '#fff' },
   ]
 
   return (
@@ -26,7 +26,7 @@ export function NeighboringListingsMap({ listing }: { listing: LandListing }) {
       <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.3)' }} />
 
       <div className="absolute flex flex-col items-center" style={{ left: '45%', top: '52%', transform: 'translate(-50%, -100%)' }}>
-        <div className="rounded-full px-2.5 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: C.seal, color: C.white, fontFamily: FONT.mono }}>
+        <div className="rounded-full px-2.5 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: C.seal, color: '#fff', fontFamily: FONT.mono }}>
           This listing
         </div>
         <div className="w-3 h-3 rounded-full border-2" style={{ background: C.seal, borderColor: C.white }} />
@@ -39,7 +39,7 @@ export function NeighboringListingsMap({ listing }: { listing: LandListing }) {
           className="absolute flex flex-col items-center"
           style={{ left: PIN_POSITIONS[i].x, top: PIN_POSITIONS[i].y, transform: 'translate(-50%, -100%)', cursor: p.onClick ? 'pointer' : 'default' }}
         >
-          <div className="rounded-full px-2 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: p.color, color: C.white, fontFamily: FONT.mono }}>
+          <div className="rounded-full px-2 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: p.color, color: p.textColor, fontFamily: FONT.mono }}>
             {p.label}
           </div>
           <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />

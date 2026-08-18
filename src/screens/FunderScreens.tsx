@@ -1086,7 +1086,7 @@ export function MilestoneReviewScreen() {
             onClick={handleApprove}
             disabled={approving}
             className="w-full py-4 rounded-xl font-bold text-sm disabled:opacity-60"
-            style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
           >
             {approving ? 'Releasing…' : requiresMultiSig ? `Add your approval (${approvers.filter((a) => a.status === 'approved').length}/${approvers.length})` : `Approve — release ${fmt(milestone.amount)}`}
           </button>

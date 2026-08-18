@@ -157,7 +157,7 @@ function NotifDetail({ n, onBack, onView }: { n: AppNotification; onBack: () => 
           Close
         </button>
         {n.path && (
-          <button onClick={onView} className="flex-1 rounded-xl py-2.5 text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans, boxShadow: `0 6px 18px ${C.glowForest}` }}>
+          <button onClick={onView} className="flex-1 rounded-xl py-2.5 text-xs font-semibold" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans, boxShadow: `0 6px 18px ${C.glowForest}` }}>
             View details →
           </button>
         )}

@@ -484,7 +484,7 @@ export function ContractDetailScreen() {
                 onClick={() => act('complete')}
                 disabled={acting !== null}
                 className="flex-1 py-2.5 rounded-lg text-xs font-semibold disabled:opacity-50"
-                style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
               >
                 {acting === 'complete' ? 'Marking…' : 'Mark contract completed'}
               </button>

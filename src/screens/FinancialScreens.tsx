@@ -386,7 +386,7 @@ export function ManageRecurringScreen() {
                   </div>
                   <div className="flex gap-2 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
                     {r.paused ? (
-                      <button disabled={actingOn === r.id} onClick={() => act(resumeRecurring, r.id, 'resume')} className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resume</button>
+                      <button disabled={actingOn === r.id} onClick={() => act(resumeRecurring, r.id, 'resume')} className="flex-1 py-2 rounded-lg text-xs font-semibold disabled:opacity-50" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}>Resume</button>
                     ) : (
                       <button disabled={actingOn === r.id} onClick={() => act(pauseRecurring, r.id, 'pause')} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>Pause</button>
                     )}

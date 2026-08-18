@@ -98,7 +98,7 @@ export function TenderBidsScreen() {
                     disabled={actingOn === b.id}
                     onClick={() => decide(b, 'accepted')}
                     className="rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
-                    style={{ background: C.emerald, color: C.white, fontFamily: FONT.sans }}
+                    style={{ background: C.emerald, color: '#fff', fontFamily: FONT.sans }}
                   >
                     {actingOn === b.id ? '…' : 'Accept'}
                   </button>

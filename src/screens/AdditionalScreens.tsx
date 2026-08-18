@@ -434,7 +434,7 @@ export function ContractSummaryScreen() {
               onClick={() => act('complete')}
               disabled={acting !== null}
               className="flex-1 py-3 rounded-xl text-sm font-semibold disabled:opacity-50"
-              style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+              style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
             >
               {acting === 'complete' ? 'Marking…' : 'Mark completed'}
             </button>
@@ -881,7 +881,7 @@ export function VerifierDashboard() {
             <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.35)' }} />
             {mapPins.map((t, i) => (
               <button key={t.id} onClick={() => nav(`/verifier/task/${t.id}`)} className="absolute flex flex-col items-center" style={{ left: pinPositions[i].x, top: pinPositions[i].y, transform: 'translate(-50%, -100%)' }}>
-                <div className="mb-1 flex items-center justify-center rounded-full p-1.5" style={{ background: t.status === 'in_progress' ? C.amber : C.forest, color: C.white }}>
+                <div className="mb-1 flex items-center justify-center rounded-full p-1.5" style={{ background: t.status === 'in_progress' ? C.amber : C.forest, color: t.status === 'in_progress' ? C.forestDark : '#fff' }}>
                   <AppIcon name={t.type === 'land' ? 'home' : 'hardHat'} size={11} strokeWidth={2} />
                 </div>
                 <div className="h-2 w-2 rounded-full" style={{ background: t.status === 'in_progress' ? C.amber : C.forest }} />
@@ -1341,7 +1341,7 @@ export function AdminPanelScreen() {
                   <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{c.contractorName ?? 'Contractor'} · {c.issuer} · Submitted {c.dateUploaded}</div>
                   {c.status === 'pending' && (
                     <div className="flex gap-2 mt-3">
-                      <button onClick={() => decideCertification(c.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Approve</button>
+                      <button onClick={() => decideCertification(c.id, 'verified')} className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}>Approve</button>
                       <button onClick={() => decideCertification(c.id, 'rejected')} className="px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}>Reject</button>
                     </div>
                   )}
@@ -1411,7 +1411,7 @@ export function AdminPanelScreen() {
                       onClick={() => reactivateUser.mutate(u.id)}
                       disabled={reactivateUser.isPending}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0"
-                      style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}
+                      style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
                     >Reactivate</button>
                   )}
                 </div>
@@ -1486,7 +1486,7 @@ export function DisputeResolutionScreen() {
                   </div>
                 </div>
                 <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                  <button onClick={() => setResolvingId(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: C.white, fontFamily: FONT.sans }}>Resolve</button>
+                  <button onClick={() => setResolvingId(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}>Resolve</button>
                   <button onClick={() => contact(d._id)} disabled={contacted.includes(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>
                     {contacted.includes(d._id) ? 'Contacted' : 'Contact parties'}
                   </button>
