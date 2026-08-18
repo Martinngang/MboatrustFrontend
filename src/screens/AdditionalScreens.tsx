@@ -20,7 +20,7 @@ import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } fr
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
-import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask } from '../api/reputation'
+import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
@@ -1280,9 +1280,70 @@ export function VerifierProfileScreen() {
   )
 }
 
+/** One unverified land listing in the admin assignment queue — expands to
+ * show ranked verifier suggestions (proximity/specialty/caseload, see
+ * verifierMatchingService) with a one-click Assign, rather than an admin
+ * having to know a verifier's id by heart. */
+function AssignVerifierRow({ listing, expanded, onToggle }: { listing: { id: string; title: string; region: string; city: string }; expanded: boolean; onToggle: () => void }) {
+  const { data: recommended, isLoading } = useRecommendedVerifiersQuery('land_listing', listing.id, expanded)
+  const assignMutation = useCreateVerificationTaskMutation()
+  const { show: showToast } = useToast()
+  const [assignedTo, setAssignedTo] = useState<string | null>(null)
+
+  const assign = (verifierId: string, fullName: string) => {
+    assignMutation.mutate(
+      { targetType: 'land_listing', targetId: listing.id, verifierId },
+      { onSuccess: () => { setAssignedTo(verifierId); showToast({ title: `Assigned ${fullName} to inspect this listing`, tone: 'success' }) } }
+    )
+  }
+
+  return (
+    <Card>
+      <div className="p-4">
+        <button className="flex w-full items-start justify-between gap-2 text-left" onClick={onToggle}>
+          <div>
+            <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm">{listing.title}</div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{listing.region}, {listing.city}</div>
+          </div>
+          <span style={{ color: C.inkSubtle }} className="text-xs mt-0.5">{expanded ? '▾' : '▸'}</span>
+        </button>
+        {expanded && (
+          <div className="mt-3 space-y-2">
+            {isLoading && <div className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>Loading recommendations…</div>}
+            {!isLoading && (recommended ?? []).length === 0 && (
+              <div className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No approved verifiers available yet.</div>
+            )}
+            {(recommended ?? []).map((r) => (
+              <div key={r.verifierId} className="flex items-center justify-between gap-2 rounded-lg p-2.5" style={{ background: C.parchment }}>
+                <div className="min-w-0">
+                  <div style={{ fontFamily: FONT.sans }} className="text-xs font-semibold truncate">{r.fullName}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">
+                    Score {r.score.total}/100 · {r.openTaskCount} open task{r.openTaskCount === 1 ? '' : 's'}{r.regions.length > 0 ? ` · ${r.regions.join(', ')}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => assign(r.verifierId, r.fullName)}
+                  disabled={assignMutation.isPending || assignedTo === r.verifierId}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0"
+                  style={{ background: assignedTo === r.verifierId ? C.parchmentDark : C.forest, color: assignedTo === r.verifierId ? C.inkMuted : '#fff', fontFamily: FONT.sans }}
+                >
+                  {assignedTo === r.verifierId ? 'Assigned' : 'Assign'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ── Admin panel ───────────────────────────────────────────────────────────────
 export function AdminPanelScreen() {
   const nav = useNavigate()
+  const { landListings } = useApp()
+  const [expandedListingId, setExpandedListingId] = useState<string | null>(null)
+  const unverifiedListings = landListings.filter((l) => !l.verified)
   const { data: platformStats, isError: statsError } = usePlatformStatsQuery()
   const { data: certifications = [] } = useAllCertificationsQuery()
   const decideCertificationMutation = useDecideCertificationMutation()
@@ -1404,6 +1465,19 @@ export function AdminPanelScreen() {
             ))}
             {verifierApplications.length === 0 && (
               <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No verifier applications yet.</div></Card>
+            )}
+
+            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest pt-2">Assign a verifier — unverified land listings</p>
+            {unverifiedListings.slice(0, 20).map((l) => (
+              <AssignVerifierRow
+                key={l.id}
+                listing={l}
+                expanded={expandedListingId === l.id}
+                onToggle={() => setExpandedListingId(expandedListingId === l.id ? null : l.id)}
+              />
+            ))}
+            {unverifiedListings.length === 0 && (
+              <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No unverified land listings right now.</div></Card>
             )}
 
             <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest pt-2">Contractor certifications</p>

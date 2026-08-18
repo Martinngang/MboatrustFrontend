@@ -208,3 +208,37 @@ export function useSubmitVerificationReportMutation() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['verificationTasks'] }),
   })
 }
+
+export function useCreateVerificationTaskMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ targetType, targetId, verifierId }: { targetType: 'milestone' | 'land_listing'; targetId: string; verifierId: string }) => {
+      const { data } = await api.post('/verification-tasks', { targetType, targetId, verifierId })
+      return data.data as BackendVerificationTask
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['verificationTasks'] }),
+  })
+}
+
+// ── Verifier matching (admin) ────────────────────────────────────────────
+export interface RecommendedVerifier {
+  verifierId: string
+  fullName: string
+  avatarUrl?: string
+  specialties: string[]
+  regions: string[]
+  openTaskCount: number
+  score: { total: number; breakdown: { location: number; specialty: number; load: number; availability: number } }
+}
+
+export function useRecommendedVerifiersQuery(targetType: 'milestone' | 'land_listing', targetId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['recommendedVerifiers', targetType, targetId],
+    queryFn: async (): Promise<RecommendedVerifier[]> => {
+      const { data } = await api.get<{ data: RecommendedVerifier[] }>('/verification-tasks/recommended-verifiers', { params: { targetType, targetId } })
+      return data.data
+    },
+    enabled: enabled && !!targetId,
+    staleTime: 10_000,
+  })
+}
