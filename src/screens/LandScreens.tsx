@@ -9,6 +9,7 @@ import { ChipGroup } from '../components/Chip'
 import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { EmptyState } from '../components/EmptyState'
+import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import {
@@ -93,42 +94,50 @@ export function BrowseLandScreen() {
           />
         </div>
       ) : (
-        <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
-          {filtered.map((l) => (
-            <StaggerItem key={l.id}>
-              <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
-                <div className="relative">
-                  <img src={l.image} alt={l.title} className="w-full h-36 object-cover rounded-t-xl" />
-                  <div className="absolute top-3 right-3">
-                    {l.verified ? (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: C.forest }}>
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                          <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
-                        </svg>
-                        <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
-                      </div>
-                    ) : (
-                      <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
-                        <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[9px] uppercase tracking-wider">Pending</span>
-                      </div>
+        <DeferredReveal
+          skeleton={
+            <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} className="h-56" />)}
+            </div>
+          }
+        >
+          <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 xl:grid-cols-3">
+            {filtered.map((l) => (
+              <StaggerItem key={l.id}>
+                <Card variant="interactive" onClick={() => nav(`/land/listing/${l.id}`)}>
+                  <div className="relative">
+                    <img src={l.image} alt={l.title} className="w-full h-36 object-cover rounded-t-xl" />
+                    <div className="absolute top-3 right-3">
+                      {l.verified ? (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-full" style={{ background: C.forest }}>
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                          </svg>
+                          <span style={{ fontFamily: FONT.mono, color: C.white }} className="text-[9px] uppercase tracking-wider">Verified</span>
+                        </div>
+                      ) : (
+                        <div className="px-2 py-1 rounded-full" style={{ background: C.amber }}>
+                          <span style={{ fontFamily: FONT.mono, color: C.forestDark }} className="text-[9px] uppercase tracking-wider">Pending</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-0.5">{l.title}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{l.city}, {l.region} · {l.size}</div>
+                    <div className="flex items-center justify-between">
+                      <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(l.price)}</div>
+                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{l.titleType}</div>
+                    </div>
+                    {(l.disputed || l.duplicateOfListingId) && (
+                      <div className="mt-2"><LandFlagBadge listing={l} compact /></div>
                     )}
                   </div>
-                </div>
-                <div className="p-4">
-                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-0.5">{l.title}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">{l.city}, {l.region} · {l.size}</div>
-                  <div className="flex items-center justify-between">
-                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(l.price)}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{l.titleType}</div>
-                  </div>
-                  {(l.disputed || l.duplicateOfListingId) && (
-                    <div className="mt-2"><LandFlagBadge listing={l} compact /></div>
-                  )}
-                </div>
-              </Card>
-            </StaggerItem>
-          ))}
-        </StaggerList>
+                </Card>
+              </StaggerItem>
+            ))}
+          </StaggerList>
+        </DeferredReveal>
       )}
     </AppShell>
   )

@@ -8,6 +8,7 @@ import { StaggerList, StaggerItem } from '../components/Stagger'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { EmptyState } from '../components/EmptyState'
+import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useRatingsQuery } from '../api/reputation'
 import { useTransactionsQuery } from '../api/transactions'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
@@ -62,6 +63,13 @@ export function BrowseJobsScreen() {
           />
         </div>
       ) : (
+      <DeferredReveal
+        skeleton={
+          <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
+            {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="h-44" />)}
+          </div>
+        }
+      >
       <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         {filtered.map((job) => (
           <StaggerItem key={job.id}>
@@ -90,6 +98,7 @@ export function BrowseJobsScreen() {
           </StaggerItem>
         ))}
       </StaggerList>
+      </DeferredReveal>
       )}
     </AppShell>
   )
