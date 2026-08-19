@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { useActivityLog } from './activityLog'
 import { resolveCurrentUserId, clearDevUserId } from './api/devAuth'
 import { firebaseConfigured } from './firebase'
 import { onFirebaseAuthChange, firebaseSignOut } from './api/firebaseAuth'
@@ -248,7 +247,6 @@ export interface AppState {
 const AppContext = createContext<AppState>({} as AppState)
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { logActivity } = useActivityLog()
   const [role, setRole] = useState<Role>(null)
   const [roles, setRoles] = useState<NonNullable<Role>[]>([])
   const [lang, setLang] = useState<Lang>('en')
@@ -377,13 +375,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const addProject = async (p: Omit<Project, 'id'>) => {
     const created = await createProjectMutation.mutateAsync(p)
-    logActivity({ type: 'project_created', icon: 'folder', title: 'Project created', detail: created.title, path: `/funder/project/${created.id}` })
     return created
   }
   const fundProject = async (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => {
-    const p = projects.find((x) => x.id === id)
     const result = await fundProjectMutation.mutateAsync({ id, amount, ...opts })
-    logActivity({ type: 'project_funded', icon: 'lock', title: 'Funds secured', detail: p ? `${fmt(amount)} moved into escrow for ${p.title}` : fmt(amount), path: `/funder/project/${id}` })
     return result
   }
   const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string) => {
@@ -398,40 +393,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const file of files) {
       await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag, notes })
     }
-    const p = projects.find((x) => x.id === projectId)
-    const m = p?.milestones.find((x) => x.id === milestoneId)
-    // Only ever called from the recipient's own submission flow (see
-    // RecipientScreens.tsx / offlineQueue.tsx) — this activity entry is
-    // theirs, so it should route back to their own review screen, not the
-    // funder-only project page.
-    logActivity({ type: 'milestone_submitted', icon: 'camera', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: '/recipient/submission-status' })
   }
   const approveMilestone = async (projectId: string, milestoneId: string) => {
     const result = await decideApprovalMutation.mutateAsync({ projectId, milestoneId, status: 'approved' })
-    const p = projects.find((x) => x.id === projectId)
-    const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_approved', icon: 'checkCircle', title: 'Milestone approved', detail: p && m ? `${m.title} — ${p.title} · ${fmt(m.amount)} released` : undefined, path: `/funder/project/${projectId}` })
     return result
   }
   const disputeMilestone = async (projectId: string, milestoneId: string, reason = 'Disputed from app') => {
     await disputeMilestoneMutation.mutateAsync({ projectId, milestoneId, reason })
-    const p = projects.find((x) => x.id === projectId)
-    const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_disputed', icon: 'flag', title: 'Dispute raised', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
   }
   const addJob = async (j: Omit<JobPosting, 'id'>) => {
     const created = await createJobMutation.mutateAsync({
       title: j.title, category: j.category, location: j.location, budget: j.budget,
       deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
     })
-    logActivity({ type: 'project_created', icon: 'clipboard', title: 'Tender posted', detail: created.title, path: `/contractor/job/${created.id}` })
     return created
   }
   const addListing = async (l: Omit<LandListing, 'id'>) => {
     const created = await createListingMutation.mutateAsync({
       title: l.title, region: l.region, city: l.city, size: l.size, price: l.price, titleType: l.titleType, description: l.description,
     })
-    logActivity({ type: 'listing_created', icon: 'home', title: 'Land listing created', detail: created.title, path: `/land/listing/${created.id}` })
     return created
   }
   // Real admin/verifier-only endpoint (will 403 for any other role — correct
@@ -442,7 +422,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   const addBid = async (b: Omit<Bid, 'id'>) => {
     const created = await createBidMutation.mutateAsync({ jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes })
-    logActivity({ type: 'bid_placed', icon: 'clipboard', title: 'Bid placed', detail: `${fmt(b.price)} for ${b.jobTitle}`, path: `/contractor/job/${b.jobId}` })
     return { ...created, jobTitle: b.jobTitle }
   }
   const markNotificationRead = (id: string) => {

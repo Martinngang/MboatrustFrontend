@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppProvider, useApp } from './context'
-import { ActivityLogProvider } from './activityLog'
 import { TemplatesProvider } from './templates'
 import { CustomFieldsProvider } from './customFields'
 import { TeamProvider } from './team'
@@ -136,7 +135,6 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
     <ThemeProvider>
     <PWAInstallProvider>
-    <ActivityLogProvider>
     <AppProvider>
       <TemplatesProvider>
       <CustomFieldsProvider>
@@ -279,7 +277,6 @@ export default function App() {
       </CustomFieldsProvider>
       </TemplatesProvider>
     </AppProvider>
-    </ActivityLogProvider>
     </PWAInstallProvider>
     </ThemeProvider>
     </QueryClientProvider>

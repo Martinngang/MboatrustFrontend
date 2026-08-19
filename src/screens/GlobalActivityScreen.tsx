@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useActivityLog, type ActivityType } from '../activityLog'
+import { useActivityQuery, type ActivityType } from '../api/activity'
 import { C, FONT, AppShell, Header, Card } from '../components/MobileLayout'
 import { ChipGroup } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
@@ -13,13 +13,14 @@ const CATEGORY_TYPES: Record<string, ActivityType[]> = {
   Marketplace: ['bid_placed', 'listing_created', 'offer_made'],
 }
 
-/** Dedicated, filterable audit trail across every pillar — the architectural
- * reinforcement of the trust/verification story the brief asked for, not
- * just a per-project activity list. Reads the same `activityLog` feed the
- * Home dashboard's "Recent activity" widget shows a slice of. */
+/** Dedicated, filterable audit trail across every pillar — real, per-user
+ * activity derived server-side from this account's own Project/Bid/
+ * LandListing/Escrow/Dispute documents (see api/activity.ts), not a shared
+ * or seeded feed. Reads the same query the Home dashboard's "Recent
+ * activity" widget shows a slice of. */
 export function GlobalActivityScreen() {
   const nav = useNavigate()
-  const { events } = useActivityLog()
+  const { data: events = [], isLoading } = useActivityQuery()
   const [category, setCategory] = useState('All')
 
   const filtered = category === 'All' ? events : events.filter((e) => CATEGORY_TYPES[category]?.includes(e.type))
@@ -31,7 +32,7 @@ export function GlobalActivityScreen() {
       </Header>
 
       <div className="px-5 py-4">
-        {filtered.length === 0 ? (
+        {!isLoading && filtered.length === 0 ? (
           <EmptyState icon="folder" title="No activity in this category yet" illustration="tilt" />
         ) : (
           <StaggerList className="space-y-2 sm:grid sm:grid-cols-2 sm:gap-2 sm:space-y-0">

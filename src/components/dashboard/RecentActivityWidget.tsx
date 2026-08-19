@@ -1,14 +1,14 @@
 import { useNavigate } from 'react-router-dom'
-import { useActivityLog } from '../../activityLog'
+import { useActivityQuery } from '../../api/activity'
 import { C, FONT } from '../MobileLayout'
 import { AppIcon } from '../icons'
 
 /** Unified activity feed across every pillar (not siloed per project) —
- * shows the latest slice of the same `activityLog` feed the full
+ * shows the latest slice of the same real, per-user query the full
  * `/activity` audit-log screen reads. */
 export function RecentActivityWidget({ limit = 5 }: { limit?: number }) {
   const nav = useNavigate()
-  const { events } = useActivityLog()
+  const { data: events = [] } = useActivityQuery()
   const items = events.slice(0, limit)
 
   return (
