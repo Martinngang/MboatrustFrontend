@@ -667,7 +667,7 @@ export function SettingsScreen() {
                     icon: 'doorExit',
                     action: async () => { if (signingOut) return; setSigningOut(true); await logout(); nav('/', { replace: true }) },
                   },
-                  { label: 'Delete account', sub: 'Permanently remove your data', icon: 'trash', action: () => nav('/shared/settings/delete-account') },
+                  { label: 'Delete account', sub: 'Deactivate your account and sign out everywhere', icon: 'trash', action: () => nav('/shared/settings/delete-account') },
                 ]}
               />
             </section>
@@ -678,6 +678,82 @@ export function SettingsScreen() {
             </div>
           </div>
         </div>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Delete account ─────────────────────────────────────────────────────────
+// A real deactivation, not a hard delete — a User has too much linked data
+// (projects, bids, escrows, contracts) other people still need to see, the
+// same reasoning the admin-only deactivate already used (see
+// userController.deactivate's comment). Copy here is written to match that
+// honestly rather than promising erasure the backend doesn't do.
+export function DeleteAccountScreen() {
+  const nav = useNavigate()
+  const { logout } = useApp()
+  const { show: showToast } = useToast()
+  const [understood, setUnderstood] = useState(false)
+  const [deactivating, setDeactivating] = useState(false)
+
+  const confirm = async () => {
+    if (!understood || deactivating) return
+    setDeactivating(true)
+    try {
+      await api.patch('/users/me/deactivate')
+      await logout()
+      nav('/', { replace: true })
+    } catch (err) {
+      showToast({ title: 'Could not deactivate your account', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+      setDeactivating(false)
+    }
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Delete Account" back tone="dark" background="var(--status-error-bg)" />
+
+      <div className="px-5 py-6 space-y-5 sm:mx-auto sm:max-w-md">
+        <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: 'var(--status-error-bg)', background: 'var(--status-error-bg)' }}>
+          <div className="flex items-center gap-2">
+            <Glyph name="trash" size={18} color="var(--status-error-text)" />
+            <div style={{ fontFamily: FONT.serif, color: 'var(--status-error-text)' }} className="text-base font-bold">This will deactivate your account</div>
+          </div>
+          <ul className="space-y-2 text-sm" style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }}>
+            <li>• You'll be signed out on this device and every other device immediately.</li>
+            <li>• You won't be able to sign back in unless an admin reactivates your account.</li>
+            <li>• Your projects, bids, escrow, and contract history stay in the platform's records — other people still have real business tied to them (funders, contractors, counterparties) — so this isn't an erasure of that shared history.</li>
+            <li>• You can download a full copy of your own data first from Settings → Download your data.</li>
+          </ul>
+        </div>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={understood}
+            onChange={(e) => setUnderstood(e.target.checked)}
+            className="mt-0.5 h-4 w-4 flex-shrink-0"
+          />
+          <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">
+            I understand this will sign me out everywhere and I won't be able to sign back in myself.
+          </span>
+        </label>
+
+        <button
+          onClick={confirm}
+          disabled={!understood || deactivating}
+          className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50"
+          style={{ background: 'var(--status-error-text)', color: '#fff', fontFamily: FONT.sans }}
+        >
+          {deactivating ? 'Deactivating…' : 'Deactivate my account'}
+        </button>
+        <button
+          onClick={() => nav(-1)}
+          className="w-full rounded-xl border py-3 text-sm font-semibold"
+          style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}
+        >
+          Cancel
+        </button>
       </div>
     </AppShell>
   )

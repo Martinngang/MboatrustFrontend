@@ -49,7 +49,7 @@ import { BrowseJobsScreen, JobDetailScreen, SubmitBidScreen, MyBidsScreen, Contr
 // Land
 import { BrowseLandScreen, LandListingDetailScreen, CreateListingScreen, MyListingsScreen, ContactSellerScreen, PurchaseOfferScreen } from './screens/LandScreens'
 // Shared
-import { SettingsScreen, HelpScreen, ProfileScreen, SubscriptionScreen } from './screens/SharedScreens'
+import { SettingsScreen, HelpScreen, ProfileScreen, SubscriptionScreen, DeleteAccountScreen } from './screens/SharedScreens'
 // Additional
 import {
   ContractorOnboardingScreen, PostJobScreen, ContractSummaryScreen, RateContractorScreen, LandScheduleVisitScreen,
@@ -261,6 +261,7 @@ export default function App() {
                       {/* Shared — notifications live in the NotificationsDrawer overlay
                           (see components/NotificationsDrawer.tsx), not a routed page. */}
                       <Route path="/shared/settings" element={<P><SettingsScreen /></P>} />
+                      <Route path="/shared/settings/delete-account" element={<P><DeleteAccountScreen /></P>} />
                       <Route path="/shared/help" element={<P><HelpScreen /></P>} />
                       <Route path="/account/subscription" element={<P><SubscriptionScreen /></P>} />
                       <Route path="/shared/profile" element={<P><ProfileScreen /></P>} />
