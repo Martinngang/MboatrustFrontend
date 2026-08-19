@@ -24,6 +24,8 @@ import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRisk
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation, useSystemHealthQuery } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
+import { RegionSelect } from '../components/LocationSelect'
+import { getCameroonRegionName } from '../utils/locationData'
 
 function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
   return {
@@ -49,6 +51,7 @@ export function ContractorOnboardingScreen() {
   const [step, setStep] = useState<'verify' | 'skills' | 'portfolio' | 'done'>('verify')
   const [idUploaded, setIdUploaded] = useState(false)
   const [skills, setSkills] = useState<string[]>([])
+  const [regionCode, setRegionCode] = useState('')
   const [portfolioCount, setPortfolioCount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
@@ -71,7 +74,7 @@ export function ContractorOnboardingScreen() {
       // later — make sure the role is actually on their account before
       // upsertMine's role check (contractor-only) would otherwise 403.
       await api.post('/users/me/roles', { roleType: 'contractor' })
-      await upsertProfile.mutateAsync({ categories: skills })
+      await upsertProfile.mutateAsync({ categories: skills, regions: regionCode ? [getCameroonRegionName(regionCode)] : [] })
       setStep('done')
     } catch (err) {
       showToast({ title: 'Failed to save contractor profile', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -158,6 +161,10 @@ export function ContractorOnboardingScreen() {
                 </button>
               ))}
             </div>
+            <div className="pt-2">
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-3">Which region do you mainly work in?</p>
+              <RegionSelect value={regionCode} onChange={setRegionCode} />
+            </div>
           </>
         )}
 
@@ -194,7 +201,7 @@ export function ContractorOnboardingScreen() {
           if (step === 'verify') setStep('skills')
           else if (step === 'skills') setStep('portfolio')
           else finish()
-        }} fullWidth disabled={(step === 'verify' && !idUploaded) || submitting}>
+        }} fullWidth disabled={(step === 'verify' && !idUploaded) || (step === 'skills' && !regionCode) || submitting}>
           {step === 'portfolio' ? (submitting ? 'Saving…' : 'Complete setup') : 'Continue'}
         </PillButton>
       </div>
@@ -736,13 +743,13 @@ export function VerifierRegistrationScreen() {
   const nav = useNavigate()
   const { registerVerifier } = useVerification()
   const [step, setStep] = useState<'info' | 'id'>('info')
-  const [form, setForm] = useState({ specialty: '', region: '', bio: '' })
+  const [form, setForm] = useState({ specialty: '', regionCode: '', bio: '' })
   const [idFile, setIdFile] = useState<File | null>(null)
 
   const finish = () => {
     registerVerifier({
       specialties: form.specialty.trim() ? [form.specialty.trim()] : [],
-      regions: form.region.trim() ? [form.region.trim()] : [],
+      regions: form.regionCode ? [getCameroonRegionName(form.regionCode)] : [],
       bio: form.bio.trim(),
       file: idFile,
     })
@@ -761,21 +768,17 @@ export function VerifierRegistrationScreen() {
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">
               Verifiers visit project and land sites in person to confirm that submitted evidence matches reality. This starts a real application — an admin reviews it before you're granted the verifier role and start receiving assignments.
             </p>
-            {[
-              { key: 'specialty', label: 'What do you verify?', placeholder: 'e.g. Water & Sanitation, Electrical' },
-              { key: 'region', label: 'Region you cover', placeholder: 'e.g. North West Region' },
-            ].map(({ key, label, placeholder }) => (
-              <div key={key}>
-                <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">{label}</label>
-                <input
-                  value={form[key as 'specialty' | 'region']}
-                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  placeholder={placeholder}
-                  className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-                  style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
-                />
-              </div>
-            ))}
+            <div>
+              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">What do you verify?</label>
+              <input
+                value={form.specialty}
+                onChange={(e) => setForm({ ...form, specialty: e.target.value })}
+                placeholder="e.g. Water & Sanitation, Electrical"
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+              />
+            </div>
+            <RegionSelect value={form.regionCode} onChange={(regionCode) => setForm({ ...form, regionCode })} label="Region you cover" />
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Relevant experience (optional)</label>
               <textarea
@@ -787,7 +790,7 @@ export function VerifierRegistrationScreen() {
                 style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
               />
             </div>
-            <PillButton onClick={() => setStep('id')} fullWidth disabled={!form.specialty.trim() || !form.region.trim()}>Next: ID verification</PillButton>
+            <PillButton onClick={() => setStep('id')} fullWidth disabled={!form.specialty.trim() || !form.regionCode}>Next: ID verification</PillButton>
           </>
         ) : (
           <>

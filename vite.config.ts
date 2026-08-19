@@ -16,6 +16,21 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,
+      rolldownOptions: {
+        output: {
+          // country-state-city ships its entire worldwide dataset as plain
+          // JS (~8MB) — it's already dynamically imported (see
+          // utils/locationData.ts) so it never inflates the main bundle,
+          // but without a stable, predictable chunk name the PWA's
+          // injectManifest step below can't reliably exclude it from
+          // precaching by glob. Named explicitly so it stays out of the
+          // install-time cache and is only ever fetched on demand, the
+          // first time someone actually opens a location picker.
+          manualChunks(id) {
+            if (id.includes('country-state-city')) return 'location-data'
+          },
+        },
+      },
     },
     plugins: [
       react(),
@@ -60,6 +75,12 @@ export default defineConfig(({ mode }) => {
         // Background Sync listener live directly in that file instead of here.
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
+          // The location-data chunk (country-state-city's ~8MB worldwide
+          // dataset) is deliberately excluded — it's lazy-loaded on demand
+          // by design (see build.rolldownOptions.output.manualChunks
+          // above), not something every installing user should have to
+          // download upfront just to have the app work offline.
+          globIgnores: ['**/location-data-*.js'],
         },
       }),
     ],

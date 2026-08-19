@@ -24,6 +24,8 @@ import { useTemplates } from '../templates'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useProjectsInfiniteQuery } from '../api/projects'
+import { RegionTownSelect } from '../components/LocationSelect'
+import { getCameroonRegionName } from '../utils/locationData'
 import { useContractorProfilesInfiniteQuery } from '../api/contractors'
 
 interface DraftMilestone { id: number; title: string; amount: string; description: string; requiresMultiApproval?: boolean; requiresVideo?: boolean }
@@ -413,10 +415,11 @@ export function RecipientProfileScreen() {
 export function CreateProjectScreen() {
   const nav = useNavigate()
   const [step, setStep] = useState<'details' | 'review'>('details')
-  const [form, setForm] = useState({ title: '', category: '', description: '', location: '', totalAmount: '' })
+  const [form, setForm] = useState({ title: '', category: '', description: '', region: '', town: '', totalAmount: '' })
 
   const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
-  const canContinue = form.title.trim() !== '' && form.category !== '' && form.location.trim() !== '' && Number(form.totalAmount) > 0
+  const location = form.region && form.town ? `${form.town}, ${getCameroonRegionName(form.region)}` : ''
+  const canContinue = form.title.trim() !== '' && form.category !== '' && form.region !== '' && form.town !== '' && Number(form.totalAmount) > 0
 
   const proceed = () => {
     if (step === 'details') {
@@ -424,7 +427,7 @@ export function CreateProjectScreen() {
       setStep('review')
       return
     }
-    const draft: DraftProject = { title: form.title, category: form.category, description: form.description, location: form.location, totalAmount: Number(form.totalAmount) }
+    const draft: DraftProject = { title: form.title, category: form.category, description: form.description, location, totalAmount: Number(form.totalAmount) }
     nav('/funder/milestones', { state: { draft } })
   }
 
@@ -456,17 +459,12 @@ export function CreateProjectScreen() {
                 style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
             </div>
             <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Location</label>
-              <div className="relative">
-                <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })}
-                  placeholder="e.g. Bamenda, North West Region"
-                  className="w-full border-2 rounded-xl px-4 py-3 pl-10 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-                  style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-                <svg className="absolute left-3 top-3.5" width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 2C5.8 2 4 3.8 4 6C4 9 8 14 8 14C8 14 12 9 12 6C12 3.8 10.2 2 8 2Z" stroke={C.inkSubtle} strokeWidth="1.3" />
-                  <circle cx="8" cy="6" r="1.5" fill={C.inkSubtle} />
-                </svg>
-              </div>
+              <RegionTownSelect
+                regionValue={form.region}
+                townValue={form.town}
+                onRegionChange={(region) => setForm((f) => ({ ...f, region }))}
+                onTownChange={(town) => setForm((f) => ({ ...f, town }))}
+              />
             </div>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Total amount needed (XAF)</label>
@@ -486,7 +484,7 @@ export function CreateProjectScreen() {
           <div className="space-y-4">
             <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Project summary</div>
-              {Object.entries({ Title: form.title || 'Not set', Category: form.category || 'Not set', Location: form.location || 'Not set', Amount: form.totalAmount ? fmt(Number(form.totalAmount)) : 'Not set' }).map(([k, v]) => (
+              {Object.entries({ Title: form.title || 'Not set', Category: form.category || 'Not set', Location: location || 'Not set', Amount: form.totalAmount ? fmt(Number(form.totalAmount)) : 'Not set' }).map(([k, v]) => (
                 <div key={k} className="flex justify-between py-2 border-b last:border-0" style={{ borderColor: C.parchmentDark }}>
                   <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-wider">{k}</span>
                   <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{v}</span>

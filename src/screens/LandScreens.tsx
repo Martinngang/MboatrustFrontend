@@ -23,6 +23,8 @@ import { useStartConversationMutation, useSendMessageMutation } from '../api/mes
 import { useAddLandDocumentMutation, useRecommendedListingsQuery, useLandListingsInfiniteQuery } from '../api/land'
 import { useVerificationTasksQuery } from '../api/reputation'
 import { AppIcon } from '../components/icons'
+import { RegionTownSelect } from '../components/LocationSelect'
+import { getCameroonRegionName, getCameroonRegions } from '../utils/locationData'
 
 /** Opt-in row above the main feed — never a replacement for it. Ranked off
  * the viewer's own real offer history when they have one (see
@@ -67,7 +69,7 @@ export function BrowseLandScreen() {
   const landListings = data?.pages.flatMap((p) => p.items) ?? []
   const [view, setView] = useState<'list' | 'map'>('list')
   const [region, setRegion] = useState('All')
-  const regions = ['All', 'Centre', 'Littoral', 'West', 'South West']
+  const regions = ['All', ...getCameroonRegions().map((r) => r.label)]
   const filtered = region === 'All' ? landListings : landListings.filter((l) => l.region === region)
 
   return (
@@ -728,7 +730,7 @@ export function CreateListingScreen() {
   const { addListing } = useApp()
   const addDocument = useAddLandDocumentMutation()
   const { show: showToast } = useToast()
-  const [form, setForm] = useState({ title: '', region: '', city: '', size: '', price: '', titleType: '', description: '' })
+  const [form, setForm] = useState({ title: '', regionCode: '', city: '', size: '', price: '', titleType: '', description: '' })
   const [step, setStep] = useState<'details' | 'documents' | 'done'>('details')
   const [listingId, setListingId] = useState<string | null>(null)
   // Per document type: which one is mid-upload right now, and which have
@@ -745,7 +747,7 @@ export function CreateListingScreen() {
     try {
       const created = await addListing({
         title: form.title || 'Untitled listing',
-        region: form.region,
+        region: getCameroonRegionName(form.regionCode),
         city: form.city,
         size: form.size,
         price: Number(form.price) || 0,
@@ -827,8 +829,23 @@ export function CreateListingScreen() {
           <>
             {[
               { key: 'title', label: 'Listing title', placeholder: 'e.g. 800m² plot — Bastos, Yaoundé' },
-              { key: 'city', label: 'City', placeholder: 'e.g. Yaoundé' },
-              { key: 'region', label: 'Region', placeholder: 'e.g. Centre' },
+            ].map(({ key, label, placeholder }) => (
+              <div key={key}>
+                <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">{label}</label>
+                <input value={form[key as keyof typeof form]} onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                  placeholder={placeholder}
+                  className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+                  style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
+              </div>
+            ))}
+            <RegionTownSelect
+              regionValue={form.regionCode}
+              townValue={form.city}
+              onRegionChange={(regionCode) => setForm((f) => ({ ...f, regionCode }))}
+              onTownChange={(city) => setForm((f) => ({ ...f, city }))}
+              townLabel="City"
+            />
+            {[
               { key: 'size', label: 'Plot size', placeholder: 'e.g. 800 m²' },
               { key: 'price', label: 'Asking price (XAF)', placeholder: 'e.g. 28000000' },
               { key: 'titleType', label: 'Title type', placeholder: 'e.g. Freehold title deed' },
@@ -897,7 +914,7 @@ export function CreateListingScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={() => step === 'details' ? proceedToDocuments() : setStep('done')} fullWidth disabled={creating || uploadingType !== null}>
+        <PillButton onClick={() => step === 'details' ? proceedToDocuments() : setStep('done')} fullWidth disabled={creating || uploadingType !== null || (step === 'details' && (!form.regionCode || !form.city))}>
           {step === 'details' ? (creating ? 'Creating…' : 'Next: Upload documents') : 'Submit listing for verification'}
         </PillButton>
       </div>

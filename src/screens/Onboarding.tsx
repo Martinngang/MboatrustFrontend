@@ -17,6 +17,7 @@ import { setPendingPhoneConfirmation, getPendingPhoneConfirmation } from '../api
 import { friendlyAuthError, isAccountExistsError } from '../api/authErrors'
 import { GoogleAuthButton, AuthDivider, AuthMethodTabs, TextField, PasswordField, InlineAlert, Spinner } from '../components/AuthControls'
 import { AppIcon, type IconName } from '../components/icons'
+import { CountryCitySelect } from '../components/LocationSelect'
 
 /** Normalizes a phone field's raw text into E.164. The input starts
  * pre-filled with a country-code prefix (e.g. "+237 ") that the field
@@ -742,10 +743,23 @@ export function ProfileSetupScreen() {
   const nav = useNavigate()
   const { setName, setLoggedIn } = useApp()
   const { show: showToast } = useToast()
-  const [form, setForm] = useState({ name: '', city: '', country: 'France', id: '' })
+  const [form, setForm] = useState({ name: '', residenceCity: '', residenceCountry: '', id: '' })
   const [step, setStep] = useState<'info' | 'id'>('info')
   const [idUploaded, setIdUploaded] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [locationErrors, setLocationErrors] = useState<{ country?: string; city?: string }>({})
+
+  const goToIdStep = () => {
+    const errors: { country?: string; city?: string } = {}
+    if (!form.residenceCountry) errors.country = 'Select your country of residence'
+    else if (!form.residenceCity) errors.city = 'Select your city'
+    if (Object.keys(errors).length > 0) {
+      setLocationErrors(errors)
+      return
+    }
+    setLocationErrors({})
+    setStep('id')
+  }
 
   const finish = async () => {
     const fallbackName = getCurrentFirebaseUser()?.displayName || getCurrentFirebaseUser()?.email?.split('@')[0] || 'New user'
@@ -753,7 +767,12 @@ export function ProfileSetupScreen() {
     if (firebaseConfigured && getCurrentFirebaseUser()) {
       setFinishing(true)
       try {
-        await api.patch('/users/me', { fullName, onboardingCompleted: true })
+        await api.patch('/users/me', {
+          fullName,
+          onboardingCompleted: true,
+          residenceCountry: form.residenceCountry,
+          residenceCity: form.residenceCity,
+        })
       } catch (err) {
         showToast({ title: 'Failed to save profile', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
         setFinishing(false)
@@ -801,33 +820,20 @@ export function ProfileSetupScreen() {
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1.5 block text-[10px] uppercase tracking-widest">City (abroad)</label>
-              <input
-                type="text"
-                placeholder="Brussels"
-                value={form.city}
-                onChange={(e) => setForm({ ...form, city: e.target.value })}
-                className="w-full rounded-xl border-2 px-4 py-3 text-sm outline-none transition-all focus:border-[var(--color-forest)] focus:shadow-[0_0_0_4px_rgba(26,71,49,0.1)]"
-                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
-              />
-            </div>
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1.5 block text-[10px] uppercase tracking-widest">Country</label>
-              <input
-                type="text"
-                placeholder="France"
-                value={form.country}
-                onChange={(e) => setForm({ ...form, country: e.target.value })}
-                className="w-full rounded-xl border-2 px-4 py-3 text-sm outline-none transition-all focus:border-[var(--color-forest)] focus:shadow-[0_0_0_4px_rgba(26,71,49,0.1)]"
-                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
-              />
-            </div>
+          <div>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-3 text-xs">Where do you live now? Pick your country first, then your city.</p>
+            <CountryCitySelect
+              countryValue={form.residenceCountry}
+              cityValue={form.residenceCity}
+              onCountryChange={(isoCode) => { setForm((f) => ({ ...f, residenceCountry: isoCode })); setLocationErrors({}) }}
+              onCityChange={(city) => { setForm((f) => ({ ...f, residenceCity: city })); setLocationErrors({}) }}
+              countryError={locationErrors.country}
+              cityError={locationErrors.city}
+            />
           </div>
 
           <div className="pt-2">
-            <PillButton onClick={() => setStep('id')} fullWidth>Next: ID verification</PillButton>
+            <PillButton onClick={goToIdStep} fullWidth>Next: ID verification</PillButton>
           </div>
         </div>
       ) : (
