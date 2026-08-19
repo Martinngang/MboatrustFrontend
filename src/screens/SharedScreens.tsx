@@ -667,7 +667,7 @@ export function SettingsScreen() {
                     icon: 'doorExit',
                     action: async () => { if (signingOut) return; setSigningOut(true); await logout(); nav('/', { replace: true }) },
                   },
-                  { label: 'Delete account', sub: 'Deactivate your account and sign out everywhere', icon: 'trash', action: () => nav('/shared/settings/delete-account') },
+                  { label: 'Delete account', sub: 'Deactivate, or permanently delete everything', icon: 'trash', action: () => nav('/shared/settings/delete-account') },
                 ]}
               />
             </section>
@@ -684,28 +684,50 @@ export function SettingsScreen() {
 }
 
 // ── Delete account ─────────────────────────────────────────────────────────
-// A real deactivation, not a hard delete — a User has too much linked data
-// (projects, bids, escrows, contracts) other people still need to see, the
-// same reasoning the admin-only deactivate already used (see
-// userController.deactivate's comment). Copy here is written to match that
-// honestly rather than promising erasure the backend doesn't do.
+// Two real, distinct backend actions, not one button with soft copy:
+// - Deactivate (PATCH /users/me/deactivate): reversible-by-an-admin soft
+//   flip. Nothing is erased — projects, bids, escrow, and contract history
+//   stay exactly as they are, since other people still have real business
+//   tied to them (funders, contractors, counterparties).
+// - Delete everything (DELETE /users/me): a genuine, irreversible hard
+//   delete. Everything solely owned/authored by this account is actually
+//   removed; the few places their identity appears inside someone ELSE's
+//   record (an accepted bid's contract, an escrow payout, a shared
+//   conversation) are detached rather than deleted, so this account
+//   disappearing can't corrupt a different real user's project or
+//   financial history (see userDeletionService.hardDeleteUser on the
+//   backend for the exact, documented scope).
+type DeleteOption = 'deactivate' | 'delete'
+
 export function DeleteAccountScreen() {
   const nav = useNavigate()
   const { logout } = useApp()
   const { show: showToast } = useToast()
+  const [option, setOption] = useState<DeleteOption>('deactivate')
   const [understood, setUnderstood] = useState(false)
-  const [deactivating, setDeactivating] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  const confirm = async () => {
-    if (!understood || deactivating) return
-    setDeactivating(true)
+  const canSubmit = option === 'deactivate' ? understood : understood && confirmText.trim() === 'DELETE'
+
+  const submit = async () => {
+    if (!canSubmit || busy) return
+    setBusy(true)
     try {
-      await api.patch('/users/me/deactivate')
+      if (option === 'deactivate') {
+        await api.patch('/users/me/deactivate')
+      } else {
+        await api.delete('/users/me', { data: { confirm: 'DELETE' } })
+      }
       await logout()
       nav('/', { replace: true })
     } catch (err) {
-      showToast({ title: 'Could not deactivate your account', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
-      setDeactivating(false)
+      showToast({
+        title: option === 'deactivate' ? 'Could not deactivate your account' : 'Could not delete your account',
+        description: apiErrorMessage(err, 'Please try again'),
+        tone: 'error',
+      })
+      setBusy(false)
     }
   }
 
@@ -714,18 +736,54 @@ export function DeleteAccountScreen() {
       <Header title="Delete Account" back tone="dark" background="var(--status-error-bg)" />
 
       <div className="px-5 py-6 space-y-5 sm:mx-auto sm:max-w-md">
-        <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: 'var(--status-error-bg)', background: 'var(--status-error-bg)' }}>
-          <div className="flex items-center gap-2">
-            <Glyph name="trash" size={18} color="var(--status-error-text)" />
-            <div style={{ fontFamily: FONT.serif, color: 'var(--status-error-text)' }} className="text-base font-bold">This will deactivate your account</div>
-          </div>
-          <ul className="space-y-2 text-sm" style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }}>
-            <li>• You'll be signed out on this device and every other device immediately.</li>
-            <li>• You won't be able to sign back in unless an admin reactivates your account.</li>
-            <li>• Your projects, bids, escrow, and contract history stay in the platform's records — other people still have real business tied to them (funders, contractors, counterparties) — so this isn't an erasure of that shared history.</li>
-            <li>• You can download a full copy of your own data first from Settings → Download your data.</li>
-          </ul>
+        <div className="grid grid-cols-2 gap-2">
+          {(['deactivate', 'delete'] as const).map((opt) => (
+            <button
+              key={opt}
+              onClick={() => { setOption(opt); setUnderstood(false); setConfirmText('') }}
+              className="rounded-xl border p-3 text-left transition-colors"
+              style={{
+                borderColor: option === opt ? 'var(--status-error-text)' : C.parchmentDark,
+                background: option === opt ? 'var(--status-error-bg)' : C.white,
+              }}
+            >
+              <div style={{ fontFamily: FONT.sans, color: option === opt ? 'var(--status-error-text)' : C.ink }} className="text-sm font-semibold">
+                {opt === 'deactivate' ? 'Deactivate' : 'Delete everything'}
+              </div>
+              <div style={{ fontFamily: FONT.mono, color: option === opt ? 'var(--status-error-text)' : C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-0.5">
+                {opt === 'deactivate' ? 'Reversible by an admin' : 'Permanent — cannot be undone'}
+              </div>
+            </button>
+          ))}
         </div>
+
+        {option === 'deactivate' ? (
+          <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: 'var(--status-error-bg)', background: 'var(--status-error-bg)' }}>
+            <div className="flex items-center gap-2">
+              <Glyph name="trash" size={18} color="var(--status-error-text)" />
+              <div style={{ fontFamily: FONT.serif, color: 'var(--status-error-text)' }} className="text-base font-bold">This will deactivate your account</div>
+            </div>
+            <ul className="space-y-2 text-sm" style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }}>
+              <li>• You'll be signed out on this device and every other device immediately.</li>
+              <li>• You won't be able to sign back in unless an admin reactivates your account.</li>
+              <li>• Your projects, bids, escrow, and contract history stay in the platform's records — other people still have real business tied to them (funders, contractors, counterparties) — so this isn't an erasure of that shared history.</li>
+              <li>• You can download a full copy of your own data first from Settings → Download your data.</li>
+            </ul>
+          </div>
+        ) : (
+          <div className="rounded-2xl border p-5 space-y-3" style={{ borderColor: 'var(--status-error-bg)', background: 'var(--status-error-bg)' }}>
+            <div className="flex items-center gap-2">
+              <Glyph name="trash" size={18} color="var(--status-error-text)" />
+              <div style={{ fontFamily: FONT.serif, color: 'var(--status-error-text)' }} className="text-base font-bold">This will permanently delete your account</div>
+            </div>
+            <ul className="space-y-2 text-sm" style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }}>
+              <li>• This cannot be undone — there is no admin recovery path for this option, unlike deactivating.</li>
+              <li>• Everything solely yours is actually erased: your profile, listings, offers, bids, ratings, messages, notifications, and every project you own (with its own escrow, contract, and dispute history).</li>
+              <li>• Records shared with someone else — an escrow payout, an accepted bid's contract — are kept intact for their sake (only your identity is removed from them), so this can't corrupt another real person's project or payment history.</li>
+              <li>• You can download a full copy of your own data first from Settings → Download your data.</li>
+            </ul>
+          </div>
+        )}
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input
@@ -735,17 +793,36 @@ export function DeleteAccountScreen() {
             className="mt-0.5 h-4 w-4 flex-shrink-0"
           />
           <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">
-            I understand this will sign me out everywhere and I won't be able to sign back in myself.
+            {option === 'deactivate'
+              ? "I understand this will sign me out everywhere and I won't be able to sign back in myself."
+              : 'I understand this permanently deletes my account and data, and cannot be undone.'}
           </span>
         </label>
 
+        {option === 'delete' && (
+          <div>
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="block text-[10px] uppercase tracking-widest mb-2">
+              Type DELETE to confirm
+            </label>
+            <input
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-full rounded-xl border px-4 py-3 text-sm outline-none"
+              style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, color: C.ink }}
+            />
+          </div>
+        )}
+
         <button
-          onClick={confirm}
-          disabled={!understood || deactivating}
+          onClick={submit}
+          disabled={!canSubmit || busy}
           className="w-full rounded-xl py-3 text-sm font-semibold disabled:opacity-50"
           style={{ background: 'var(--status-error-text)', color: '#fff', fontFamily: FONT.sans }}
         >
-          {deactivating ? 'Deactivating…' : 'Deactivate my account'}
+          {busy
+            ? (option === 'deactivate' ? 'Deactivating…' : 'Deleting…')
+            : (option === 'deactivate' ? 'Deactivate my account' : 'Permanently delete my account')}
         </button>
         <button
           onClick={() => nav(-1)}
