@@ -117,7 +117,10 @@ export function MilestoneSubmitScreen() {
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submission ID</div>
             <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm">SUB-2025-{Math.floor(Math.random() * 90000 + 10000)}</div>
           </div>
-          <PillButton onClick={() => nav('/home')} fullWidth>Return to dashboard</PillButton>
+          <PillButton onClick={() => nav('/recipient/submission-status')} fullWidth>View submission status</PillButton>
+          <div className="mt-3 w-full">
+            <PillButton onClick={() => nav('/home')} variant="ghost" fullWidth>Return to dashboard</PillButton>
+          </div>
         </div>
       </AppShell>
     )
@@ -500,16 +503,36 @@ export function RecipientProjectsScreen() {
 }
 
 // ── Submission status screen ──────────────────────────────────────────────────
+// Short, readable timestamp for a submission timeline — "19 Jul, 14:23" style,
+// matching how the rest of this screen already formats dates. Falls back to a
+// placeholder for evidence captured before capturedAt was recorded/synced.
+function fmtSubmittedAt(iso: string | null): string {
+  if (!iso) return 'Date unavailable'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Date unavailable'
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) + ', ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
 export function SubmissionStatusScreen() {
   const { projects } = useApp()
-  const project = projects.find((p) => p.milestones.some((m) => m.status === 'under_review')) ?? projects[0]
-  const milestone = project.milestones.find((m) => m.status === 'under_review') ?? project.milestones[1] ?? project.milestones[0]
+  // No route param — a recipient's dashboard only ever surfaces one active
+  // project (see RecipientHome), so "the milestone under review, or the
+  // most recently submitted one otherwise" is the same "my submission"
+  // every entry point (dashboard Status action, the post-submit
+  // confirmation screen) means by this.
+  const project = projects.find((p) => p.milestones.some((m) => m.status === 'under_review'))
+    ?? projects.find((p) => p.milestones.some((m) => m.evidence.length > 0))
+    ?? projects[0]
+  const milestone = project.milestones.find((m) => m.status === 'under_review')
+    ?? [...project.milestones].reverse().find((m) => m.evidence.length > 0)
+    ?? project.milestones[0]
+  const latestEvidence = [...milestone.evidence].sort((a, b) => (b.capturedAt ?? '').localeCompare(a.capturedAt ?? ''))[0] ?? null
 
   const steps = [
-    { label: 'Proof submitted', done: true, time: '19 Jul, 14:23' },
-    { label: 'Verifier review', done: false, current: milestone.status === 'under_review', time: 'Estimated: 20 Jul' },
-    { label: 'Funder approval', done: false, time: 'Pending verifier' },
-    { label: 'Funds released', done: milestone.status === 'released', time: 'Pending approval' },
+    { label: 'Proof submitted', done: milestone.evidence.length > 0, time: latestEvidence ? fmtSubmittedAt(latestEvidence.capturedAt) : 'Not submitted yet' },
+    { label: 'Verifier review', done: milestone.status === 'released' || milestone.status === 'disputed', current: milestone.status === 'under_review', time: milestone.status === 'under_review' ? 'In progress' : milestone.status === 'pending' ? 'Waiting on submission' : 'Reviewed' },
+    { label: 'Funder approval', done: milestone.status === 'released', time: milestone.status === 'released' ? 'Approved' : 'Pending verifier' },
+    { label: 'Funds released', done: milestone.status === 'released', time: milestone.status === 'released' ? 'Released to you' : 'Pending approval' },
   ]
 
   return (
@@ -518,12 +541,32 @@ export function SubmissionStatusScreen() {
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-2xl border-2 p-4" style={{ borderColor: C.amber, background: 'var(--status-warning-bg)' }}>
-          <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Under review</div>
+          <div className="mb-1"><StatusBadge status={milestone.status} /></div>
           <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} to be released</div>
         </div>
 
         <VerticalSteps steps={steps} />
+
+        {milestone.evidence.length > 0 && (
+          <div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">
+              What you submitted ({milestone.evidence.length})
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {milestone.evidence.map((e) => (
+                <div key={e.id} className="relative rounded-xl overflow-hidden aspect-video border" style={{ borderColor: C.parchmentDark }}>
+                  <img src={e.fileUrl} alt="Submitted evidence" className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
+            {latestEvidence?.notes && (
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mt-3 leading-relaxed">
+                <span style={{ color: C.ink, fontWeight: 600 }}>Your note: </span>{latestEvidence.notes}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </AppShell>
   )

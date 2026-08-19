@@ -400,7 +400,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     const p = projects.find((x) => x.id === projectId)
     const m = p?.milestones.find((x) => x.id === milestoneId)
-    logActivity({ type: 'milestone_submitted', icon: 'camera', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: `/funder/project/${projectId}` })
+    // Only ever called from the recipient's own submission flow (see
+    // RecipientScreens.tsx / offlineQueue.tsx) — this activity entry is
+    // theirs, so it should route back to their own review screen, not the
+    // funder-only project page.
+    logActivity({ type: 'milestone_submitted', icon: 'camera', title: 'Proof submitted', detail: p && m ? `${m.title} — ${p.title}` : undefined, path: '/recipient/submission-status' })
   }
   const approveMilestone = async (projectId: string, milestoneId: string) => {
     const result = await decideApprovalMutation.mutateAsync({ projectId, milestoneId, status: 'approved' })
