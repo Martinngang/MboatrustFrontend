@@ -171,6 +171,31 @@ export function useProjectsInfiniteQuery(limit = 12) {
   })
 }
 
+/** Real "my projects" — the recipient/owner-scoped counterpart to
+ * useProjectsQuery, which deliberately returns every funding project on the
+ * whole platform (needed for Browse/Discover/Landing/global search) and
+ * was being reused, unscoped, by screens explicitly titled "My Projects" —
+ * the bug a brand-new recipient reported (seeing every other user's
+ * projects the moment they signed up). The backend already supports
+ * ?ownerId= on GET /projects; this was simply never being passed. Disabled
+ * until a real ownerId is known so a screen can't render a false-empty
+ * "no projects" state during the brief window before devUserId resolves. */
+export function useMyProjectsQuery(ownerId: string | undefined) {
+  return useQuery({
+    queryKey: ['projects', 'mine', ownerId],
+    queryFn: async (): Promise<Project[]> => {
+      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', ownerId } })
+      const [fundings, ratings] = await Promise.all([
+        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
+        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
+      ])
+      return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
+    },
+    enabled: !!ownerId,
+    staleTime: 10_000,
+  })
+}
+
 /** Single-project fetch by id, any projectType (funding or tender) — used
  * where a screen already knows exactly which project it needs (e.g. a
  * contract's underlying tender project) rather than filtering the funding-

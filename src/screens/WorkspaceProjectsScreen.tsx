@@ -9,7 +9,7 @@ import { CalendarView } from '../components/dataview/CalendarView'
 import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
-import { useCancelProjectMutation } from '../api/projects'
+import { useCancelProjectMutation, useMyProjectsQuery } from '../api/projects'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 
@@ -37,7 +37,12 @@ function dueDate(project: Project): Date {
  * destination the Sidebar's "Projects" item now points to. */
 export function WorkspaceProjectsScreen() {
   const nav = useNavigate()
-  const { projects } = useApp()
+  const { devUserId } = useApp()
+  // Scoped to projects this account owns — the bulk-cancel action below
+  // 403s on anything else, so the platform-wide list useApp().projects
+  // returns (needed elsewhere for Browse/Discover) was never the right
+  // source for a personal "manage my projects" workspace view.
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
   const [mode, setMode] = useViewMode('projects')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = projects.find((p) => p.id === previewId) ?? null

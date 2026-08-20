@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
+import { useMyProjectsQuery } from '../api/projects'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
 import { StaggerList, StaggerItem } from '../components/Stagger'
@@ -184,7 +185,8 @@ function FunderHome() {
 // ── Recipient dashboard ────────────────────────────────────────────────────────
 function RecipientHome() {
   const nav = useNavigate()
-  const { name, projects } = useApp()
+  const { name, devUserId } = useApp()
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
   const project = projects[0]
 
   // A brand-new recipient account has no assigned project yet — every

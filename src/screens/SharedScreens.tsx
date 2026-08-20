@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 import { useMyKycStatusQuery, type KycStatus } from '../api/kyc'
+import { useMyProjectsQuery } from '../api/projects'
 import { useMyRoleTypesQuery, useUploadAvatarMutation } from '../api/session'
 import { useTheme } from '../theme'
 import { C, FONT, AppShell, Card, Header, PillButton, StatusBadge, MomoOmPicker } from '../components/MobileLayout'
@@ -972,6 +973,11 @@ export function HelpScreen() {
 export function ProfileScreen() {
   const nav = useNavigate()
   const { name, avatarUrl, setAvatarUrl, role, projects, jobs, landListings, contractors, devUserId, unreadNotifications } = useApp()
+  // Recipient's own project count/rating specifically — useApp().projects
+  // above is the platform-wide list (correct for other things this screen
+  // needs), which was being reused here too, so a brand-new recipient's
+  // profile showed every project on the platform as "theirs".
+  const { data: myProjects = [] } = useMyProjectsQuery(role === 'recipient' ? devUserId ?? undefined : undefined)
   const myContractorProfile = contractors.find((c) => c.id === devUserId)
   const { open: openNotifications } = useNotificationsDrawer()
   const { show: showToast } = useToast()
@@ -1013,8 +1019,8 @@ export function ProfileScreen() {
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
     recipient: [
-      { label: 'Projects', value: String(projects.length), icon: 'coin' },
-      { label: 'Rating', value: `${projects[0]?.recipientRating.toFixed(1) ?? '—'}`, icon: 'star' },
+      { label: 'Projects', value: String(myProjects.length), icon: 'coin' },
+      { label: 'Rating', value: `${myProjects[0]?.recipientRating.toFixed(1) ?? '—'}`, icon: 'star' },
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
     contractor: [

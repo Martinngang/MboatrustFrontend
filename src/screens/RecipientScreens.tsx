@@ -10,6 +10,7 @@ import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useRatingSummaryQuery, useRatingsQuery, useCreateRatingMutation } from '../api/reputation'
+import { useMyProjectsQuery } from '../api/projects'
 
 
 // ── Milestone submission ───────────────────────────────────────────────────────
@@ -30,11 +31,16 @@ function filesToDataUrls(files: FileList): Promise<string[]> {
 export function MilestoneSubmitScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { projects, submitMilestoneProof } = useApp()
+  const { devUserId, submitMilestoneProof } = useApp()
+  const { data: projects = [], isLoading } = useMyProjectsQuery(devUserId ?? undefined)
   const { isOnline, queue, enqueue, syncNow, isSyncing } = useOfflineQueue()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === id) ?? projects.find((p) => p.milestones.some((m) => m.status === 'pending')) ?? projects[0]
-  const milestone = project.milestones.find((m) => m.status === 'pending') ?? project.milestones.find((m) => m.status !== 'released') ?? project.milestones[0]
+  // Only falls back to "my next pending milestone" when no id was given at
+  // all (e.g. reached via the dashboard's generic "Submit proof" button) —
+  // an id that doesn't match one of *my own* projects is treated as not
+  // found rather than silently substituting a different project.
+  const project = id ? projects.find((p) => p.id === id) : (projects.find((p) => p.milestones.some((m) => m.status === 'pending')) ?? projects[0])
+  const milestone = project?.milestones.find((m) => m.status === 'pending') ?? project?.milestones.find((m) => m.status !== 'released') ?? project?.milestones[0]
   const [step, setStep] = useState<'capture' | 'submitted' | 'queued'>('capture')
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState('')
@@ -59,6 +65,17 @@ export function MilestoneSubmitScreen() {
       { enableHighAccuracy: true, timeout: 8000 },
     )
   }, [])
+
+  if (isLoading) return <AppShell noNav>{null}</AppShell>
+  if (!project || !milestone) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="camera" title="Project not found" description="This project isn't one of yours, or has no milestone to submit proof for." illustration="tilt" />
+        </div>
+      </AppShell>
+    )
+  }
 
   // If this milestone already has an unsynced queue entry (e.g. captured offline,
   // navigated away, came back before it synced), show its status instead of a blank form.
@@ -354,10 +371,11 @@ export function WithdrawalScreen() {
 
 // ── My reputation screen ──────────────────────────────────────────────────────
 export function ReputationScreen() {
-  const { name, projects, devUserId } = useApp()
+  const { name, devUserId } = useApp()
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
   const { data: summary } = useRatingSummaryQuery(devUserId ?? undefined)
   const { data: reviews = [] } = useRatingsQuery({ toUserId: devUserId ?? undefined, roleContext: 'recipient' })
-  const projectsDone = projects.filter((p) => p.recipientId === devUserId && p.status === 'completed').length
+  const projectsDone = projects.filter((p) => p.status === 'completed').length
   const avg = summary?.average ?? 0
   const initials = (name || '?').split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
@@ -421,7 +439,8 @@ export function ReputationScreen() {
 // ── Recipient projects list ───────────────────────────────────────────────────
 export function RecipientProjectsScreen() {
   const nav = useNavigate()
-  const { projects } = useApp()
+  const { devUserId } = useApp()
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
   const { queue } = useOfflineQueue()
   const [filter, setFilter] = useState('all')
   const filtered = filter === 'all' ? projects : projects.filter((p) => p.status === filter)
@@ -514,18 +533,32 @@ function fmtSubmittedAt(iso: string | null): string {
 }
 
 export function SubmissionStatusScreen() {
-  const { projects } = useApp()
+  const { devUserId } = useApp()
+  const { data: projects = [], isLoading } = useMyProjectsQuery(devUserId ?? undefined)
   // No route param — a recipient's dashboard only ever surfaces one active
   // project (see RecipientHome), so "the milestone under review, or the
   // most recently submitted one otherwise" is the same "my submission"
   // every entry point (dashboard Status action, the post-submit
-  // confirmation screen) means by this.
+  // confirmation screen) means by this — now scoped to MY projects, not
+  // the platform-wide list.
   const project = projects.find((p) => p.milestones.some((m) => m.status === 'under_review'))
     ?? projects.find((p) => p.milestones.some((m) => m.evidence.length > 0))
     ?? projects[0]
-  const milestone = project.milestones.find((m) => m.status === 'under_review')
-    ?? [...project.milestones].reverse().find((m) => m.evidence.length > 0)
-    ?? project.milestones[0]
+  const milestone = project?.milestones.find((m) => m.status === 'under_review')
+    ?? (project ? [...project.milestones].reverse().find((m) => m.evidence.length > 0) : undefined)
+    ?? project?.milestones[0]
+
+  if (isLoading) return <AppShell noNav>{null}</AppShell>
+  if (!project || !milestone) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="camera" title="No submission yet" description="Submit proof for a milestone to see its status here." illustration="tilt" />
+        </div>
+      </AppShell>
+    )
+  }
+
   const latestEvidence = [...milestone.evidence].sort((a, b) => (b.capturedAt ?? '').localeCompare(a.capturedAt ?? ''))[0] ?? null
 
   const steps = [
@@ -578,7 +611,10 @@ export function RateRecipientScreen() {
   const { id } = useParams()
   const { projects } = useApp()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === id) ?? projects[0]
+  // A funder rating a recipient can point at any real project (not just
+  // one they own) — but an id that doesn't resolve is treated as not
+  // found rather than silently substituting a different, wrong recipient.
+  const project = id ? projects.find((p) => p.id === id) : projects[0]
   const createRating = useCreateRatingMutation()
   const [rating, setRating] = useState(0)
   const [hover, setHover] = useState(0)
@@ -586,7 +622,7 @@ export function RateRecipientScreen() {
   const [submitted, setSubmitted] = useState(false)
 
   const submit = async () => {
-    if (!project.recipientId) {
+    if (!project?.recipientId) {
       showToast({ title: 'Cannot rate this recipient', description: 'This project has no owner account attached.', tone: 'error' })
       return
     }
@@ -596,6 +632,16 @@ export function RateRecipientScreen() {
     } catch (err) {
       showToast({ title: 'Failed to submit rating', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     }
+  }
+
+  if (!project) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="star" title="Project not found" illustration="tilt" />
+        </div>
+      </AppShell>
+    )
   }
 
   if (submitted) {
@@ -669,7 +715,8 @@ export function RateRecipientScreen() {
 // ── Project history screen (recipient) ────────────────────────────────────────
 export function ProjectHistoryScreen() {
   const nav = useNavigate()
-  const { projects } = useApp()
+  const { devUserId } = useApp()
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
 
   const history = projects.map((p) => ({
     ...p,

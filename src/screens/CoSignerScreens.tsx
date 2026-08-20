@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../context'
 import { useUserSearchQuery } from '../api/users'
-import { useAddCoSignerMutation } from '../api/projects'
+import { useAddCoSignerMutation, useMyProjectsQuery } from '../api/projects'
+import { EmptyState } from '../components/EmptyState'
 import { C, FONT, AppShell, Card, PillButton, Header } from '../components/MobileLayout'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
@@ -17,9 +18,13 @@ import { apiErrorMessage } from '../api/client'
 export function AddCoSignerScreen() {
   const nav = useNavigate()
   const { projectId } = useParams()
-  const { projects } = useApp()
+  const { devUserId } = useApp()
+  const { data: projects = [], isLoading } = useMyProjectsQuery(devUserId ?? undefined)
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === projectId) ?? projects[0]
+  // Only the project's own owner can add a co-signer (backend 403s
+  // otherwise), so this only ever resolves from the caller's own projects
+  // — never falls back to an arbitrary stranger's project.
+  const project = projects.find((p) => p.id === projectId)
   const addCoSigner = useAddCoSignerMutation()
 
   const [query, setQuery] = useState('')
@@ -27,12 +32,24 @@ export function AddCoSignerScreen() {
   const [added, setAdded] = useState<string | null>(null)
 
   const select = async (userId: string, name: string) => {
+    if (!project) return
     try {
       await addCoSigner.mutateAsync({ projectId: project.id, coSignerId: userId })
       setAdded(name)
     } catch (err) {
       showToast({ title: 'Failed to add co-signer', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     }
+  }
+
+  if (isLoading) return <AppShell noNav>{null}</AppShell>
+  if (!project) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="users" title="Project not found" description="This project isn't one of yours." illustration="tilt" />
+        </div>
+      </AppShell>
+    )
   }
 
   if (added) {
