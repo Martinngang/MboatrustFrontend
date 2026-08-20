@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { resolveCurrentUserId, clearDevUserId } from './api/devAuth'
 import { firebaseConfigured } from './firebase'
 import { onFirebaseAuthChange, firebaseSignOut } from './api/firebaseAuth'
@@ -247,6 +248,7 @@ export interface AppState {
 const AppContext = createContext<AppState>({} as AppState)
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const qc = useQueryClient()
   const [role, setRole] = useState<Role>(null)
   const [roles, setRoles] = useState<NonNullable<Role>[]>([])
   const [lang, setLang] = useState<Lang>('en')
@@ -332,6 +334,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setDevUserIdState(null)
     }
   }, [isLoggedIn, role])
+
+  // Every "my data" query (activity, projects, notifications, ...) is keyed
+  // without the user's id in it, so React Query's cache is only ever safe
+  // to reuse across renders of the *same* signed-in identity. Without this,
+  // logging out of one account and into another in the same tab (there is
+  // no full page reload anywhere in that flow) would keep serving the
+  // previous account's cached "my activity"/"my projects" data until each
+  // query happened to revalidate on its own — exactly the bug reported
+  // where a brand-new account appeared to already have activity. Skips the
+  // very first resolution (prevDevUserId still null) since the cache is
+  // already empty at that point — nothing to clear yet.
+  const prevDevUserId = useRef<string | null>(null)
+  useEffect(() => {
+    if (prevDevUserId.current !== null && prevDevUserId.current !== devUserId) {
+      qc.clear()
+    }
+    prevDevUserId.current = devUserId
+  }, [devUserId, qc])
 
   const projectsQuery = useProjectsQuery()
   // Shows mock data only while the *first* real fetch is genuinely still in
