@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { capturePendingReferral, getPendingReferralId, clearPendingReferral } from '../api/pendingReferral'
 import { useApp, T, type Role } from '../context'
 import { C, FONT, PillButton } from '../components/MobileLayout'
@@ -719,6 +719,17 @@ export function RoleScreen() {
   const { show: showToast } = useToast()
   const [multi, setMulti] = useState<NonNullable<Role>[]>([])
   const [saving, setSaving] = useState(false)
+  // Quincaillerie is a real, selectable actor type but isn't a member of
+  // the core Role union (that drives dashboard/bottom-nav switching for
+  // funder/recipient/contractor/seller) and isn't a real backend roleType
+  // either — it's mock data (see materials.tsx), so it can't flow through
+  // the same POST /users/me/roles call the four roles above use (that
+  // endpoint's validator only recognizes the four real roleTypes; sending
+  // an unrecognized one would 400 and fail the whole Promise.all, taking
+  // the person's *real* role choices down with it). Tracked separately and
+  // only ever routes to the quincaillerie registration form after the real
+  // account/profile setup finishes.
+  const [wantsQuincaillerie, setWantsQuincaillerie] = useState(false)
 
   const toggleRole = (r: Role) => {
     if (!r) return
@@ -755,7 +766,7 @@ export function RoleScreen() {
     }
     setRoles(chosen)
     setRole(chosen[0])
-    nav('/profile')
+    nav('/profile', { state: { wantsQuincaillerie } })
   }
 
   return (
@@ -800,6 +811,44 @@ export function RoleScreen() {
         })}
       </div>
 
+      <div className="mt-5">
+        <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-widest">Also run a hardware or building-materials store?</p>
+        <Tilt3D max={4} className="rounded-2xl">
+          <button
+            onClick={() => setWantsQuincaillerie((w) => !w)}
+            className="flex h-full w-full items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all"
+            style={{
+              background: wantsQuincaillerie ? 'rgba(52,168,115,0.08)' : C.white,
+              borderColor: wantsQuincaillerie ? C.forest : C.parchmentDark,
+              boxShadow: wantsQuincaillerie ? '0 10px 28px -14px rgba(31,111,74,0.35)' : 'none',
+            }}
+          >
+            <span
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition-transform duration-500"
+              style={{ background: '#7B4B2A1F', color: '#7B4B2A' }}
+            >
+              <AppIcon name="store" size={20} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">Quincaillerie / Materials Supplier</div>
+              <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-1 text-xs leading-snug">
+                Get paid directly for materials on a funded milestone, with a digital receipt — instead of the contractor handling cash. Registration and admin verification happen after this step.
+              </div>
+            </div>
+            <div
+              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
+              style={{ borderColor: wantsQuincaillerie ? C.forest : C.parchmentDark, background: wantsQuincaillerie ? C.forest : 'transparent' }}
+            >
+              {wantsQuincaillerie && (
+                <svg className="animate-pop-in" width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              )}
+            </div>
+          </button>
+        </Tilt3D>
+      </div>
+
       <div className="mt-8">
         <PillButton onClick={proceed} fullWidth disabled={saving}>{saving ? 'Saving…' : 'Continue'}</PillButton>
       </div>
@@ -810,6 +859,8 @@ export function RoleScreen() {
 // ── Profile setup ─────────────────────────────────────────────────────────────
 export function ProfileSetupScreen() {
   const nav = useNavigate()
+  const location = useLocation()
+  const wantsQuincaillerie = Boolean((location.state as { wantsQuincaillerie?: boolean } | null)?.wantsQuincaillerie)
   const { setName, setLoggedIn } = useApp()
   const { show: showToast } = useToast()
   const [form, setForm] = useState({ name: '', residenceCity: '', residenceCountry: '', id: '' })
@@ -851,7 +902,7 @@ export function ProfileSetupScreen() {
     }
     setName(fullName)
     setLoggedIn(true)
-    nav('/home')
+    nav(wantsQuincaillerie ? '/quincaillerie/register' : '/home')
   }
 
   return (
