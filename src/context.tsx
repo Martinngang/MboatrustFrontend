@@ -359,19 +359,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Resolves to the real signed-in Firebase user when one exists (real
   // sign-in flows now live in Onboarding.tsx), otherwise falls back to the
   // DEV_AUTH_BYPASS demo user for the picked role — see resolveCurrentUserId.
+  // Gated on isLoggedIn alone, not on `role` being truthy: a real Firebase
+  // session doesn't need role at all (resolveCurrentUserId goes straight to
+  // /users/me and ignores the role string entirely), and the DEV_AUTH_BYPASS
+  // fallback's demo-user lookup only needs *some* placeholder role, not a
+  // real one — which matters for every account whose `role` is legitimately
+  // null: an admin (see resolveAuthDestination) and, now, a
+  // quincaillerie-only account (see Onboarding.tsx's RoleScreen). Gating
+  // this on role previously meant devUserId — and everything derived from
+  // it, including a quincaillerie-only user's own myQuincaillerie lookup —
+  // silently never resolved for either case.
   useEffect(() => {
-    // An admin account has no `role` (see resolveAuthDestination) — for a
-    // real Firebase session this doesn't matter (resolveCurrentUserId goes
-    // straight to /users/me and ignores the role string entirely), it only
-    // matters for the DEV_AUTH_BYPASS fallback's demo-user lookup, which
-    // has no admin-specific demo user anyway, so any placeholder works.
-    if (isLoggedIn && (role || isAdmin)) {
+    if (isLoggedIn) {
       resolveCurrentUserId(role ?? 'funder').then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
     } else {
       clearDevUserId()
       setDevUserIdState(null)
     }
-  }, [isLoggedIn, role, isAdmin])
+  }, [isLoggedIn, role])
 
   // Every "my data" query (activity, projects, notifications, ...) is keyed
   // without the user's id in it, so React Query's cache is only ever safe
