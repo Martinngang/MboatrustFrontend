@@ -171,6 +171,145 @@ export interface RecommendedListing {
   score: { total: number; breakdown: Record<string, number> }
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminLandListingRow {
+  id: string
+  title: string
+  region: string
+  city: string
+  sellerName: string
+  price: number
+  verificationStatus: string
+  disputeFlag: boolean
+  createdAt: string
+}
+
+interface BackendAdminLandListing {
+  _id: string
+  title: string
+  region: string
+  city: string
+  price: number
+  verificationStatus: string
+  disputeFlag: boolean
+  sellerId: { fullName: string } | string
+  createdAt: string
+}
+
+/** Admin's own list — search + status filter, no per-row rating fetch
+ * (useLandListingsQuery's N+1 is fine for consumer browse, wasteful for a
+ * management table that doesn't show star ratings). */
+export function useAdminLandListingsQuery(filter: { search?: string; verificationStatus?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminLandListings', filter],
+    queryFn: async (): Promise<{ listings: AdminLandListingRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminLandListing[]; meta: { total: number } }>('/land-listings', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        listings: data.data.map((l) => ({
+          id: l._id,
+          title: l.title || 'Untitled listing',
+          region: l.region,
+          city: l.city,
+          sellerName: typeof l.sellerId === 'object' ? l.sellerId.fullName : 'Unknown',
+          price: l.price,
+          verificationStatus: l.verificationStatus,
+          disputeFlag: l.disputeFlag,
+          createdAt: l.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
+export interface AdminUpdateListingInput {
+  title?: string
+  region?: string
+  city?: string
+  price?: number
+  description?: string
+}
+
+/** Admin edit of any listing's core fields — reuses the same PATCH
+ * /land-listings/:id a seller edits their own listing through; the backend
+ * now accepts either the owning seller or an admin (see
+ * landListingController.update's admin bypass). */
+export function useAdminUpdateListingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ listingId, input }: { listingId: string; input: AdminUpdateListingInput }) => {
+      const { data } = await api.patch<{ data: BackendAdminLandListing }>(`/land-listings/${listingId}`, input)
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminLandListings'] }),
+  })
+}
+
+export function useAdminRemoveListingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (listingId: string) => {
+      await api.delete(`/land-listings/${listingId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminLandListings'] }),
+  })
+}
+
+export interface AdminLandOffer {
+  id: string
+  buyerName: string
+  offerAmount: number
+  status: string
+  createdAt: string
+}
+
+export function useLandOffersForListingQuery(listingId: string | undefined) {
+  return useQuery({
+    queryKey: ['landOffers', 'forListing', listingId],
+    queryFn: async (): Promise<AdminLandOffer[]> => {
+      const { data } = await api.get<{ data: { _id: string; buyerId: { fullName: string } | string; offerAmount: number; status: string; createdAt: string }[] }>(`/land-listings/${listingId}/offers`)
+      return data.data.map((o) => ({
+        id: o._id,
+        buyerName: typeof o.buyerId === 'object' ? o.buyerId.fullName : 'Unknown',
+        offerAmount: o.offerAmount,
+        status: o.status,
+        createdAt: o.createdAt,
+      }))
+    },
+    enabled: Boolean(listingId),
+    staleTime: 10_000,
+  })
+}
+
+export interface AdminVisitRequest {
+  id: string
+  requestedByName: string
+  status: string
+  confirmedDate: string | null
+  createdAt: string
+}
+
+export function useVisitRequestsForListingQuery(listingId: string | undefined) {
+  return useQuery({
+    queryKey: ['visitRequests', 'forListing', listingId],
+    queryFn: async (): Promise<AdminVisitRequest[]> => {
+      const { data } = await api.get<{ data: { _id: string; requestedBy: { fullName: string } | string; status: string; confirmedDate: string | null; createdAt: string }[] }>(`/land-listings/${listingId}/visit-requests`)
+      return data.data.map((v) => ({
+        id: v._id,
+        requestedByName: typeof v.requestedBy === 'object' ? v.requestedBy.fullName : 'Unknown',
+        status: v.status,
+        confirmedDate: v.confirmedDate,
+        createdAt: v.createdAt,
+      }))
+    },
+    enabled: Boolean(listingId),
+    staleTime: 10_000,
+  })
+}
+
 export function useRecommendedListingsQuery(enabled = true) {
   return useQuery({
     queryKey: ['recommendedListings'],

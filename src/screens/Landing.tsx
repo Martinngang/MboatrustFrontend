@@ -781,6 +781,7 @@ function FinalCTA() {
 
 // ── Footer ────────────────────────────────────────────────────────────────────
 function Footer() {
+  const nav = useNavigate()
   const columns = [
     { title: 'Product', links: [{ label: 'How it works', href: '#how-it-works' }, { label: 'For everyone', href: '#for-everyone' }, { label: 'Live projects', href: '#live-projects' }] },
     { title: 'Company', links: [{ label: 'About', href: null }, { label: 'Careers', href: null }, { label: 'Blog', href: null }] },
@@ -832,9 +833,18 @@ function Footer() {
           <span style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.4)' }} className="text-[10px] uppercase tracking-wider">
             © {new Date().getFullYear()} Mboa Trust · Yaoundé / Brussels / Toronto
           </span>
-          <span style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.4)' }} className="text-[10px] uppercase tracking-wider">
-            v1.0.0
-          </span>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => nav('/admin/login')}
+              style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.4)' }}
+              className="text-[10px] uppercase tracking-wider transition-colors hover:text-white"
+            >
+              Admin sign-in
+            </button>
+            <span style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.4)' }} className="text-[10px] uppercase tracking-wider">
+              v1.0.0
+            </span>
+          </div>
         </div>
       </div>
     </footer>

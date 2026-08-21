@@ -64,6 +64,53 @@ export function useContractorProfilesInfiniteQuery(limit = 12) {
   })
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminContractorRow {
+  userId: string
+  fullName: string
+  categories: string[]
+  regions: string[]
+  bio: string
+  yearsExperience: number
+  isAvailable: boolean
+  kycStatus?: string
+  completedProjects: number
+  avgRating: number | null
+  ratingCount: number
+}
+
+/** Full-fidelity rows for the admin directory — mapContractor above lossily
+ * reduces this same payload down to the simple `Contractor` shape (one
+ * trade, one region, a rating with a neutral fallback) for the consumer
+ * directory; the admin table needs the real arrays/counts underneath. */
+export function useAdminContractorsQuery(filter: { search?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminContractors', filter],
+    queryFn: async (): Promise<{ contractors: AdminContractorRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendContractorProfile[]; meta: { total: number } }>('/contractor-profiles', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        contractors: data.data.map((c) => ({
+          userId: c.userId,
+          fullName: c.fullName,
+          categories: c.categories,
+          regions: c.regions,
+          bio: c.bio,
+          yearsExperience: c.yearsExperience,
+          isAvailable: c.isAvailable,
+          kycStatus: c.kycStatus,
+          completedProjects: c.stats.completedProjects,
+          avgRating: c.stats.avgRating,
+          ratingCount: c.stats.ratingCount,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
 export interface UpsertContractorProfileInput {
   categories?: string[]
   regions?: string[]
@@ -79,6 +126,20 @@ export function useUpsertMyContractorProfileMutation() {
       return data.data
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contractorProfiles'] }),
+  })
+}
+
+/** Admin edit of any contractor's profile — reuses PUT
+ * /contractor-profiles/:userId (see contractorProfileController.adminUpsert),
+ * separate from the self-service PUT /contractor-profiles/me above. */
+export function useAdminUpdateContractorProfileMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ userId, input }: { userId: string; input: UpsertContractorProfileInput }) => {
+      const { data } = await api.put<{ data: BackendContractorProfile }>(`/contractor-profiles/${userId}`, input)
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminContractors'] }),
   })
 }
 

@@ -41,6 +41,43 @@ export function useTeamMembersQuery(enabled = true) {
   })
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminTeamMemberRow {
+  id: string
+  ownerName: string
+  memberName: string
+  role: TeamRole
+  status: 'invited' | 'active'
+  createdAt: string
+}
+
+interface BackendAdminTeamMember extends Omit<BackendTeamMember, 'ownerId'> {
+  ownerId: { fullName: string } | string
+}
+
+export function useAdminTeamMembersQuery(filter: { status?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminTeamMembers', filter],
+    queryFn: async (): Promise<{ members: AdminTeamMemberRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminTeamMember[]; meta: { total: number } }>('/admin/team-members', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        members: data.data.map((m) => ({
+          id: m._id,
+          ownerName: typeof m.ownerId === 'object' ? m.ownerId.fullName : 'Unknown',
+          memberName: (typeof m.userId === 'object' && m.userId?.fullName) || m.invitedName || m.invitedEmail,
+          role: m.role,
+          status: m.status,
+          createdAt: m.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
 export function useInviteTeamMemberMutation() {
   const qc = useQueryClient()
   return useMutation({
@@ -52,6 +89,9 @@ export function useInviteTeamMemberMutation() {
   })
 }
 
+/** Shared by the consumer self-service roster screen and the admin
+ * Community screen — the backend now accepts either the owning team owner
+ * or an admin (see teamMemberController's admin bypass), same route both ways. */
 export function useUpdateTeamMemberRoleMutation() {
   const qc = useQueryClient()
   return useMutation({
@@ -59,7 +99,10 @@ export function useUpdateTeamMemberRoleMutation() {
       const { data } = await api.patch<{ data: BackendTeamMember }>(`/team-members/${id}/role`, { role })
       return mapTeamMember(data.data)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['teamMembers'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teamMembers'] })
+      qc.invalidateQueries({ queryKey: ['adminTeamMembers'] })
+    },
   })
 }
 
@@ -69,7 +112,10 @@ export function useRemoveTeamMemberMutation() {
     mutationFn: async (id: string) => {
       await api.delete(`/team-members/${id}`)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['teamMembers'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['teamMembers'] })
+      qc.invalidateQueries({ queryKey: ['adminTeamMembers'] })
+    },
   })
 }
 

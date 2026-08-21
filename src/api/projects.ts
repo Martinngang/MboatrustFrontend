@@ -196,6 +196,115 @@ export function useMyProjectsQuery(ownerId: string | undefined) {
   })
 }
 
+/** A funder never owns the project they fund (ownerId is the recipient) —
+ * their relationship to a project is having actually paid into its escrow —
+ * so "my projects" for a funder can only be resolved server-side by the
+ * `funderId` filter on GET /projects (which looks at who funded, not who
+ * owns). Without this, FunderHome had no correct way to ask for its own
+ * dashboard data and fell back to the full public catalog — every funder's
+ * "my total funded" and "my active projects" were actually everyone's. */
+export function useMyFundedProjectsQuery(funderId: string | undefined) {
+  return useQuery({
+    queryKey: ['projects', 'funded-by-me', funderId],
+    queryFn: async (): Promise<Project[]> => {
+      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', funderId } })
+      const [fundings, ratings] = await Promise.all([
+        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
+        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
+      ])
+      return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
+    },
+    enabled: !!funderId,
+    staleTime: 10_000,
+  })
+}
+
+// ── Admin project list ──────────────────────────────────────────────────
+export interface AdminProjectRow {
+  id: string
+  title: string
+  projectType: string
+  status: string
+  ownerName: string
+  totalAmount: number
+  milestonesCount: number
+  createdAt: string
+}
+
+interface BackendAdminProject {
+  _id: string
+  title: string
+  projectType: string
+  status: string
+  totalAmount: number
+  ownerId: { fullName: string } | string
+  milestones: unknown[]
+  createdAt: string
+}
+
+/** Admin's own list — every project regardless of type/owner, with a
+ * server-side `search` filter (see projectController.getAll). Deliberately
+ * skips the per-project funding-summary/rating fetches useProjectsQuery
+ * makes (N+1 network calls each) since a management table only needs
+ * totalAmount/status/owner, not live raised-so-far figures. */
+export function useAdminProjectsQuery(filter: { status?: string; search?: string; projectType?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminProjects', filter],
+    queryFn: async (): Promise<{ projects: AdminProjectRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminProject[]; meta: { total: number } }>('/projects', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        projects: data.data.map((p) => ({
+          id: p._id,
+          title: p.title,
+          projectType: p.projectType,
+          status: p.status,
+          ownerName: typeof p.ownerId === 'object' ? p.ownerId.fullName : 'Unknown',
+          totalAmount: p.totalAmount,
+          milestonesCount: p.milestones?.length ?? 0,
+          createdAt: p.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
+export interface AdminUpdateProjectInput {
+  title?: string
+  description?: string
+  locationName?: string
+}
+
+/** Admin edit — reuses PATCH /projects/:id, same route an owner edits their
+ * own project through (see projectController.update's admin bypass). Only
+ * safe to call while the project is still draft/open — the backend rejects
+ * edits once real money has moved, for admin same as anyone. */
+export function useAdminUpdateProjectMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, input }: { projectId: string; input: AdminUpdateProjectInput }) => {
+      const { data } = await api.patch<{ data: BackendAdminProject }>(`/projects/${projectId}`, input)
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminProjects'] }),
+  })
+}
+
+/** Admin delete — reuses DELETE /projects/:id; the backend only allows this
+ * while the project is still draft, same rule that applies to the owner. */
+export function useAdminRemoveProjectMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (projectId: string) => {
+      await api.delete(`/projects/${projectId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminProjects'] }),
+  })
+}
+
 /** Single-project fetch by id, any projectType (funding or tender) — used
  * where a screen already knows exactly which project it needs (e.g. a
  * contract's underlying tender project) rather than filtering the funding-

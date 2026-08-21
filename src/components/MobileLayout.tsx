@@ -35,6 +35,11 @@ const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   open: { tone: 'success', label: 'Open' },
   awarded: { tone: 'info', label: 'Awarded' },
   closed: { tone: 'neutral', label: 'Closed' },
+  // Material order statuses (see materials.tsx) — 'rejected'/'disputed' above already cover those two.
+  requested: { tone: 'warning', label: 'Requested' },
+  confirmed: { tone: 'info', label: 'Confirmed' },
+  fulfilled: { tone: 'success', label: 'Fulfilled' },
+  delivered: { tone: 'success', label: 'Delivered' },
 }
 export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_MAP[status] ?? { tone: 'neutral' as const, label: status }

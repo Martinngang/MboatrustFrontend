@@ -58,6 +58,63 @@ export function useCreateReferralMutation() {
   })
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminReferralRow {
+  id: string
+  referrerName: string
+  referredName: string | null
+  status: 'invited' | 'joined' | 'rewarded'
+  rewardAmount: number | null
+  rewardCurrency: string
+  createdAt: string
+}
+
+interface BackendAdminReferral {
+  _id: string
+  referrerId: { fullName: string } | string
+  referredId: { fullName: string } | string | null
+  status: 'invited' | 'joined' | 'rewarded'
+  rewardAmount: number | null
+  rewardCurrency: string
+  createdAt: string
+}
+
+export function useAdminReferralsQuery(filter: { status?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminReferrals', filter],
+    queryFn: async (): Promise<{ referrals: AdminReferralRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminReferral[]; meta: { total: number } }>('/admin/referrals', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        referrals: data.data.map((r) => ({
+          id: r._id,
+          referrerName: typeof r.referrerId === 'object' ? r.referrerId.fullName : 'Unknown',
+          referredName: r.referredId ? (typeof r.referredId === 'object' ? r.referredId.fullName : 'Unknown') : null,
+          status: r.status,
+          rewardAmount: r.rewardAmount,
+          rewardCurrency: r.rewardCurrency,
+          createdAt: r.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
+/** Admin-only — fraud cleanup for a self-referral loophole or spam invite
+ * loop (see referralController.remove). No owner-facing delete exists. */
+export function useAdminRemoveReferralMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (referralId: string) => {
+      await api.delete(`/referrals/${referralId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminReferrals'] }),
+  })
+}
+
 export function useClaimReferralMutation() {
   return useMutation({
     mutationFn: async (referralId: string) => {

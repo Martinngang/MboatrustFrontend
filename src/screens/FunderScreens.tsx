@@ -21,6 +21,8 @@ import { Switch } from '../components/Switch'
 import { ConfirmDialog, Modal } from '../components/Modal'
 import { AppIcon } from '../components/icons'
 import { useTemplates } from '../templates'
+import { useMaterials, resolveMilestonePayee } from '../materials'
+import { MaterialOrderCard } from '../components/MaterialOrderCard'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useProjectsInfiniteQuery } from '../api/projects'
@@ -905,6 +907,14 @@ export function MilestoneReviewScreen() {
   const { data: verificationTasks = [] } = useVerificationTasksQuery({ targetType: 'milestone', targetId: milestone.id })
   const verifierReport = verificationTasks.find((t) => t.status === 'submitted')
 
+  // Materials-routed milestone — when a supplier has confirmed an order for
+  // this milestone, approval pays them directly instead of the recipient
+  // (see materials.tsx's resolveMilestonePayee, mirroring the real Escrow
+  // payeeType logic this is prototyping ahead of the real backend).
+  const { getMaterialOrderForMilestone } = useMaterials()
+  const materialOrder = getMaterialOrderForMilestone(milestone.id)
+  const { payeeType, payoutLabel } = resolveMilestonePayee(materialOrder)
+
   // The backend is the source of truth for multi-sig: it auto-registers
   // whoever decides as an approver on their first decision and only
   // releases once every required identity (owner + co-signer) has approved
@@ -956,7 +966,9 @@ export function MilestoneReviewScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Milestone approved</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            {fmt(milestone.amount)} has been released from escrow to {project.recipient}. The next milestone is now active.
+            {payeeType === 'quincaillerie'
+              ? `${fmt(milestone.amount)} has been released from escrow — ${payoutLabel.toLowerCase()}. The next milestone is now active.`
+              : `${fmt(milestone.amount)} has been released from escrow to ${project.recipient}. The next milestone is now active.`}
           </p>
           <PillButton onClick={() => nav(`/funder/project/${project.id}`)} fullWidth>View project</PillButton>
         </div>
@@ -1101,6 +1113,19 @@ export function MilestoneReviewScreen() {
             )}
           </div>
         )}
+
+        {/* Materials — a linked order/receipt is this milestone's evidence,
+            same as a photo, when the recipient/contractor requested
+            materials from a verified quincaillerie instead of (or
+            alongside) submitting photo proof. */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Materials</div>
+          {materialOrder ? (
+            <MaterialOrderCard order={materialOrder} />
+          ) : (
+            <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No material order linked to this milestone.</div>
+          )}
+        </div>
 
         {/* Recipient notes — real text from the submission, when the recipient left any */}
         {milestone.evidence.some((e) => e.notes) && (

@@ -45,8 +45,8 @@ function useAuthRouting() {
   const { completeAuthSuccess } = useApp()
   return async () => {
     const dest = await completeAuthSuccess()
-    const path = dest === 'home' ? '/home' : dest === 'profile' ? '/profile' : '/role'
-    nav(path, { replace: dest === 'home' })
+    const path = dest === 'home' ? '/home' : dest === 'admin' ? '/admin' : dest === 'profile' ? '/profile' : '/role'
+    nav(path, { replace: dest === 'home' || dest === 'admin' })
   }
 }
 
@@ -626,6 +626,75 @@ export function LoginScreen() {
         <button onClick={() => nav('/signup')} style={{ color: C.forest }} className="font-semibold">Create account</button>
       </p>
     </OnboardingShell>
+  )
+}
+
+/** Separate front door for staff, not a variant of the consumer LoginScreen
+ * above — no language/Google/phone options, no "create account" prompt,
+ * nothing from the funder/recipient/contractor/seller onboarding funnel.
+ * Signing in successfully here still isn't enough on its own: the account
+ * has to actually carry the backend's admin roleType (resolveAuthDestination
+ * returning 'admin'), or it's signed straight back out with an error —
+ * otherwise this would just be a second, confusingly-labeled door into the
+ * ordinary consumer app for anyone with any account. */
+export function AdminLoginScreen() {
+  const nav = useNavigate()
+  const { completeAuthSuccess, logout } = useApp()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [signingIn, setSigningIn] = useState(false)
+
+  const submit = async () => {
+    setError('')
+    if (!email || !password) return setError('Enter your email and password.')
+    if (!firebaseConfigured) return setError('Admin sign-in isn’t available in this environment.')
+    setSigningIn(true)
+    try {
+      await signInWithEmail(email, password)
+      const dest = await completeAuthSuccess()
+      if (dest === 'admin') {
+        nav('/admin', { replace: true })
+      } else {
+        await logout()
+        setError('This account does not have admin access.')
+      }
+    } catch (err) {
+      setError(friendlyAuthError(err))
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center px-5" style={{ background: C.forestDark }}>
+      <div className="w-full max-w-sm rounded-3xl p-7" style={{ background: C.white, boxShadow: C.shadowXl }}>
+        <div className="mb-6 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: C.forest, color: C.white }}>
+            <AppIcon name="shield" size={22} strokeWidth={2} />
+          </div>
+          <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">Admin sign-in</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-1 text-[10px] uppercase tracking-widest">Staff access only</div>
+        </div>
+
+        {error && <div className="mb-4"><InlineAlert>{error}</InlineAlert></div>}
+
+        <div className="space-y-4">
+          <TextField label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@example.com" autoComplete="email" />
+          <PasswordField label="Password" value={password} onChange={setPassword} placeholder="Your password" autoComplete="current-password" />
+        </div>
+
+        <div className="mt-6">
+          <PillButton onClick={submit} fullWidth disabled={signingIn}>
+            {signingIn ? (<span className="inline-flex items-center gap-2"><Spinner size={14} color={C.white} /> Signing in…</span>) : 'Sign in'}
+          </PillButton>
+        </div>
+
+        <button onClick={() => nav('/login')} className="mt-5 block w-full text-center text-xs" style={{ fontFamily: FONT.sans, color: C.inkSubtle }}>
+          ← Back to main sign-in
+        </button>
+      </div>
+    </div>
   )
 }
 

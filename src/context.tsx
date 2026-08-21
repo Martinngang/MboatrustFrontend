@@ -186,6 +186,11 @@ export interface AppState {
    * mobile header, ProfileScreen) falls back to an initials circle in that
    * case. See UserAvatar in components/MobileLayout.tsx. */
   avatarUrl: string | null
+  /** True for an account carrying the backend's 'admin' roleType — a
+   * separate staff dashboard, not one of `role`'s four consumer values (see
+   * resolveAuthDestination in api/session.ts for why admin never touches
+   * role/roles/onboarding at all). */
+  isAdmin: boolean
   isLoggedIn: boolean
   /** True once the app has finished checking for a restored Firebase
    * session on load — false only for the brief window right after a page
@@ -207,15 +212,18 @@ export interface AppState {
   /** Call right after any successful Firebase sign-in (Google, email, or
    * phone). Resolves the backend User and routes based on its saved
    * onboardingCompleted flag / roles (see resolveAuthDestination):
+   *   'admin'   — staff account; hydrates app state, sets isAdmin, signs
+   *               the session in, and skips role/profile entirely — those
+   *               are consumer-onboarding concepts that don't apply here.
    *   'home'    — onboarding already completed; hydrates app state and
    *               signs the session in so the caller skips straight to /home.
    *   'profile' — a role was already picked but setup wasn't finished;
    *               resumes there instead of asking for a role again.
    *   'role'    — brand-new account; normal first-time flow starts.
-   * Only the 'home' case touches isLoggedIn — the other two leave it alone
-   * so the in-progress role/profile screens (which set it themselves once
-   * truly done) aren't short-circuited. */
-  completeAuthSuccess: () => Promise<'home' | 'role' | 'profile'>
+   * Only the 'home'/'admin' cases touch isLoggedIn — the other two leave it
+   * alone so the in-progress role/profile screens (which set it themselves
+   * once truly done) aren't short-circuited. */
+  completeAuthSuccess: () => Promise<'home' | 'role' | 'profile' | 'admin'>
   /** Signs out of Firebase (if configured) and clears all local session
    * state — the one place "log out" is implemented, so every entry point
    * (Settings, an expired-session redirect, etc.) behaves identically. */
@@ -255,6 +263,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setLoggedIn] = useState(false)
   // Nothing to restore when there's no Firebase project — dev-bypass mode
   // is ready to route immediately.
@@ -272,10 +281,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onFirebaseAuthChange(async (fbUser) => {
       if (fbUser) {
         const backendUser = await fetchBackendUser()
-        if (backendUser && resolveAuthDestination(backendUser) === 'home') {
+        const dest = backendUser ? resolveAuthDestination(backendUser) : null
+        if (backendUser && (dest === 'home' || dest === 'admin')) {
           const mappedRoles = mapBackendRoles(backendUser.roles)
           setName(backendUser.fullName)
           setAvatarUrl(backendUser.avatarUrl)
+          setIsAdmin(dest === 'admin')
           setRoles(mappedRoles)
           setRole(mappedRoles[0])
           setLoggedIn(true)
@@ -286,10 +297,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [])
 
-  const completeAuthSuccess = async (): Promise<'home' | 'role' | 'profile'> => {
+  const completeAuthSuccess = async (): Promise<'home' | 'role' | 'profile' | 'admin'> => {
     const backendUser = await fetchBackendUser()
     const dest = resolveAuthDestination(backendUser)
-    if (dest !== 'home') {
+    if (dest !== 'home' && dest !== 'admin') {
       // Still hydrate what's already known (name, any role already picked)
       // so the resumed role/profile screen has it, without flipping
       // isLoggedIn — onboarding isn't done yet.
@@ -303,6 +314,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       }
       return dest
+    }
+    // 'admin' skips role/roles entirely — a staff account, not a consumer
+    // one, has no primary Role and no onboarding to speak of.
+    if (dest === 'admin') {
+      setName(backendUser!.fullName)
+      setAvatarUrl(backendUser!.avatarUrl)
+      setIsAdmin(true)
+      setLoggedIn(true)
+      return 'admin'
     }
     const mappedRoles = mapBackendRoles(backendUser!.roles)
     setName(backendUser!.fullName)
@@ -321,19 +341,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRoles([])
     setName('')
     setAvatarUrl(null)
+    setIsAdmin(false)
+    // react-query's cache is a single app-wide store, not reset on its own
+    // between sessions in the same tab. Most query keys here are scoped by
+    // user id (e.g. ['projects','mine',ownerId]) so a different account
+    // simply misses the old entries — but a few (['notifications'],
+    // ['conversations']) key purely on the resource, not who asked for it,
+    // since the backend itself scopes those responses to the caller. On a
+    // shared device, logging out and back in as someone else without a
+    // full page reload could otherwise flash the previous account's cached
+    // notifications/messages for a moment before the refetch lands.
+    // Clearing everything on logout closes that regardless of which
+    // queries are/aren't user-keyed today.
+    qc.clear()
   }
   const [devUserId, setDevUserIdState] = useState<string | null>(null)
   // Resolves to the real signed-in Firebase user when one exists (real
   // sign-in flows now live in Onboarding.tsx), otherwise falls back to the
   // DEV_AUTH_BYPASS demo user for the picked role — see resolveCurrentUserId.
   useEffect(() => {
-    if (isLoggedIn && role) {
-      resolveCurrentUserId(role).then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
+    // An admin account has no `role` (see resolveAuthDestination) — for a
+    // real Firebase session this doesn't matter (resolveCurrentUserId goes
+    // straight to /users/me and ignores the role string entirely), it only
+    // matters for the DEV_AUTH_BYPASS fallback's demo-user lookup, which
+    // has no admin-specific demo user anyway, so any placeholder works.
+    if (isLoggedIn && (role || isAdmin)) {
+      resolveCurrentUserId(role ?? 'funder').then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
     } else {
       clearDevUserId()
       setDevUserIdState(null)
     }
-  }, [isLoggedIn, role])
+  }, [isLoggedIn, role, isAdmin])
 
   // Every "my data" query (activity, projects, notifications, ...) is keyed
   // without the user's id in it, so React Query's cache is only ever safe
@@ -459,7 +497,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        role, roles, lang, phone, name, avatarUrl, isLoggedIn, authChecked, devUserId,
+        role, roles, lang, phone, name, avatarUrl, isAdmin, isLoggedIn, authChecked, devUserId,
         setRole, setRoles, setLang, setPhone, setName, setAvatarUrl, setLoggedIn, completeAuthSuccess, logout,
         projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone,
         jobs, addJob, landListings, addListing, updateListingStatus,

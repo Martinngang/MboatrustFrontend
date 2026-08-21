@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppProvider, useApp } from './context'
 import { TemplatesProvider } from './templates'
+import { MaterialsProvider } from './materials'
 import { CustomFieldsProvider } from './customFields'
 import { TeamProvider } from './team'
 import { FeeConfigProvider } from './feeConfig'
@@ -20,7 +21,7 @@ import { NotificationsDrawerProvider } from './components/NotificationsDrawer'
 // Landing
 import { LandingScreen } from './screens/Landing'
 // Onboarding
-import { LanguageScreen, SignupScreen, OTPScreen, LoginScreen, RoleScreen, ProfileSetupScreen } from './screens/Onboarding'
+import { LanguageScreen, SignupScreen, OTPScreen, LoginScreen, RoleScreen, ProfileSetupScreen, AdminLoginScreen } from './screens/Onboarding'
 // Dashboard
 import { HomeScreen } from './screens/Dashboard'
 // Funder
@@ -53,8 +54,12 @@ import { SettingsScreen, HelpScreen, ProfileScreen, SubscriptionScreen, DeleteAc
 import {
   ContractorOnboardingScreen, PostJobScreen, ContractSummaryScreen, RateContractorScreen, LandScheduleVisitScreen,
   VerifierRegistrationScreen, VerifierDashboard, VerifierTaskDetailScreen, VerifierReportScreen, VerifierProfileScreen,
-  AdminPanelScreen, DisputeResolutionScreen, AdminFraudAnalyticsScreen,
+  DisputeResolutionScreen, AdminFraudAnalyticsScreen,
 } from './screens/AdditionalScreens'
+import {
+  QuincaillerieRegistrationScreen, QuincaillerieDashboardScreen, QuincaillerieProfileScreen, RequestMaterialsScreen,
+} from './screens/QuincaillerieScreens'
+import { AdminOverviewScreen, AdminUsersScreen, AdminProjectsScreen, AdminVerificationsScreen, AdminLandScreen, AdminContractorsScreen, AdminCommunityScreen, AdminNotificationsScreen, AdminSettingsScreen, AdminAccountsScreen } from './screens/AdminScreens'
 // Co-signer
 import { AddCoSignerScreen } from './screens/CoSignerScreens'
 // Workspace (new management-app view-switcher demo)
@@ -97,12 +102,27 @@ function P({ children }: { children: ReactNode }) {
   return <RequireAuth>{children}</RequireAuth>
 }
 
+// Same idea as RequireAuth, but for the /admin* routes specifically: being
+// logged in isn't enough (AdminPanelScreen etc. already backstop that with
+// a backend-driven "Access denied" state), this redirects before that
+// round-trip even happens — straight to the admin door if not signed in at
+// all, or back to the consumer dashboard if signed in as something else.
+function RequireAdmin({ children }: { children: ReactNode }) {
+  const { isLoggedIn, isAdmin } = useApp()
+  if (!isLoggedIn) return <Navigate to="/admin/login" replace />
+  if (!isAdmin) return <Navigate to="/home" replace />
+  return <>{children}</>
+}
+
 // A signed-in visitor who lands on the marketing page or an auth screen
 // (bookmark, back-button, restored session on reload) belongs at their
-// dashboard, not back at square one.
+// dashboard, not back at square one — an admin's "dashboard" is /admin,
+// never the consumer /home (which assumes a funder/recipient/contractor/
+// seller role an admin account never has).
 function RedirectIfAuthed({ children }: { children: ReactNode }) {
-  const { isLoggedIn } = useApp()
-  return isLoggedIn ? <Navigate to="/home" replace /> : <>{children}</>
+  const { isLoggedIn, isAdmin } = useApp()
+  if (!isLoggedIn) return <>{children}</>
+  return <Navigate to={isAdmin ? '/admin' : '/home'} replace />
 }
 
 /** Full-bleed brand splash shown only for the brief window while a
@@ -137,6 +157,7 @@ export default function App() {
     <PWAInstallProvider>
     <AppProvider>
       <TemplatesProvider>
+      <MaterialsProvider>
       <CustomFieldsProvider>
       <TeamProvider>
       <FeeConfigProvider>
@@ -221,7 +242,13 @@ export default function App() {
                       <Route path="/verifier/task/:id" element={<P><VerifierTaskDetailScreen /></P>} />
                       <Route path="/verifier/report/:id?" element={<P><VerifierReportScreen /></P>} />
                       <Route path="/verifier/profile" element={<P><VerifierProfileScreen /></P>} />
-      
+
+                      {/* Quincaillerie */}
+                      <Route path="/quincaillerie/register" element={<P><QuincaillerieRegistrationScreen /></P>} />
+                      <Route path="/quincaillerie/dashboard" element={<P><QuincaillerieDashboardScreen /></P>} />
+                      <Route path="/quincaillerie/profile/:id" element={<P><QuincaillerieProfileScreen /></P>} />
+                      <Route path="/materials/request/:projectId/:milestoneId" element={<P><RequestMaterialsScreen /></P>} />
+
                       {/* Co-signer */}
                       <Route path="/funder/co-signer/:projectId?" element={<P><AddCoSignerScreen /></P>} />
       
@@ -252,9 +279,19 @@ export default function App() {
                       <Route path="/compliance/kyc/verify" element={<P><KycVerifyScreen /></P>} />
 
                       {/* Admin */}
-                      <Route path="/admin" element={<P><AdminPanelScreen /></P>} />
-                      <Route path="/admin/disputes" element={<P><DisputeResolutionScreen /></P>} />
-                      <Route path="/admin/fraud-analytics" element={<P><AdminFraudAnalyticsScreen /></P>} />
+                      <Route path="/admin/login" element={<RedirectIfAuthed><AdminLoginScreen /></RedirectIfAuthed>} />
+                      <Route path="/admin" element={<RequireAdmin><AdminOverviewScreen /></RequireAdmin>} />
+                      <Route path="/admin/users" element={<RequireAdmin><AdminUsersScreen /></RequireAdmin>} />
+                      <Route path="/admin/projects" element={<RequireAdmin><AdminProjectsScreen /></RequireAdmin>} />
+                      <Route path="/admin/land" element={<RequireAdmin><AdminLandScreen /></RequireAdmin>} />
+                      <Route path="/admin/contractors" element={<RequireAdmin><AdminContractorsScreen /></RequireAdmin>} />
+                      <Route path="/admin/community" element={<RequireAdmin><AdminCommunityScreen /></RequireAdmin>} />
+                      <Route path="/admin/verifications" element={<RequireAdmin><AdminVerificationsScreen /></RequireAdmin>} />
+                      <Route path="/admin/notifications" element={<RequireAdmin><AdminNotificationsScreen /></RequireAdmin>} />
+                      <Route path="/admin/settings" element={<RequireAdmin><AdminSettingsScreen /></RequireAdmin>} />
+                      <Route path="/admin/accounts" element={<RequireAdmin><AdminAccountsScreen /></RequireAdmin>} />
+                      <Route path="/admin/disputes" element={<RequireAdmin><DisputeResolutionScreen /></RequireAdmin>} />
+                      <Route path="/admin/fraud-analytics" element={<RequireAdmin><AdminFraudAnalyticsScreen /></RequireAdmin>} />
         
                       {/* Shared — notifications live in the NotificationsDrawer overlay
                           (see components/NotificationsDrawer.tsx), not a routed page. */}
@@ -275,6 +312,7 @@ export default function App() {
       </FeeConfigProvider>
       </TeamProvider>
       </CustomFieldsProvider>
+      </MaterialsProvider>
       </TemplatesProvider>
     </AppProvider>
     </PWAInstallProvider>

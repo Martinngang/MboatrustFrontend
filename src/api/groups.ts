@@ -98,6 +98,76 @@ export function useGroupDashboardQuery(id: string | undefined) {
   })
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminGroupRow {
+  id: string
+  name: string
+  description: string
+  purpose: string
+  createdByName: string
+  memberCount: number
+  linkedProjectId: string | null
+}
+
+interface BackendAdminGroup extends Omit<BackendGroup, 'createdBy'> {
+  createdBy: { fullName: string } | string
+  memberCount: number
+}
+
+export function useAdminGroupsQuery(filter: { search?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminGroups', filter],
+    queryFn: async (): Promise<{ groups: AdminGroupRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminGroup[]; meta: { total: number } }>('/groups', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        groups: data.data.map((g) => ({
+          id: g._id,
+          name: g.name,
+          description: g.description || '',
+          purpose: g.purpose || '',
+          createdByName: typeof g.createdBy === 'object' ? g.createdBy.fullName : 'Unknown',
+          memberCount: g.memberCount,
+          linkedProjectId: g.linkedProjectId,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
+export interface AdminUpdateGroupInput {
+  name?: string
+  description?: string
+  purpose?: string
+}
+
+/** Admin-only moderation edit — no owner-facing group-edit endpoint exists
+ * yet (see groupController.update's comment), so this is currently the
+ * only way to correct/rename a group. */
+export function useAdminUpdateGroupMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ groupId, input }: { groupId: string; input: AdminUpdateGroupInput }) => {
+      const { data } = await api.patch<{ data: BackendGroup }>(`/groups/${groupId}`, input)
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminGroups'] }),
+  })
+}
+
+export function useAdminRemoveGroupMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      await api.delete(`/groups/${groupId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminGroups'] }),
+  })
+}
+
 export function useCreateGroupMutation() {
   const qc = useQueryClient()
   return useMutation({

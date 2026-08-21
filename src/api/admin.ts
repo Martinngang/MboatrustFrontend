@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 
 // ── Platform stats (admin) ──────────────────────────────────────────────
+export interface DailyPoint { date: string; value: number }
 export interface PlatformStats {
   totalUsers: number
   usersByRole: Record<string, number>
@@ -10,6 +11,7 @@ export interface PlatformStats {
   openDisputes: number
   completedProjectsThisPeriod: number
   since: string
+  trends: { newUsersByDay: DailyPoint[]; escrowVolumeByDay: DailyPoint[] }
 }
 
 export function usePlatformStatsQuery() {
@@ -92,7 +94,7 @@ function mapAdminUser(u: BackendAdminUser): AdminUser {
   }
 }
 
-export function useAdminUsersQuery(filter: { role?: string; kycStatus?: string; isActive?: boolean; page?: number; limit?: number } = {}) {
+export function useAdminUsersQuery(filter: { role?: string; kycStatus?: string; isActive?: boolean; page?: number; limit?: number; search?: string } = {}) {
   return useQuery({
     queryKey: ['adminUsers', filter],
     queryFn: async (): Promise<{ users: AdminUser[]; total: number }> => {
@@ -134,6 +136,129 @@ export function useRevokeRoleMutation() {
       const { data } = await api.delete<{ data: BackendAdminUser }>(`/admin/users/${userId}/roles/${roleType}`)
       return mapAdminUser(data.data)
     },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['adminUsers'] })
+      qc.invalidateQueries({ queryKey: ['adminAccounts'] })
+    },
+  })
+}
+
+export function useGrantRoleMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ userId, roleType }: { userId: string; roleType: string }) => {
+      const { data } = await api.post<{ data: BackendAdminUser }>(`/admin/users/${userId}/roles`, { roleType })
+      return mapAdminUser(data.data)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['adminUsers'] })
+      qc.invalidateQueries({ queryKey: ['adminAccounts'] })
+    },
+  })
+}
+
+export interface CreateAdminUserInput {
+  fullName: string
+  email?: string
+  phoneNumber?: string
+  roles?: string[]
+}
+
+/** No firebaseUid yet — the real person's own first Firebase sign-in links
+ * to this record by email (see middleware/auth.js's resolveUser), rather
+ * than a second duplicate account being created for them. */
+export function useCreateAdminUserMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: CreateAdminUserInput) => {
+      const { data } = await api.post<{ data: BackendAdminUser }>('/admin/users', input)
+      return mapAdminUser(data.data)
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['adminUsers'] }),
+  })
+}
+
+export interface UpdateAdminUserInput {
+  fullName?: string
+  email?: string
+  phoneNumber?: string
+  kycStatus?: 'unverified' | 'pending' | 'verified' | 'rejected'
+  kycLevel?: 'basic' | 'enhanced'
+  preferredLanguage?: 'en' | 'fr'
+  residenceCountry?: string
+  residenceCity?: string
+}
+
+export function useUpdateAdminUserMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ userId, input }: { userId: string; input: UpdateAdminUserInput }) => {
+      const { data } = await api.patch<{ data: BackendAdminUser }>(`/admin/users/${userId}`, input)
+      return mapAdminUser(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminUsers'] }),
+  })
+}
+
+/** True hard delete — irreversible. Requires the literal {confirm:'DELETE'}
+ * body, same gate as the self-service delete-my-account flow. */
+export function useDeleteAdminUserMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      await api.delete(`/admin/users/${userId}`, { data: { confirm: 'DELETE' } })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminUsers'] }),
+  })
+}
+
+/** TEMPORARY — sets a user's Firebase Auth password directly via the
+ * backend's Firebase Admin SDK call. Only works for a user with a real
+ * linked Firebase account. To be removed later per the user's request. */
+export function useAdminChangePasswordMutation() {
+  return useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      await api.post(`/admin/users/${userId}/password`, { newPassword })
+    },
+  })
+}
+
+// ── Admin action log (audit trail) ──────────────────────────────────────
+export interface AdminActionLogEntry {
+  id: string
+  adminName: string
+  action: string
+  targetType: string
+  targetId: string
+  detail: Record<string, unknown>
+  createdAt: string
+}
+
+interface BackendAdminActionLog {
+  _id: string
+  adminId: { fullName: string } | string | null
+  action: string
+  targetType: string
+  targetId: string
+  detail: Record<string, unknown>
+  createdAt: string
+}
+
+export function useAdminActivityQuery(filter: { limit?: number; action?: string; targetType?: string } = {}) {
+  return useQuery({
+    queryKey: ['adminActivity', filter],
+    queryFn: async (): Promise<AdminActionLogEntry[]> => {
+      const { data } = await api.get<{ data: BackendAdminActionLog[] }>('/admin/activity', { params: filter })
+      return data.data.map((e) => ({
+        id: e._id,
+        adminName: typeof e.adminId === 'object' && e.adminId ? e.adminId.fullName : 'Unknown admin',
+        action: e.action,
+        targetType: e.targetType,
+        targetId: e.targetId,
+        detail: e.detail,
+        createdAt: e.createdAt,
+      }))
+    },
+    staleTime: 10_000,
   })
 }

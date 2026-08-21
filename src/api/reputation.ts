@@ -58,6 +58,92 @@ export function useRatingsQuery(filter: { toUserId?: string; projectId?: string;
   })
 }
 
+// ── Admin moderation ─────────────────────────────────────────────────────
+export interface AdminRatingRow {
+  id: string
+  fromName: string
+  toName: string
+  score: number
+  comment: string
+  roleContext: string
+  createdAt: string
+}
+
+interface BackendAdminRating extends Omit<BackendRating, 'toUserId'> {
+  toUserId: { _id: string; fullName: string } | string
+}
+
+/** Admin's own list — useRatingsQuery above is only enabled with a
+ * toUserId/projectId filter (a profile page's "reviews about this
+ * person"); this fetches every rating platform-wide for moderation. */
+export function useAdminRatingsQuery(filter: { roleContext?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminRatings', filter],
+    queryFn: async (): Promise<{ ratings: AdminRatingRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminRating[]; meta: { total: number } }>('/ratings', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        ratings: data.data.map((r) => ({
+          id: r._id,
+          fromName: typeof r.fromUserId === 'object' ? r.fromUserId.fullName : 'Anonymous',
+          toName: typeof r.toUserId === 'object' ? r.toUserId.fullName : 'Unknown',
+          score: r.score,
+          comment: r.comment,
+          roleContext: r.roleContext,
+          createdAt: r.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
+export function useDeleteRatingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (ratingId: string) => {
+      await api.delete(`/ratings/${ratingId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminRatings'] }),
+  })
+}
+
+export interface AdminCreateRatingInput {
+  fromUserId: string
+  toUserId: string
+  projectId: string
+  score: number
+  comment?: string
+  roleContext: 'recipient' | 'contractor' | 'verifier' | 'land_seller'
+}
+
+/** Admin-authored rating on a user's behalf — POST /ratings/admin (distinct
+ * from the self-service POST /ratings above), requires an explicit
+ * fromUserId since the admin isn't the author. */
+export function useAdminCreateRatingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: AdminCreateRatingInput) => {
+      const { data } = await api.post('/ratings/admin', input)
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminRatings'] }),
+  })
+}
+
+export function useAdminUpdateRatingMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ ratingId, score, comment }: { ratingId: string; score?: number; comment?: string }) => {
+      const { data } = await api.patch(`/ratings/${ratingId}`, { score, comment })
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['adminRatings'] }),
+  })
+}
+
 export interface CreateRatingInput {
   toUserId: string
   projectId: string
@@ -100,6 +186,21 @@ export function useDisputesQuery(filter: { status?: string; projectId?: string }
       return data.data
     },
     staleTime: 10_000,
+  })
+}
+
+/** Admin-initiated dispute — reuses the already-open POST /disputes (any
+ * authenticated user, admin included, per disputeRoutes.js), so an admin
+ * flagging an issue on a user's behalf goes through the exact same
+ * project-flagging side effect a user-raised dispute triggers. */
+export function useCreateDisputeMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, milestoneId, reason }: { projectId: string; milestoneId?: string; reason: string }) => {
+      const { data } = await api.post<{ data: BackendDispute }>('/disputes', { projectId, milestoneId, reason })
+      return data.data
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['disputes'] }),
   })
 }
 
@@ -174,7 +275,7 @@ export interface BackendVerificationTask {
   target: { title: string; location: string; milestoneTitle?: string; projectId?: string } | null
 }
 
-export function useVerificationTasksQuery(filter: { verifierId?: string; targetType?: 'milestone' | 'land_listing'; targetId?: string } = {}) {
+export function useVerificationTasksQuery(filter: { verifierId?: string; targetType?: 'milestone' | 'land_listing'; targetId?: string; status?: string } = {}) {
   return useQuery({
     queryKey: ['verificationTasks', filter],
     queryFn: async (): Promise<BackendVerificationTask[]> => {

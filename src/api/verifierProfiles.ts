@@ -85,6 +85,21 @@ export function useVerifierApplicationsQuery(applicationStatus?: VerifierApplica
   })
 }
 
+/** Admin edit of any verifier's profile fields — reuses PATCH
+ * /verifier-profiles/:userId (see verifierProfileController.adminUpdate),
+ * separate from the self-service upsert above; never touches
+ * applicationStatus (approve/reject own that). */
+export function useAdminUpdateVerifierProfileMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ userId, specialties, regions, bio }: { userId: string; specialties: string[]; regions: string[]; bio: string }) => {
+      const { data } = await api.patch<{ data: BackendVerifierProfile }>(`/verifier-profiles/${userId}`, { specialties, regions, bio })
+      return mapVerifierProfile(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['verifierApplications'] }),
+  })
+}
+
 export function useDecideVerifierApplicationMutation() {
   const qc = useQueryClient()
   return useMutation({

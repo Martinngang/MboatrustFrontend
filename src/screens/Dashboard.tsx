@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useMyProjectsQuery } from '../api/projects'
+import { useMyProjectsQuery, useMyFundedProjectsQuery } from '../api/projects'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
 import { StaggerList, StaggerItem } from '../components/Stagger'
@@ -44,7 +44,15 @@ function DashboardSkeleton() {
 // ── Funder dashboard ──────────────────────────────────────────────────────────
 function FunderHome() {
   const nav = useNavigate()
-  const { name, projects } = useApp()
+  const { name, devUserId } = useApp()
+  // GET /projects with no filter is the public browse catalog (every
+  // funder's projects, by design — see BrowseProjectsScreen). Home's own
+  // totals/list need to be scoped to what THIS funder actually paid into,
+  // which the backend can only answer via the funderId filter (matched
+  // against Escrow.funderId, since a funder never owns the project they
+  // fund) — without it, "Total funded" and "Active projects" here were
+  // silently summing every funder's contributions across the platform.
+  const { data: projects = [] } = useMyFundedProjectsQuery(devUserId ?? undefined)
   const active = projects.filter((p) => p.status === 'active')
   const totalFunded = projects.reduce((s, p) => s + p.raised, 0)
   const pendingMilestones = projects.flatMap((p) => p.milestones).filter((m) => m.status === 'under_review').length
@@ -309,9 +317,13 @@ function RecipientHome() {
 // ── Contractor dashboard ───────────────────────────────────────────────────────
 function ContractorHome() {
   const nav = useNavigate()
-  const { name, jobs, bids } = useApp()
+  const { name, jobs, bids, contractors, devUserId } = useApp()
   const featured = jobs[0]
   const pendingBids = bids.filter((b) => b.status === 'pending')
+  // A brand-new contractor has no ContractorProfile document yet (created
+  // lazily on first profile-setup save) — jobs/rating both read as 0/— in
+  // that case rather than falling back to someone else's stats.
+  const myProfile = contractors.find((c) => c.id === devUserId)
 
   const attentionItems: AttentionItem[] = pendingBids.length > 0
     ? pendingBids.map((b): AttentionItem => ({ icon: 'clipboard', label: `Bid pending — ${b.jobTitle}`, sub: fmt(b.price), onClick: () => nav('/contractor/bids') }))
@@ -342,9 +354,9 @@ function ContractorHome() {
             </div>
           }
           stats={[
-            { label: 'Active bids', value: '3' },
-            { label: 'Completed jobs', value: '34' },
-            { label: 'Rating', value: '4.9' },
+            { label: 'Active bids', value: String(pendingBids.length) },
+            { label: 'Completed jobs', value: String(myProfile?.jobs ?? 0) },
+            { label: 'Rating', value: myProfile ? myProfile.rating.toFixed(1) : '—' },
           ]}
         />
 

@@ -73,6 +73,30 @@ export function useCreateCertificationMutation() {
   })
 }
 
+/** Admin edit of any contractor's certification (title/issuer correction) —
+ * reuses PATCH /contractor-certifications/:id, which now accepts either the
+ * owning contractor or an admin (see the controller's admin bypass). */
+export function useAdminUpdateCertificationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ certId, title, issuer }: { certId: string; title?: string; issuer?: string }) => {
+      const { data } = await api.patch<{ data: BackendCertification }>(`/contractor-certifications/${certId}`, { title, issuer })
+      return mapCertification(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['certifications'] }),
+  })
+}
+
+export function useAdminRemoveCertificationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (certId: string) => {
+      await api.delete(`/contractor-certifications/${certId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['certifications'] }),
+  })
+}
+
 export function useDecideCertificationMutation() {
   const qc = useQueryClient()
   return useMutation({

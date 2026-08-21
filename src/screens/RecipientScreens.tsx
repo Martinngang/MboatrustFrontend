@@ -11,6 +11,8 @@ import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useRatingSummaryQuery, useRatingsQuery, useCreateRatingMutation } from '../api/reputation'
 import { useMyProjectsQuery } from '../api/projects'
+import { useMaterials } from '../materials'
+import { MaterialOrderCard } from '../components/MaterialOrderCard'
 
 
 // ── Milestone submission ───────────────────────────────────────────────────────
@@ -35,6 +37,7 @@ export function MilestoneSubmitScreen() {
   const { data: projects = [], isLoading } = useMyProjectsQuery(devUserId ?? undefined)
   const { isOnline, queue, enqueue, syncNow, isSyncing } = useOfflineQueue()
   const { show: showToast } = useToast()
+  const { getMaterialOrderForMilestone } = useMaterials()
   // Only falls back to "my next pending milestone" when no id was given at
   // all (e.g. reached via the dashboard's generic "Submit proof" button) —
   // an id that doesn't match one of *my own* projects is treated as not
@@ -80,6 +83,7 @@ export function MilestoneSubmitScreen() {
   // If this milestone already has an unsynced queue entry (e.g. captured offline,
   // navigated away, came back before it synced), show its status instead of a blank form.
   const existingQueued = queue.find((q) => q.projectId === project.id && q.milestoneId === milestone.id && q.status !== 'synced')
+  const materialOrder = getMaterialOrderForMilestone(milestone.id)
 
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -187,6 +191,22 @@ export function MilestoneSubmitScreen() {
           <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} held in escrow</div>
         </div>
+
+        {/* Materials — an alternative (or addition) to photo proof: request
+            materials from a verified quincaillerie instead of handling cash
+            yourself. Once they confirm, that becomes this milestone's
+            evidence and payment routes straight to them on approval. */}
+        {materialOrder ? (
+          <MaterialOrderCard order={materialOrder} compact />
+        ) : (
+          <button
+            onClick={() => nav(`/materials/request/${project.id}/${milestone.id}`)}
+            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
+            style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
+          >
+            Request materials from a verified store instead →
+          </button>
+        )}
 
         {/* Photo upload */}
         <div>
@@ -305,9 +325,35 @@ export function MilestoneSubmitScreen() {
 // ── Withdrawal screen ─────────────────────────────────────────────────────────
 export function WithdrawalScreen() {
   const nav = useNavigate()
+  const { devUserId, phone } = useApp()
+  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
   const [method, setMethod] = useState<'momo' | 'om'>('momo')
   const [step, setStep] = useState<'select' | 'success'>('select')
-  const available = 400000
+  // Real, per-account data — was a hardcoded `400000` shown identically to
+  // every recipient regardless of whether they had any released funds at
+  // all (a brand-new account with zero projects still saw it). Sums this
+  // recipient's own released milestones across their own project(s), the
+  // same "mine" query MilestoneSubmitScreen/SubmissionStatusScreen use.
+  // NOTE: the backend has no ledger of amounts already withdrawn, so this
+  // is "released to date", not "released minus already-withdrawn" — a real
+  // payout history would need a backend Withdrawal record to subtract.
+  const releasedMilestones = projects.flatMap((p) => p.milestones).filter((m) => m.status === 'released')
+  const available = releasedMilestones.reduce((sum, m) => sum + m.amount, 0)
+
+  if (available === 0) {
+    return (
+      <AppShell noNav>
+        <Header title="Withdraw Funds" back />
+        <div className="px-5 py-8">
+          <EmptyState
+            icon="card"
+            title="Nothing to withdraw yet"
+            description="Funds show up here once a funder approves one of your milestones and it's released from escrow."
+          />
+        </div>
+      </AppShell>
+    )
+  }
 
   if (step === 'success') {
     return (
@@ -336,7 +382,9 @@ export function WithdrawalScreen() {
         <div className="rounded-2xl p-5 text-center" style={{ background: C.forestDark }}>
           <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Available to withdraw</div>
           <div style={{ fontFamily: FONT.serif }} className="text-4xl font-bold text-white">{fmt(available)}</div>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.5)' }} className="text-[10px] mt-2 uppercase tracking-wider">From milestone 1 release</div>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.5)' }} className="text-[10px] mt-2 uppercase tracking-wider">
+            From {releasedMilestones.length} released milestone{releasedMilestones.length === 1 ? '' : 's'}
+          </div>
         </div>
 
         <div>
@@ -346,7 +394,9 @@ export function WithdrawalScreen() {
 
         <div className="border-2 rounded-xl px-4 py-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Sending to</div>
-          <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">+237 677 234 891</div>
+          <div style={{ fontFamily: FONT.sans, color: phone ? C.ink : 'var(--status-error-text)' }} className="text-sm font-medium">
+            {phone || 'No number on file — add one in Settings'}
+          </div>
         </div>
 
         <div className="rounded-xl p-3 border" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
@@ -363,7 +413,7 @@ export function WithdrawalScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={() => setStep('success')} fullWidth>Withdraw now</PillButton>
+        <PillButton onClick={() => setStep('success')} fullWidth disabled={!phone}>Withdraw now</PillButton>
       </div>
     </AppShell>
   )

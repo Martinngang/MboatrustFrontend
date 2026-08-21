@@ -3,13 +3,17 @@ import { useQueries } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
+import { AdminShell } from '../components/shell/AdminShell'
+import { Drawer } from '../components/shell/Drawer'
+import { DataTable, type DataTableColumn } from '../components/dataview/DataTable'
+import { downloadCsv } from '../lib/csv'
 import { useVerification, type VerifierTask } from '../verification'
 import { RiskBadge } from '../components/RiskBadge'
 import { LandFlagBadge } from '../components/LandFlagBadge'
 import { ChipGroup } from '../components/Chip'
 import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
-import { ConfirmDialog } from '../components/Modal'
+import { ConfirmDialog, Modal } from '../components/Modal'
 import { useToast } from '../components/Toast'
 import { api, apiErrorMessage } from '../api/client'
 import { useUpsertMyContractorProfileMutation } from '../api/contractors'
@@ -20,7 +24,7 @@ import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } fr
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
-import { useDisputesQuery, useResolveDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
+import { useDisputesQuery, useResolveDisputeMutation, useCreateDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation, useSystemHealthQuery } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
@@ -1374,8 +1378,8 @@ export function AdminPanelScreen() {
 
   if (statsError) {
     return (
-      <AppShell>
-        <Header title="Admin Panel" back />
+      <AdminShell>
+        <Header title="Admin Panel" />
         <div className="px-5 sm:mx-auto sm:max-w-md">
           <EmptyState
             icon="shield"
@@ -1383,13 +1387,13 @@ export function AdminPanelScreen() {
             description="This area is restricted to platform admins. If you believe you should have access, contact an administrator."
           />
         </div>
-      </AppShell>
+      </AdminShell>
     )
   }
 
   return (
-    <AppShell>
-      <Header title="Admin Panel" back>
+    <AdminShell>
+      <Header title="Admin Panel">
         <Tabs
           tabs={[{ id: 'overview', label: 'Overview' }, { id: 'verifications', label: 'Verifications' }, { id: 'disputes', label: 'Disputes' }, { id: 'users', label: 'Users' }, { id: 'health', label: 'System Health' }]}
           value={tab}
@@ -1654,7 +1658,7 @@ export function AdminPanelScreen() {
           </div>
         )}
       </div>
-    </AppShell>
+    </AdminShell>
   )
 }
 
@@ -1672,71 +1676,114 @@ function disputeDisplay(d: BackendDispute) {
   }
 }
 
+const DISPUTE_STATUS_OPTIONS = ['open', 'under_review', 'resolved', 'rejected', 'all']
+
 export function DisputeResolutionScreen() {
   const { show: showToast } = useToast()
-  const { data: disputes, isLoading } = useDisputesQuery({ status: 'open' })
+  const [statusFilter, setStatusFilter] = useState('open')
+  const [search, setSearch] = useState('')
+  const { data: disputes, isLoading } = useDisputesQuery(statusFilter === 'all' ? {} : { status: statusFilter })
   const resolveMutation = useResolveDisputeMutation()
-  const [contacted, setContacted] = useState<string[]>([])
+  const createMutation = useCreateDisputeMutation()
   const [resolvingId, setResolvingId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [newProjectId, setNewProjectId] = useState('')
+  const [newMilestoneId, setNewMilestoneId] = useState('')
+  const [newReason, setNewReason] = useState('')
   const resolveTarget = disputes?.find((d) => d._id === resolvingId)
+  const selected = disputes?.find((d) => d._id === selectedId)
+
+  const filtered = (disputes ?? []).filter((d) => {
+    if (!search.trim()) return true
+    const disp = disputeDisplay(d)
+    const q = search.trim().toLowerCase()
+    return disp.project.toLowerCase().includes(q) || disp.owner.toLowerCase().includes(q) || disp.raisedBy.toLowerCase().includes(q) || d.reason.toLowerCase().includes(q)
+  })
 
   const resolve = async (id: string) => {
     try {
       await resolveMutation.mutateAsync({ disputeId: id, status: 'resolved', resolutionNotes: 'Resolved by admin — evidence re-reviewed, milestone returned to review queue.' })
+      showToast({ title: 'Dispute resolved', tone: 'success' })
     } catch (err) {
       showToast({ title: 'Failed to resolve dispute', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     }
   }
-  const contact = (id: string) => setContacted((c) => [...c, id])
+
+  const columns: DataTableColumn<BackendDispute>[] = [
+    { key: 'project', header: 'Project', sortValue: (d) => disputeDisplay(d).project, render: (d) => <span className="font-medium">{disputeDisplay(d).project}</span> },
+    { key: 'reason', header: 'Reason', render: (d) => <span style={{ color: C.inkMuted }}>{d.reason}</span> },
+    { key: 'owner', header: 'Project owner', render: (d) => <span style={{ color: C.inkMuted }}>{disputeDisplay(d).owner}</span> },
+    { key: 'raisedBy', header: 'Raised by', render: (d) => <span style={{ color: C.inkMuted }}>{disputeDisplay(d).raisedBy}</span> },
+    { key: 'funds', header: 'Funds', align: 'right', sortValue: (d) => disputeDisplay(d).funds, render: (d) => <span style={{ fontFamily: FONT.mono }}>{fmt(disputeDisplay(d).funds)}</span> },
+    { key: 'status', header: 'Status', render: (d) => <StatusBadge status={d.status} /> },
+    { key: 'filed', header: 'Filed', sortValue: (d) => d.createdAt, render: (d) => <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>{disputeDisplay(d).date}</span> },
+  ]
 
   return (
-    <AppShell>
-      <Header title="Dispute Resolution" subtitle={isLoading ? 'Loading…' : `${disputes?.length ?? 0} active disputes`} back />
+    <AdminShell>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Trust & safety</div>
+          <h1 style={{ fontFamily: FONT.serif, color: C.ink }} className="mt-1 text-2xl font-bold">{isLoading ? 'Disputes' : `${filtered.length} disputes`}</h1>
+        </div>
+        <button
+          onClick={() => downloadCsv('mboatrust-disputes', filtered, [
+            { header: 'Project', value: (d) => disputeDisplay(d).project },
+            { header: 'Reason', value: (d) => d.reason },
+            { header: 'Owner', value: (d) => disputeDisplay(d).owner },
+            { header: 'Raised by', value: (d) => disputeDisplay(d).raisedBy },
+            { header: 'Funds', value: (d) => disputeDisplay(d).funds },
+            { header: 'Status', value: (d) => d.status },
+            { header: 'Filed', value: (d) => d.createdAt },
+          ])}
+          className="flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-parchment)]"
+          style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
+        >
+          <AppIcon name="folder" size={13} /> Export CSV
+        </button>
+        <button
+          onClick={() => { setCreateOpen(true); setNewProjectId(''); setNewMilestoneId(''); setNewReason('') }}
+          className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold"
+          style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+        >
+          <AppIcon name="plus" size={13} /> Open dispute
+        </button>
+      </div>
 
-      <StaggerList className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0 sm:mx-auto sm:max-w-4xl">
-        {(disputes ?? []).map((d) => {
-          const disp = disputeDisplay(d)
-          return (
-            <StaggerItem key={d._id}>
-            <Card>
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{disp.project}</div>
-                  <StatusBadge status={d.status === 'open' ? 'pending' : 'under_review'} />
-                </div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{d.reason}</div>
-                <div className="space-y-1.5">
-                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                    <span>Project owner</span><span style={{ color: C.ink }}>{disp.owner}</span>
-                  </div>
-                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                    <span>Raised by</span><span style={{ color: C.ink }}>{disp.raisedBy}</span>
-                  </div>
-                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                    <span>Funds in escrow</span><span style={{ color: C.ink }}>{fmt(disp.funds)}</span>
-                  </div>
-                  <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-                    <span>Filed</span><span style={{ color: C.ink }}>{disp.date}</span>
-                  </div>
-                </div>
-                <div className="flex gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                  <button onClick={() => setResolvingId(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold" style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}>Resolve</button>
-                  <button onClick={() => contact(d._id)} disabled={contacted.includes(d._id)} className="flex-1 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50" style={{ borderColor: C.parchmentDark, color: C.inkMuted, fontFamily: FONT.sans }}>
-                    {contacted.includes(d._id) ? 'Contacted' : 'Contact parties'}
-                  </button>
-                </div>
-              </div>
-            </Card>
-            </StaggerItem>
-          )
-        })}
-        {!isLoading && (disputes?.length ?? 0) === 0 && (
-          <div className="col-span-full text-center py-16">
-            <div className="mb-4 flex justify-center" style={{ color: C.forest }}><AppIcon name="checkCircle" size={40} strokeWidth={1.5} /></div>
-            <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">No open disputes</div>
-          </div>
-        )}
-      </StaggerList>
+      <div className="mb-4">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search project, party, reason…"
+          className="w-full rounded-xl border px-3.5 py-2 text-sm sm:max-w-xs"
+          style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, background: C.white, color: C.ink }}
+        />
+      </div>
+      <div className="mb-4">
+        <ChipGroup options={DISPUTE_STATUS_OPTIONS} value={statusFilter} onChange={(v) => setStatusFilter(v as string)} />
+      </div>
+
+      {isLoading ? (
+        <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          getRowId={(d) => d._id}
+          onRowClick={(d) => setSelectedId(d._id)}
+          emptyState={<div className="py-12 text-center"><div className="mb-3 flex justify-center" style={{ color: C.forest }}><AppIcon name="checkCircle" size={32} strokeWidth={1.5} /></div><div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold">No disputes match</div></div>}
+          rowActions={(d) => d.status !== 'resolved' && d.status !== 'rejected' ? (
+            <button
+              onClick={() => setResolvingId(d._id)}
+              className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+              style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+            >
+              Resolve
+            </button>
+          ) : null}
+        />
+      )}
 
       <ConfirmDialog
         open={!!resolveTarget}
@@ -1746,7 +1793,70 @@ export function DisputeResolutionScreen() {
         description={resolveTarget ? `This closes the dispute for ${disputeDisplay(resolveTarget).project} and returns the milestone to review. Make sure both parties have been informed of the outcome.` : undefined}
         confirmLabel="Resolve dispute"
       />
-    </AppShell>
+
+      <Drawer open={!!selected} onClose={() => setSelectedId(null)} title={selected ? disputeDisplay(selected).project : undefined} subtitle="Dispute detail">
+        {selected && (
+          <div className="space-y-4 text-sm">
+            <div><StatusBadge status={selected.status} /></div>
+            <div>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">Reason</div>
+              <p style={{ fontFamily: FONT.sans, color: C.ink }}>{selected.reason}</p>
+            </div>
+            {selected.resolutionNotes && (
+              <div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">Resolution notes</div>
+                <p style={{ fontFamily: FONT.sans, color: C.ink }}>{selected.resolutionNotes}</p>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark }}>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[9px] uppercase tracking-widest">Project owner</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }}>{disputeDisplay(selected).owner}</div>
+              </div>
+              <div className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark }}>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[9px] uppercase tracking-widest">Raised by</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }}>{disputeDisplay(selected).raisedBy}</div>
+              </div>
+              <div className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark }}>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[9px] uppercase tracking-widest">Funds in escrow</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }}>{fmt(disputeDisplay(selected).funds)}</div>
+              </div>
+              <div className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark }}>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[9px] uppercase tracking-widest">Filed</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }}>{disputeDisplay(selected).date}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Drawer>
+
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Open a dispute" size="sm"
+        footer={(
+          <PillButton
+            onClick={() => {
+              if (!newProjectId.trim() || !newReason.trim()) return
+              createMutation.mutate(
+                { projectId: newProjectId.trim(), milestoneId: newMilestoneId.trim() || undefined, reason: newReason.trim() },
+                {
+                  onSuccess: () => { showToast({ title: 'Dispute opened', tone: 'success' }); setCreateOpen(false) },
+                  onError: (err) => showToast({ title: 'Failed to open dispute', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }),
+                }
+              )
+            }}
+            disabled={!newProjectId.trim() || !newReason.trim() || createMutation.isPending}
+          >
+            {createMutation.isPending ? 'Opening…' : 'Open dispute'}
+          </PillButton>
+        )}
+      >
+        <div className="space-y-3">
+          <input value={newProjectId} onChange={(e) => setNewProjectId(e.target.value)} placeholder="Project ID" className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, background: C.white, color: C.ink }} />
+          <input value={newMilestoneId} onChange={(e) => setNewMilestoneId(e.target.value)} placeholder="Milestone ID (optional)" className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, background: C.white, color: C.ink }} />
+          <textarea value={newReason} onChange={(e) => setNewReason(e.target.value)} placeholder="Reason" rows={3} className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, background: C.white, color: C.ink }} />
+          <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs">This flags the project (and milestone, if given) as disputed — same effect as a user raising it themselves.</p>
+        </div>
+      </Modal>
+    </AdminShell>
   )
 }
 
@@ -1949,7 +2059,7 @@ export function AdminFraudAnalyticsScreen() {
   // of "you don't have access to see this."
   if (pendingKycError || rejectedKycError || riskFlagsError) {
     return (
-      <AppShell>
+      <AdminShell>
         <Header title="Fraud & Dispute Analytics" back />
         <div className="px-5 sm:mx-auto sm:max-w-md">
           <EmptyState
@@ -1958,12 +2068,12 @@ export function AdminFraudAnalyticsScreen() {
             description="This area is restricted to platform admins. If you believe you should have access, contact an administrator."
           />
         </div>
-      </AppShell>
+      </AdminShell>
     )
   }
 
   return (
-    <AppShell>
+    <AdminShell>
       <Header title="Fraud & Dispute Analytics" subtitle="Flagged patterns across the platform" back />
 
       <div className="px-5 py-5 space-y-3 sm:mx-auto sm:max-w-3xl">
@@ -2002,32 +2112,40 @@ export function AdminFraudAnalyticsScreen() {
 
         {activePattern && (
           <div className="pt-2">
-            <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">{activePattern.title} — case detail</p>
+            <div className="mb-3 flex items-center justify-between">
+              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">{activePattern.title} — case detail</p>
+              {activePattern.cases.length > 0 && (
+                <button
+                  onClick={() => downloadCsv(`mboatrust-${activePattern.id}`, activePattern.cases, [
+                    { header: 'Case', value: (c) => c.label },
+                    { header: 'Detail', value: (c) => c.sub },
+                    { header: 'AI note', value: (c) => c.aiNote ?? '' },
+                  ])}
+                  className="flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--color-parchment)]"
+                  style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
+                >
+                  <AppIcon name="folder" size={11} /> Export CSV
+                </button>
+              )}
+            </div>
             {activePattern.cases.length === 0 ? (
               <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No flagged cases in this category right now.</div></Card>
             ) : (
-              <StaggerList className="space-y-2">
-                {activePattern.cases.map((c, i) => (
-                  <StaggerItem key={i}>
-                    <Card variant="interactive" onClick={c.onOpen}>
-                      <div className="p-4 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{c.label}</div>
-                          <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5 leading-relaxed">{c.sub}</div>
-                          {c.aiNote && (
-                            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs italic mt-1.5 leading-relaxed">"{c.aiNote}"</p>
-                          )}
-                        </div>
-                        {c.compactBadge}
-                      </div>
-                    </Card>
-                  </StaggerItem>
-                ))}
-              </StaggerList>
+              <DataTable
+                columns={[
+                  { key: 'label', header: 'Case', sortValue: (c: FlaggedCase & { _rowId: string }) => c.label, render: (c) => <span className="font-medium">{c.label}</span> },
+                  { key: 'sub', header: 'Detail', render: (c: FlaggedCase & { _rowId: string }) => <span style={{ color: C.inkMuted }}>{c.sub}</span> },
+                  { key: 'ai', header: 'AI note', render: (c: FlaggedCase & { _rowId: string }) => c.aiNote ? <span className="italic" style={{ color: C.inkMuted }}>"{c.aiNote}"</span> : <span style={{ color: C.inkSubtle }}>—</span> },
+                  { key: 'badge', header: '', render: (c: FlaggedCase & { _rowId: string }) => c.compactBadge ?? null },
+                ]}
+                rows={activePattern.cases.map((c, i) => ({ ...c, _rowId: String(i) }))}
+                getRowId={(c) => c._rowId}
+                onRowClick={(c) => c.onOpen?.()}
+              />
             )}
           </div>
         )}
       </div>
-    </AppShell>
+    </AdminShell>
   )
 }

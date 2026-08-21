@@ -48,6 +48,21 @@ export function useVideoSessionsQuery(projectId?: string, milestoneId?: string) 
   })
 }
 
+/** Admin's own list — unlike useVideoSessionsQuery above (requires both
+ * projectId+milestoneId), this fetches every session platform-wide, same
+ * `GET /video-verifications` endpoint, just without the two required
+ * params. */
+export function useAdminVideoSessionsQuery(filter: { status?: string } = {}) {
+  return useQuery({
+    queryKey: ['videoSessions', 'admin', filter],
+    queryFn: async (): Promise<VideoSession[]> => {
+      const { data } = await api.get<{ data: BackendVideoSession[] }>('/video-verifications', { params: filter })
+      return data.data.map(mapSession)
+    },
+    staleTime: 10_000,
+  })
+}
+
 function invalidate(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['videoSessions'] })
 }

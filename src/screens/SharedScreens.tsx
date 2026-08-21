@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 import { useMyKycStatusQuery, type KycStatus } from '../api/kyc'
 import { useMyProjectsQuery } from '../api/projects'
+import { useMaterials } from '../materials'
 import { useMyRoleTypesQuery, useUploadAvatarMutation } from '../api/session'
 import { useTheme } from '../theme'
 import { C, FONT, AppShell, Card, Header, PillButton, StatusBadge, MomoOmPicker } from '../components/MobileLayout'
@@ -33,7 +34,7 @@ import { useSetDeviceTokenMutation, requestPushToken, isPushAvailable } from '..
 type GlyphName =
   | 'globe' | 'wallet' | 'swap' | 'shield' | 'fingerprint' | 'bell' | 'sliders'
   | 'lifebuoy' | 'headset' | 'scroll' | 'fileText' | 'monitor' | 'download'
-  | 'trash' | 'doorExit' | 'coin' | 'chat' | 'gift' | 'sparkles' | 'star' | 'calendar'
+  | 'trash' | 'doorExit' | 'coin' | 'chat' | 'gift' | 'sparkles' | 'star' | 'calendar' | 'store'
 
 function Glyph({ name, size = 17, color = 'currentColor' }: { name: GlyphName; size?: number; color?: string }) {
   const s = { width: size, height: size }
@@ -60,6 +61,7 @@ function Glyph({ name, size = 17, color = 'currentColor' }: { name: GlyphName; s
     case 'sparkles': return <svg viewBox="0 0 24 24" {...s}><path d="M12 3l1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z" fill={color} /></svg>
     case 'star': return <svg viewBox="0 0 24 24" {...s}><path d="M12 3.5l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.9l6.1-.8L12 3.5Z" {...p} strokeLinejoin="round" /></svg>
     case 'calendar': return <svg viewBox="0 0 24 24" {...s}><rect x="3" y="5" width="18" height="16" rx="2" {...p} /><path d="M3 10h18M8 3v4M16 3v4" {...p} /></svg>
+    case 'store': return <svg viewBox="0 0 24 24" {...s}><path d="M4 9l1-5h14l1 5" {...p} /><path d="M4 9a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0" {...p} /><path d="M5 9v10h14V9M9 19v-5h6v5" {...p} /></svg>
   }
 }
 
@@ -979,6 +981,7 @@ export function ProfileScreen() {
   // profile showed every project on the platform as "theirs".
   const { data: myProjects = [] } = useMyProjectsQuery(role === 'recipient' ? devUserId ?? undefined : undefined)
   const myContractorProfile = contractors.find((c) => c.id === devUserId)
+  const { myQuincaillerie } = useMaterials()
   const { open: openNotifications } = useNotificationsDrawer()
   const { show: showToast } = useToast()
   const uploadAvatarMutation = useUploadAvatarMutation()
@@ -1288,6 +1291,12 @@ export function ProfileScreen() {
             title=""
             items={[
               { label: 'Register as verifier', sub: 'Set up a verifier profile', action: () => nav('/verifier/register'), icon: 'shield' },
+              {
+                label: myQuincaillerie ? 'Quincaillerie dashboard' : 'Register a quincaillerie',
+                sub: myQuincaillerie ? 'Manage inventory & material orders' : 'List your hardware/materials store',
+                action: () => nav(myQuincaillerie ? '/quincaillerie/dashboard' : '/quincaillerie/register'),
+                icon: 'store',
+              },
             ]}
           />
         </div>

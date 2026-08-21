@@ -52,6 +52,43 @@ export function useMySubscriptionsQuery() {
   })
 }
 
+// ── Admin management ─────────────────────────────────────────────────────
+export interface AdminSubscriptionRow {
+  id: string
+  userName: string
+  planType: PlanType
+  status: Subscription['status']
+  renewalDate: string | null
+  createdAt: string
+}
+
+interface BackendAdminSubscription extends BackendSubscription {
+  userId: { fullName: string } | string
+}
+
+export function useAdminSubscriptionsQuery(filter: { status?: string; planType?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ['adminSubscriptions', filter],
+    queryFn: async (): Promise<{ subscriptions: AdminSubscriptionRow[]; total: number }> => {
+      const { data } = await api.get<{ data: BackendAdminSubscription[]; meta: { total: number } }>('/admin/subscriptions', {
+        params: { ...filter, limit: filter.limit ?? 200 },
+      })
+      return {
+        subscriptions: data.data.map((s) => ({
+          id: s._id,
+          userName: typeof s.userId === 'object' ? s.userId.fullName : 'Unknown',
+          planType: s.planType,
+          status: s.status,
+          renewalDate: s.renewalDate,
+          createdAt: s.createdAt,
+        })),
+        total: data.meta.total,
+      }
+    },
+    staleTime: 10_000,
+  })
+}
+
 export function useCreateSubscriptionMutation() {
   const qc = useQueryClient()
   return useMutation({
@@ -63,6 +100,10 @@ export function useCreateSubscriptionMutation() {
   })
 }
 
+/** Shared by the consumer self-service screen and the admin Community
+ * screen — the backend now accepts either the owning user or an admin
+ * force-cancelling on their behalf (see subscriptionController.cancel's
+ * admin bypass), same route both ways. */
 export function useCancelSubscriptionMutation() {
   const qc = useQueryClient()
   return useMutation({
@@ -70,6 +111,9 @@ export function useCancelSubscriptionMutation() {
       const { data } = await api.patch<{ data: BackendSubscription }>(`/subscriptions/${subscriptionId}/cancel`)
       return mapSubscription(data.data)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['subscriptions'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subscriptions'] })
+      qc.invalidateQueries({ queryKey: ['adminSubscriptions'] })
+    },
   })
 }

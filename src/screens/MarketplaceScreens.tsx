@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { MATERIALS, REGIONS, estimateMaterialPrice } from '../marketplace'
+import { useMaterials, estimateLiveMaterialPrice } from '../materials'
 import { useCreateCertificationMutation } from '../api/certifications'
 import { useAvailabilityQuery, useSetAvailabilityMutation } from '../api/contractors'
 import { C, FONT, AppShell, PillButton, Header } from '../components/MobileLayout'
@@ -112,7 +113,13 @@ export function AddCertificationScreen() {
 export function MaterialCostEstimatorScreen() {
   const [material, setMaterial] = useState(MATERIALS[0].name)
   const [region, setRegion] = useState(REGIONS[0])
-  const result = estimateMaterialPrice(material, region)
+  const { quincailleries, inventory } = useMaterials()
+  // Prefer real registered-store pricing for this material/region — only
+  // falls back to the static reference table when no verified quincaillerie
+  // in that region has priced anything matching, never a fabricated blend
+  // of the two.
+  const live = estimateLiveMaterialPrice(material, region, quincailleries, inventory)
+  const result = live ?? estimateMaterialPrice(material, region)
 
   return (
     <AppShell>
@@ -130,14 +137,18 @@ export function MaterialCostEstimatorScreen() {
         </div>
 
         <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Typical price range</div>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">
+            {live ? 'Live price range' : 'Typical price range'}
+          </div>
           <div style={{ fontFamily: FONT.serif }} className="text-2xl font-bold text-white">{fmt(result.low)} – {fmt(result.high)}</div>
           <div style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.7)' }} className="text-sm mt-2">{material} · {result.unit} · {region}</div>
         </div>
 
         <div className="rounded-xl border p-3" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
-            Mock reference prices for planning purposes only — actual costs vary by supplier, season, and availability.
+            {live
+              ? `Live pricing from ${live.sampleSize} registered quincaillerie item${live.sampleSize === 1 ? '' : 's'} in ${region} — actual costs still vary by stock and season.`
+              : 'No registered quincaillerie in this region prices this material yet — showing mock reference prices for planning purposes only.'}
           </p>
         </div>
       </div>

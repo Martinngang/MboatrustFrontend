@@ -40,7 +40,7 @@ function mapContract(doc: BackendContract): Contract {
 /** No filter = every real contract the caller is a party to — as funder
  * (via project ownership) or contractor (via their bid) — server-scoped the
  * same way land offers/escrows are (see contractController.getAll). */
-export function useContractsQuery(filter: { projectId?: string; bidId?: string; status?: string } = {}) {
+export function useContractsQuery(filter: { projectId?: string; bidId?: string; status?: string; contractorId?: string } = {}) {
   return useQuery({
     queryKey: ['contracts', filter],
     queryFn: async (): Promise<Contract[]> => {
@@ -79,3 +79,44 @@ function useContractAction(action: 'complete' | 'terminate') {
 
 export const useCompleteContractMutation = () => useContractAction('complete')
 export const useTerminateContractMutation = () => useContractAction('terminate')
+
+export interface CreateContractInput {
+  projectId: string
+  bidId: string
+  generatedDocumentText?: string
+  status?: Contract['status']
+}
+
+/** Admin-only — contracts are normally system-generated when a bid is
+ * accepted; this backfills/corrects a real hire recorded outside that flow. */
+export function useAdminCreateContractMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: CreateContractInput) => {
+      const { data } = await api.post<{ data: BackendContract }>('/contracts', input)
+      return mapContract(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['contracts'] }),
+  })
+}
+
+export function useAdminUpdateContractMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ contractId, input }: { contractId: string; input: { generatedDocumentText?: string; status?: Contract['status'] } }) => {
+      const { data } = await api.patch<{ data: BackendContract }>(`/contracts/${contractId}`, input)
+      return mapContract(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['contracts'] }),
+  })
+}
+
+export function useAdminRemoveContractMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (contractId: string) => {
+      await api.delete(`/contracts/${contractId}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['contracts'] }),
+  })
+}
