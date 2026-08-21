@@ -737,7 +737,12 @@ export function RoleScreen() {
   }
 
   const proceed = async () => {
-    const chosen = multi.length > 0 ? multi : (['funder'] as NonNullable<Role>[])
+    // The "default to funder" safety net only applies when *nothing at
+    // all* was picked — someone who explicitly chose Quincaillerie-only
+    // must not be silently registered as a funder just because they
+    // didn't also tick one of the four core roles. This was the exact bug
+    // reported: picking Quincaillerie alone landed on the funder dashboard.
+    const chosen = multi.length > 0 ? multi : (wantsQuincaillerie ? [] : (['funder'] as NonNullable<Role>[]))
     // Same check resolveCurrentUserId uses everywhere else — Firebase being
     // *configured* doesn't mean this browser has an active Firebase
     // *session* (e.g. the dev-bypass path, or a race right after signup).
@@ -765,7 +770,7 @@ export function RoleScreen() {
       setSaving(false)
     }
     setRoles(chosen)
-    setRole(chosen[0])
+    setRole(chosen[0] ?? null)
     nav('/profile', { state: { wantsQuincaillerie } })
   }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Navigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
+import { useMaterials } from '../materials'
 import { useMyProjectsQuery, useMyFundedProjectsQuery } from '../api/projects'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
@@ -15,6 +16,14 @@ import { OnboardingChecklistWidget } from '../components/dashboard/OnboardingChe
 // ── Home dashboard — routes to role-specific view ────────────────────────────
 export function HomeScreen() {
   const { role } = useApp()
+  const { myQuincaillerie } = useMaterials()
+  // A quincaillerie-only account (no real funder/recipient/contractor/
+  // seller role — just Quincaillerie picked at onboarding) has no "home"
+  // dashboard of its own among the four below; it must land on its own
+  // page directly rather than falling through to the funder dashboard by
+  // default, which is exactly the bug reported (picking Quincaillerie-only
+  // silently showed a funder home screen with fake "funded projects" copy).
+  if (role === null && myQuincaillerie) return <Navigate to="/quincaillerie/dashboard" replace />
   if (role === 'recipient') return <RecipientHome />
   if (role === 'contractor') return <ContractorHome />
   if (role === 'seller') return <SellerHome />
