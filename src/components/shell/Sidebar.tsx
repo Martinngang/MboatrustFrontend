@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../../context'
+import { useMaterials } from '../../materials'
 import { useMyRoleTypesQuery } from '../../api/session'
 import { C, FONT, TAB_ROUTES, FUNDER_TABS, WORKSPACE_LINKS, ADMIN_LINKS } from '../MobileLayout'
 
@@ -12,6 +13,7 @@ const ROLE_LABEL: Record<string, string> = {
   recipient: 'Project Recipient',
   contractor: 'Local Contractor',
   seller: 'Land Seller',
+  quincaillerie: 'Quincaillerie',
 }
 
 /** Persistent collapsible sidebar — workspace switcher, primary nav (same
@@ -20,10 +22,15 @@ const ROLE_LABEL: Record<string, string> = {
  * the previous AppShell. */
 export function Sidebar() {
   const { role, name, devUserId } = useApp()
+  const { myQuincaillerie } = useMaterials()
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
-  const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
+  // A quincaillerie-only account has role===null (it isn't a real Role —
+  // see Onboarding.tsx), so it needs its own lookup key rather than
+  // silently falling back to funder's tabs/label.
+  const effectiveRole = role === null && myQuincaillerie ? 'quincaillerie' : role ?? 'funder'
+  const tabs = TAB_ROUTES[effectiveRole] ?? FUNDER_TABS
   const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const visibleAdminLinks = ADMIN_LINKS.filter((link) => roleTypes.includes(link.requiresRole))
   const springTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 380, damping: 32 }
@@ -172,7 +179,7 @@ export function Sidebar() {
         {!collapsed && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Active role</div>
-            <div style={{ fontFamily: FONT.sans }} className="mt-2 text-sm font-semibold">{ROLE_LABEL[role ?? 'funder']}</div>
+            <div style={{ fontFamily: FONT.sans }} className="mt-2 text-sm font-semibold">{ROLE_LABEL[effectiveRole]}</div>
           </div>
         )}
       </div>
