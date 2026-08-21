@@ -76,6 +76,7 @@ import {
 import { useMyAdminPermissionsQuery } from '../api/session'
 import { ADMIN_NAV } from '../components/shell/adminNav'
 import { useUserSearchQuery } from '../api/users'
+import { useMaterials, type QuincaillerieProfile } from '../materials'
 
 const ACTION_LABEL: Record<string, string> = {
   'user.deactivate': 'deactivated a user',
@@ -917,9 +918,13 @@ export function AdminProjectsScreen() {
 // ── Verifications (verifier applications + contractor certifications) ──────
 export function AdminVerificationsScreen() {
   const { show: showToast } = useToast()
-  const [tab, setTab] = useState<'verifiers' | 'certifications' | 'tasks' | 'video' | 'ratings' | 'conversations'>('verifiers')
+  const [tab, setTab] = useState<'verifiers' | 'quincailleries' | 'certifications' | 'tasks' | 'video' | 'ratings' | 'conversations'>('verifiers')
 
   const { data: applications = [], isLoading: appsLoading } = useVerifierApplicationsQuery('pending')
+  // Quincaillerie registrations — mock data (see materials.tsx), same
+  // pending-review shape as verifier applications above.
+  const { quincailleries, decideQuincaillerie } = useMaterials()
+  const pendingQuincailleries = quincailleries.filter((q) => q.verificationStatus === 'pending')
   const decideVerifier = useDecideVerifierApplicationMutation()
   const updateVerifierProfile = useAdminUpdateVerifierProfileMutation()
   const [verifierEditTarget, setVerifierEditTarget] = useState<VerifierProfileRecord | null>(null)
@@ -1000,6 +1005,14 @@ export function AdminVerificationsScreen() {
     { key: 'status', header: 'Status', render: (v) => <StatusBadge status={v.applicationStatus} /> },
   ]
 
+  const quincaillerieColumns: DataTableColumn<QuincaillerieProfile>[] = [
+    { key: 'business', header: 'Business', sortValue: (q) => q.businessName, render: (q) => <span className="font-medium">{q.businessName}</span> },
+    { key: 'owner', header: 'Owner', render: (q) => <span style={{ color: C.inkMuted }}>{q.ownerName}</span> },
+    { key: 'categories', header: 'Categories', render: (q) => <span style={{ color: C.inkMuted }}>{q.registeredCategories.join(', ') || '—'}</span> },
+    { key: 'region', header: 'Region', render: (q) => <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>{q.address}, {q.region}</span> },
+    { key: 'status', header: 'Status', render: (q) => <StatusBadge status={q.verificationStatus} /> },
+  ]
+
   const certColumns: DataTableColumn<Certification>[] = [
     { key: 'contractor', header: 'Contractor', sortValue: (c) => c.contractorName ?? '', render: (c) => <span className="font-medium">{c.contractorName ?? '—'}</span> },
     { key: 'name', header: 'Certification', sortValue: (c) => c.name, render: (c) => <span>{c.name}</span> },
@@ -1029,6 +1042,7 @@ export function AdminVerificationsScreen() {
       <Tabs
         tabs={[
           { id: 'verifiers', label: `Verifier applications (${applications.length})` },
+          { id: 'quincailleries', label: `Quincailleries (${pendingQuincailleries.length})` },
           { id: 'certifications', label: `Certifications (${pendingCerts.length})` },
           { id: 'tasks', label: `Verification tasks (${tasks.length})` },
           { id: 'video', label: `Video sessions (${videoSessions.length})` },
@@ -1077,6 +1091,31 @@ export function AdminVerificationsScreen() {
               )}
             />
           )
+        ) : tab === 'quincailleries' ? (
+          <DataTable
+            columns={quincaillerieColumns}
+            rows={quincailleries.filter((q) => q.verificationStatus === 'pending' || q.verificationStatus === 'rejected')}
+            getRowId={(q) => q.id}
+            emptyState={<div className="py-10 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkSubtle }}>No pending quincaillerie registrations.</div>}
+            rowActions={(q) => (
+              q.verificationStatus === 'pending' ? (
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => { decideQuincaillerie(q.id, 'approve'); showToast({ title: 'Quincaillerie verified', tone: 'success' }) }}
+                    className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    style={{ background: C.emerald, color: '#fff', fontFamily: FONT.sans }}
+                  >Approve</button>
+                  <button
+                    onClick={() => { decideQuincaillerie(q.id, 'reject'); showToast({ title: 'Registration rejected', tone: 'success' }) }}
+                    className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+                    style={{ background: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
+                  >Reject</button>
+                </div>
+              ) : (
+                <span style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">Rejected — awaiting resubmission</span>
+              )
+            )}
+          />
         ) : tab === 'certifications' ? (
           certsLoading ? (
             <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>

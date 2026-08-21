@@ -174,21 +174,27 @@ export function QuincaillerieDashboardScreen() {
 
   if (!myQuincaillerie || myQuincaillerie.verificationStatus !== 'verified') {
     const isPending = myQuincaillerie?.verificationStatus === 'pending'
+    const isRejected = myQuincaillerie?.verificationStatus === 'rejected'
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: 'var(--status-info-bg)', color: 'var(--status-info-text)' }}>
-            <AppIcon name={isPending ? 'hourglass' : 'store'} size={30} strokeWidth={1.5} />
+          <div
+            className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl"
+            style={{ background: isRejected ? 'var(--status-error-bg)' : 'var(--status-info-bg)', color: isRejected ? 'var(--status-error-text)' : 'var(--status-info-text)' }}
+          >
+            <AppIcon name={isPending ? 'hourglass' : isRejected ? 'alert' : 'store'} size={30} strokeWidth={1.5} />
           </div>
           <div style={{ fontFamily: FONT.serif }} className="mb-2 text-lg font-bold">
-            {isPending ? 'Application under review' : 'Register your quincaillerie'}
+            {isPending ? 'Application under review' : isRejected ? "Registration wasn't approved" : 'Register your quincaillerie'}
           </div>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-6 max-w-sm text-sm">
             {isPending
               ? "An admin is reviewing your registration. You'll start receiving material order requests once approved."
-              : 'Register your store to start receiving material order requests tied to real milestones.'}
+              : isRejected
+                ? 'You can update your details and resubmit for review.'
+                : 'Register your store to start receiving material order requests tied to real milestones.'}
           </p>
-          {!isPending && <PillButton onClick={() => nav('/quincaillerie/register')}>Get started</PillButton>}
+          {!isPending && <PillButton onClick={() => nav('/quincaillerie/register')}>{isRejected ? 'Resubmit registration' : 'Get started'}</PillButton>}
         </div>
       </AppShell>
     )

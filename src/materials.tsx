@@ -11,7 +11,7 @@ import { useApp } from './context'
 // so swapping this for real API hooks later touches this file only, not
 // every screen that reads it.
 
-export type QuincaillerieVerificationStatus = 'unverified' | 'pending' | 'verified'
+export type QuincaillerieVerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected'
 
 export interface QuincaillerieProfile {
   id: string
@@ -148,6 +148,10 @@ interface MaterialsState {
     businessName: string; address: string; region: string; categories: string[]
     phone: string; paymentProvider: 'mtn_momo' | 'orange_money'; payoutPhoneNumber: string; docUploaded: boolean
   }) => QuincaillerieProfile
+  /** Admin-only in intent (mirrors the real verifier-application review
+   * flow) — mock data has no auth gate to enforce that server-side, so the
+   * one real gate is which screen calls this. */
+  decideQuincaillerie: (id: string, decision: 'approve' | 'reject') => void
   getInventoryForQuincaillerie: (quincaillerieId: string) => InventoryItem[]
   addInventoryItem: (quincaillerieId: string, input: { itemName: string; category: string; unit: InventoryItem['unit']; currentPrice: number }) => void
   updateInventoryItem: (id: string, patch: Partial<Pick<InventoryItem, 'itemName' | 'category' | 'unit' | 'currentPrice'>>) => void
@@ -174,26 +178,35 @@ export function MaterialsProvider({ children }: { children: ReactNode }) {
   const myQuincaillerie = quincailleries.find((q) => q.ownerId === devUserId) ?? null
 
   const registerQuincaillerie = useCallback<MaterialsState['registerQuincaillerie']>((input) => {
-    const created: QuincaillerieProfile = {
-      id: nextId('q'),
+    // Resubmitting after rejection updates the existing profile in place
+    // (and resets it back to 'pending' for re-review) rather than creating
+    // a second, duplicate registration — same convention as the real
+    // verifier-profile resubmit flow.
+    const existing = quincailleries.find((q) => q.ownerId === devUserId)
+    const next: QuincaillerieProfile = {
+      id: existing?.id ?? nextId('q'),
       businessName: input.businessName,
       ownerId: devUserId ?? undefined,
-      ownerName: 'You',
-      location: { lat: 0, lng: 0 },
+      ownerName: existing?.ownerName ?? 'You',
+      location: existing?.location ?? { lat: 0, lng: 0 },
       address: input.address,
       region: input.region,
       registeredCategories: input.categories,
       verificationStatus: 'pending',
       verificationDocUploaded: input.docUploaded,
-      averageRating: 0,
-      completedOrderCount: 0,
+      averageRating: existing?.averageRating ?? 0,
+      completedOrderCount: existing?.completedOrderCount ?? 0,
       phone: input.phone,
       paymentProvider: input.paymentProvider,
       payoutPhoneNumber: input.payoutPhoneNumber,
     }
-    setQuincailleries((qs) => [created, ...qs])
-    return created
-  }, [devUserId])
+    setQuincailleries((qs) => (existing ? qs.map((q) => (q.id === existing.id ? next : q)) : [next, ...qs]))
+    return next
+  }, [devUserId, quincailleries])
+
+  const decideQuincaillerie = useCallback<MaterialsState['decideQuincaillerie']>((id, decision) => {
+    setQuincailleries((qs) => qs.map((q) => (q.id === id ? { ...q, verificationStatus: decision === 'approve' ? 'verified' : 'rejected' } : q)))
+  }, [])
 
   const getInventoryForQuincaillerie = useCallback(
     (quincaillerieId: string) => inventory.filter((i) => i.quincaillerieId === quincaillerieId),
@@ -280,7 +293,7 @@ export function MaterialsProvider({ children }: { children: ReactNode }) {
   return (
     <MaterialsContext.Provider value={{
       quincailleries, inventory, materialOrders, myQuincaillerie,
-      registerQuincaillerie, getInventoryForQuincaillerie, addInventoryItem, updateInventoryItem, removeInventoryItem,
+      registerQuincaillerie, decideQuincaillerie, getInventoryForQuincaillerie, addInventoryItem, updateInventoryItem, removeInventoryItem,
       requestMaterialOrder, confirmMaterialOrder, rejectMaterialOrder, markOrderDelivered,
       getMaterialOrderForMilestone, getOrdersForQuincaillerie,
     }}>
