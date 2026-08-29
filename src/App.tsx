@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AppProvider, useApp } from './context'
+import { AppProvider, useApp, type Role } from './context'
 import { TemplatesProvider } from './templates'
 import { MaterialsProvider } from './materials'
 import { CustomFieldsProvider } from './customFields'
@@ -39,17 +39,20 @@ import {
 // Marketplace
 import { AddCertificationScreen, MaterialCostEstimatorScreen, AvailabilityCalendarScreen } from './screens/MarketplaceScreens'
 // Community
-import { GroupSetupScreen, GroupMembersScreen, GroupDashboardScreen, ReferralScreen, PublicShowcaseScreen } from './screens/CommunityScreens'
+import { GroupSetupScreen, JoinGroupScreen, GroupMembersScreen, GroupDashboardScreen, ReferralScreen, PublicShowcaseScreen } from './screens/CommunityScreens'
 // Compliance
 import { KycExplainerScreen, KycVerifyScreen } from './screens/ComplianceScreens'
 // Recipient
 import { MilestoneSubmitScreen, WithdrawalScreen, ReputationScreen, RecipientProjectsScreen, SubmissionStatusScreen, RateRecipientScreen, ProjectHistoryScreen } from './screens/RecipientScreens'
 // Contractor
 import { BrowseJobsScreen, JobDetailScreen, SubmitBidScreen, MyBidsScreen, ContractDetailScreen, EarningsScreen, ContractorProfileScreen } from './screens/ContractorScreens'
+import { ContractorPortfolioScreen, EditContractorPortfolioScreen, ContractorLeaderboardScreen } from './screens/ContractorPortfolioScreens'
 // Land
 import { BrowseLandScreen, LandListingDetailScreen, CreateListingScreen, MyListingsScreen, ContactSellerScreen, PurchaseOfferScreen } from './screens/LandScreens'
 // Shared
 import { SettingsScreen, HelpScreen, ProfileScreen, SubscriptionScreen, DeleteAccountScreen } from './screens/SharedScreens'
+import { PaymentCallbackScreen } from './screens/PaymentCallbackScreen'
+import { PayoutSettingsScreen } from './screens/PayoutSettingsScreen'
 // Additional
 import {
   ContractorOnboardingScreen, PostJobScreen, ContractSummaryScreen, RateContractorScreen, LandScheduleVisitScreen,
@@ -59,6 +62,8 @@ import {
 import {
   QuincaillerieRegistrationScreen, QuincaillerieDashboardScreen, QuincaillerieProfileScreen, RequestMaterialsScreen,
 } from './screens/QuincaillerieScreens'
+import { InventoryScreen } from './screens/InventoryScreen'
+import { InventoryItemFormScreen } from './screens/InventoryItemFormScreen'
 import { AdminOverviewScreen, AdminUsersScreen, AdminProjectsScreen, AdminVerificationsScreen, AdminLandScreen, AdminContractorsScreen, AdminCommunityScreen, AdminNotificationsScreen, AdminSettingsScreen, AdminAccountsScreen } from './screens/AdminScreens'
 // Co-signer
 import { AddCoSignerScreen } from './screens/CoSignerScreens'
@@ -66,7 +71,7 @@ import { AddCoSignerScreen } from './screens/CoSignerScreens'
 import { WorkspaceProjectsScreen } from './screens/WorkspaceProjectsScreen'
 import { WorkspaceJobsScreen } from './screens/WorkspaceJobsScreen'
 import { WorkspaceLandScreen } from './screens/WorkspaceLandScreen'
-import { TenderBidsScreen } from './screens/TenderBidsScreen'
+import { TenderBidsScreen, NegotiationScreen } from './screens/TenderBidsScreen'
 import { GlobalActivityScreen } from './screens/GlobalActivityScreen'
 import { TemplatesScreen } from './screens/TemplatesScreen'
 import { TeamManagementScreen } from './screens/TeamManagementScreen'
@@ -100,6 +105,23 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
 function P({ children }: { children: ReactNode }) {
   return <RequireAuth>{children}</RequireAuth>
+}
+
+// Gates a route to accounts holding a specific role, on top of the same
+// auth check RequireAuth does — checked against `roles` (every role an
+// account holds, multi-role accounts included), not just the single
+// primary `role`, so a funder who *also* holds a contractor role isn't
+// wrongly blocked from contractor-only actions. Only applied to routes
+// that are unambiguously one role's action (posting a tender, submitting a
+// bid, reviewing bids on a tender) — screens legitimately viewed by more
+// than one role (e.g. a funder previewing their own tender's public detail
+// page) stay ungated at the route level and are instead handled by
+// in-screen checks like JobDetailScreen's isOwnTender.
+function RequireRole({ role, children }: { role: NonNullable<Role>; children: ReactNode }) {
+  const { isLoggedIn, roles } = useApp()
+  if (!isLoggedIn) return <Navigate to="/" replace />
+  if (!roles.includes(role)) return <Navigate to="/home" replace />
+  return <>{children}</>
 }
 
 // Same idea as RequireAuth, but for the /admin* routes specifically: being
@@ -174,17 +196,38 @@ export default function App() {
                       <Route path="/signup" element={<RedirectIfAuthed><SignupScreen /></RedirectIfAuthed>} />
                       <Route path="/otp" element={<OTPScreen />} />
                       <Route path="/login" element={<RedirectIfAuthed><LoginScreen /></RedirectIfAuthed>} />
-                      <Route path="/role" element={<RedirectIfAuthed><RoleScreen /></RedirectIfAuthed>} />
-                      <Route path="/profile" element={<RedirectIfAuthed><ProfileSetupScreen /></RedirectIfAuthed>} />
+                      {/* Deliberately NOT wrapped in RedirectIfAuthed (unlike /,
+                          /signup, /login above) — these two are reached only
+                          mid-onboarding, before isLoggedIn flips true, with one
+                          exception: ProfileSetupScreen.finish() sets isLoggedIn
+                          true and navigates away in the same handler. Wrapping
+                          this route meant RedirectIfAuthed (still mounted,
+                          guarding the outgoing /profile render) reacted to that
+                          same isLoggedIn flip and threw its own competing
+                          `<Navigate to="/home">`, which — because effects from
+                          the outgoing tree can still fire after the new route
+                          starts navigating — won the race and silently
+                          overwrote finish()'s real destination
+                          (`/quincaillerie/register`) back to `/home`. Every
+                          other onboarding destination happened to also be
+                          `/home`, which is exactly why this only ever showed up
+                          for the one path that goes somewhere else. Removing
+                          the guard here also fixes ProfileScreen's "Switch
+                          role" link, which navigates an *already logged-in*
+                          user to /role on purpose — RedirectIfAuthed was
+                          silently bouncing that straight back to /home too. */}
+                      <Route path="/role" element={<RoleScreen />} />
+                      <Route path="/profile" element={<ProfileSetupScreen />} />
                       {/* Public — no login required */}
                       <Route path="/showcase" element={<PublicShowcaseScreen />} />
+                      <Route path="/contractors/leaderboard" element={<ContractorLeaderboardScreen />} />
 
                       {/* Home (role-aware) */}
                       <Route path="/home" element={<P><HomeScreen /></P>} />
 
                       {/* Workspace (new management-app view-switcher demo) */}
                       <Route path="/workspace/projects" element={<P><WorkspaceProjectsScreen /></P>} />
-                      <Route path="/workspace/jobs" element={<P><WorkspaceJobsScreen /></P>} />
+                      <Route path="/workspace/jobs" element={<RequireRole role="funder"><WorkspaceJobsScreen /></RequireRole>} />
                       <Route path="/workspace/land" element={<P><WorkspaceLandScreen /></P>} />
                       <Route path="/activity" element={<P><GlobalActivityScreen /></P>} />
                       <Route path="/funder/templates" element={<P><TemplatesScreen /></P>} />
@@ -203,8 +246,9 @@ export default function App() {
                       <Route path="/funder/video-verification/:projectId/:milestoneId" element={<P><VideoVerificationScheduleScreen /></P>} />
                       <Route path="/funder/transactions" element={<P><TransactionHistoryScreen /></P>} />
                       <Route path="/funder/contractors" element={<P><BidComparisonScreen /></P>} />
-                      <Route path="/funder/post-job" element={<P><PostJobScreen /></P>} />
-                      <Route path="/funder/tender/:jobId/bids" element={<P><TenderBidsScreen /></P>} />
+                      <Route path="/funder/post-job" element={<RequireRole role="funder"><PostJobScreen /></RequireRole>} />
+                      <Route path="/funder/tender/:jobId/bids" element={<RequireRole role="funder"><TenderBidsScreen /></RequireRole>} />
+                      <Route path="/negotiation/:bidId" element={<P><NegotiationScreen /></P>} />
                       <Route path="/funder/contract-summary/:bidId" element={<P><ContractSummaryScreen /></P>} />
                       <Route path="/funder/rate-contractor/:jobId" element={<P><RateContractorScreen /></P>} />
                       <Route path="/funder/rate-recipient/:id" element={<P><RateRecipientScreen /></P>} />
@@ -222,10 +266,19 @@ export default function App() {
                       <Route path="/contractor/profile" element={<P><ContractorProfileScreen /></P>} />
                       <Route path="/contractor/jobs" element={<P><BrowseJobsScreen /></P>} />
                       <Route path="/contractor/job/:id" element={<P><JobDetailScreen /></P>} />
-                      <Route path="/contractor/bid/:id?" element={<P><SubmitBidScreen /></P>} />
+                      <Route path="/contractor/bid/:id?" element={<RequireRole role="contractor"><SubmitBidScreen /></RequireRole>} />
                       <Route path="/contractor/bids" element={<P><MyBidsScreen /></P>} />
                       <Route path="/contractor/contract/:bidId" element={<P><ContractDetailScreen /></P>} />
+                      {/* Same screen as /recipient/submit — the capture/geotag/notes
+                          flow is identical regardless of whether the submitter owns
+                          the project or is its accepted contractor (see
+                          MilestoneSubmitScreen's own project-lookup fix); this route
+                          just gives a contractor a URL that isn't misleadingly
+                          "/recipient/...". */}
+                      <Route path="/contractor/submit/:id?" element={<P><MilestoneSubmitScreen /></P>} />
                       <Route path="/contractor/earnings" element={<P><EarningsScreen /></P>} />
+                      <Route path="/contractor/portfolio/edit" element={<P><EditContractorPortfolioScreen /></P>} />
+                      <Route path="/contractor/portfolio/:userId" element={<P><ContractorPortfolioScreen /></P>} />
         
                       {/* Land */}
                       <Route path="/land/browse" element={<P><BrowseLandScreen /></P>} />
@@ -247,6 +300,9 @@ export default function App() {
                       <Route path="/quincaillerie/register" element={<P><QuincaillerieRegistrationScreen /></P>} />
                       <Route path="/quincaillerie/dashboard" element={<P><QuincaillerieDashboardScreen /></P>} />
                       <Route path="/quincaillerie/profile/:id" element={<P><QuincaillerieProfileScreen /></P>} />
+                      <Route path="/quincaillerie/inventory" element={<P><InventoryScreen /></P>} />
+                      <Route path="/quincaillerie/inventory/new" element={<P><InventoryItemFormScreen /></P>} />
+                      <Route path="/quincaillerie/inventory/:id/edit" element={<P><InventoryItemFormScreen /></P>} />
                       <Route path="/materials/request/:projectId/:milestoneId" element={<P><RequestMaterialsScreen /></P>} />
 
                       {/* Co-signer */}
@@ -270,6 +326,7 @@ export default function App() {
 
                       {/* Community */}
                       <Route path="/groups/create" element={<P><GroupSetupScreen /></P>} />
+                      <Route path="/groups/join/:id?" element={<P><JoinGroupScreen /></P>} />
                       <Route path="/groups/members/:id?" element={<P><GroupMembersScreen /></P>} />
                       <Route path="/groups/dashboard/:id?" element={<P><GroupDashboardScreen /></P>} />
                       <Route path="/referrals" element={<P><ReferralScreen /></P>} />
@@ -295,6 +352,8 @@ export default function App() {
         
                       {/* Shared — notifications live in the NotificationsDrawer overlay
                           (see components/NotificationsDrawer.tsx), not a routed page. */}
+                      <Route path="/payment/callback" element={<PaymentCallbackScreen />} />
+                      <Route path="/account/payout-settings" element={<P><PayoutSettingsScreen /></P>} />
                       <Route path="/shared/settings" element={<P><SettingsScreen /></P>} />
                       <Route path="/shared/settings/delete-account" element={<P><DeleteAccountScreen /></P>} />
                       <Route path="/shared/help" element={<P><HelpScreen /></P>} />

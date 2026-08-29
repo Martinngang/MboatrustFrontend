@@ -12,7 +12,7 @@ import { AppIcon } from './icons'
  * quincaillerie's own order list. */
 export function MaterialOrderCard({ order, compact = false }: { order: MaterialOrder; compact?: boolean }) {
   const { payoutLabel } = resolveMilestonePayee(order)
-  const isPaidToSupplier = order.status === 'confirmed' || order.status === 'fulfilled' || order.status === 'delivered'
+  const isPaidToSupplier = order.status === 'confirmed' || order.status === 'out_for_delivery' || order.status === 'delivered'
 
   return (
     <Card>
@@ -61,7 +61,7 @@ export function MaterialOrderCard({ order, compact = false }: { order: MaterialO
 
         {order.deliveryConfirmation && (
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-2">
-            Delivered · confirmed by {order.deliveryConfirmation.confirmedBy} · {new Date(order.deliveryConfirmation.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+            Delivered · confirmed by {order.deliveryConfirmation.confirmedByName || 'a project party'} · {new Date(order.deliveryConfirmation.timestamp).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
           </div>
         )}
       </div>

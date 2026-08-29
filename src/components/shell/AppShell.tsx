@@ -10,13 +10,26 @@ import { TopBar } from './TopBar'
 /** Management-app shell: persistent Sidebar + TopBar (breadcrumbs, global
  * search → command palette, quick-create, avatar menu), wrapping every
  * authenticated screen. Same exported name/signature as the AppShell this
- * replaces, so none of the ~13 screen files that do `<AppShell>...</AppShell>`
+ * replaces, so none of the ~13 screen files that do `<AppShell>...<\/AppShell>`
  * need to change. TopBar renders at every breakpoint (see its own comment) —
  * this file used to also render a second, ad-hoc mobile-only utility row
  * here, inside the scrolling <main>. That row wasn't sticky or fixed, so it
  * scrolled out of view immediately; it's gone now that TopBar itself covers
- * mobile. */
-export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boolean }) {
+ * mobile.
+ *
+ * fullBleed: when true the normal padding/max-width content wrapper is
+ * bypassed and children fill the entire <main> area directly — used for
+ * immersive screens like Messaging where the screen manages its own
+ * internal scroll rather than relying on the outer <main> scroll. */
+export function AppShell({
+  children,
+  noNav,
+  fullBleed,
+}: {
+  children: ReactNode
+  noNav?: boolean
+  fullBleed?: boolean
+}) {
   const loc = useLocation()
   const reduceMotion = useReducedMotion()
 
@@ -54,26 +67,41 @@ export function AppShell({ children, noNav }: { children: ReactNode; noNav?: boo
               default) so no ancestor or sibling gesture handler — Framer
               Motion's drag/tap gestures, dnd-kit's sensors, or a future
               addition — can ever suppress vertical touch panning here. */}
-          <main className="min-h-0 overflow-y-auto overscroll-contain" style={{ touchAction: 'pan-y' }}>
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={loc.pathname}
-                variants={pageVariants}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                transition={reduceMotion ? { duration: 0 } : pageTransition}
-                // pb-28 (not pb-4): clears the fixed BottomNav so it never
-                // overlaps the last bit of a page's content on mobile —
-                // BottomNav is ~60-95px tall depending on the device's
-                // safe-area inset, so 112px leaves comfortable headroom.
-                // Reverts to the original pb-8 at lg, where BottomNav is
-                // hidden and the sidebar/topbar shell is used instead.
-                className="mx-auto w-full max-w-6xl px-4 pt-4 pb-28 sm:px-6 lg:px-8 lg:pt-8 lg:pb-8"
-              >
-                <ScreenErrorBoundary key={loc.pathname}>{children}</ScreenErrorBoundary>
-              </motion.div>
-            </AnimatePresence>
+          <main
+            className={`min-h-0 overscroll-contain ${fullBleed ? 'overflow-hidden' : 'overflow-y-auto'}`}
+            style={{ touchAction: 'pan-y' }}
+          >
+            {fullBleed ? (
+              // Full-bleed screens manage their own scroll internally.
+              // We still wrap in ScreenErrorBoundary but skip the
+              // padding/max-width motion wrapper so children can fill
+              // the entire <main> area flush to its edges.
+              <ScreenErrorBoundary key={loc.pathname}>
+                <div className="h-full w-full overflow-hidden">
+                  {children}
+                </div>
+              </ScreenErrorBoundary>
+            ) : (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={loc.pathname}
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  transition={reduceMotion ? { duration: 0 } : pageTransition}
+                  // pb-28 (not pb-4): clears the fixed BottomNav so it never
+                  // overlaps the last bit of a page's content on mobile —
+                  // BottomNav is ~60-95px tall depending on the device's
+                  // safe-area inset, so 112px leaves comfortable headroom.
+                  // Reverts to the original pb-8 at lg, where BottomNav is
+                  // hidden and the sidebar/topbar shell is used instead.
+                  className="mx-auto w-full max-w-6xl px-4 pt-4 pb-28 sm:px-6 lg:px-8 lg:pt-8 lg:pb-8"
+                >
+                  <ScreenErrorBoundary key={loc.pathname}>{children}</ScreenErrorBoundary>
+                </motion.div>
+              </AnimatePresence>
+            )}
           </main>
         </div>
       </div>

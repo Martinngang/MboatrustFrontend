@@ -190,6 +190,24 @@ export function useInviteGroupMemberMutation() {
   })
 }
 
+/** POST /groups/:id/join — self-service membership (see
+ * groupController.join's comment: "anyone with the group id can join
+ * directly, e.g. via a shared link"). Previously had no frontend hook at
+ * all, so a user handed a group id/link had no way to actually use it. */
+export function useJoinGroupMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (groupId: string) => {
+      await api.post(`/groups/${groupId}/join`)
+      return groupId
+    },
+    onSuccess: (groupId) => {
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      qc.invalidateQueries({ queryKey: ['groupDashboard', groupId] })
+    },
+  })
+}
+
 export function useLeaveGroupMutation() {
   const qc = useQueryClient()
   return useMutation({

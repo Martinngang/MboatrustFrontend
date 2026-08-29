@@ -2,6 +2,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../context'
 import { useMaterials } from '../materials'
+import { useMyRoleTypesQuery } from '../api/session'
 import { useTheme } from '../theme'
 import { Tilt3D } from './Tilt3D'
 import type { ReactNode, KeyboardEvent } from 'react'
@@ -36,11 +37,14 @@ const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   open: { tone: 'success', label: 'Open' },
   awarded: { tone: 'info', label: 'Awarded' },
   closed: { tone: 'neutral', label: 'Closed' },
-  // Material order statuses (see materials.tsx) — 'rejected'/'disputed' above already cover those two.
+  // Material order statuses (see api/materialOrders.ts) — 'rejected' above already covers that one.
   requested: { tone: 'warning', label: 'Requested' },
   confirmed: { tone: 'info', label: 'Confirmed' },
-  fulfilled: { tone: 'success', label: 'Fulfilled' },
+  out_for_delivery: { tone: 'info', label: 'Out for delivery' },
   delivered: { tone: 'success', label: 'Delivered' },
+  cancelled: { tone: 'neutral', label: 'Cancelled' },
+  // Inventory item status (see api/inventoryItems.ts) — 'active' above already covers that.
+  archived: { tone: 'neutral', label: 'Archived' },
 }
 export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_MAP[status] ?? { tone: 'neutral' as const, label: status }
@@ -254,7 +258,11 @@ export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths:
   ],
   contractor: [
     { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
-    { icon: <AppIcon name="briefcase" size={20} />, label: 'Jobs', paths: ['/workspace/jobs', '/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
+    // '/workspace/jobs' is the funder's own tender-management board
+    // (RequireRole-gated to 'funder' in App.tsx) — it can never be first
+    // here, or tapping this tab bounces a contractor straight back to
+    // /home via that route guard instead of showing them their jobs.
+    { icon: <AppIcon name="briefcase" size={20} />, label: 'Jobs', paths: ['/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="wallet" size={20} />, label: 'Earnings', paths: ['/contractor/earnings'] },
     { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
@@ -286,6 +294,7 @@ export const FUNDER_TABS = TAB_ROUTES.funder
 export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[] = [
   { icon: <AppIcon name="receipt" size={18} />, label: 'Activity log', path: '/activity' },
   { icon: <AppIcon name="users" size={18} />, label: 'Community', path: '/groups/dashboard' },
+  { icon: <AppIcon name="trophy" size={18} />, label: 'Contractor leaderboard', path: '/contractors/leaderboard' },
   { icon: <AppIcon name="swap" size={18} />, label: 'Currency converter', path: '/tools/currency-converter' },
   { icon: <AppIcon name="settings" size={18} />, label: 'Settings', path: '/shared/settings' },
 ]
@@ -301,15 +310,21 @@ export const ADMIN_LINKS: { label: string; path: string; requiresRole: 'verifier
 ]
 
 export function BottomNav() {
-  const { role } = useApp()
+  const { role, devUserId } = useApp()
   const { myQuincaillerie } = useMaterials()
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
   // A quincaillerie-only account has role===null (it isn't a real Role —
   // see Onboarding.tsx), so it needs its own lookup key rather than
   // TAB_ROUTES[role ?? 'funder'] silently handing it funder's tabs.
-  const tabs = TAB_ROUTES[role === null && myQuincaillerie ? 'quincaillerie' : role ?? 'funder'] ?? FUNDER_TABS
+  // myQuincaillerie (the profile document) alone misses an account whose
+  // role was granted directly with no profile ever submitted — roleTypes
+  // (the raw backend roles) catches that case too, same fix as
+  // Dashboard.tsx's HomeScreen and Sidebar.tsx.
+  const isQuincaillerie = myQuincaillerie || roleTypes.includes('quincaillerie')
+  const tabs = TAB_ROUTES[role === null && isQuincaillerie ? 'quincaillerie' : role ?? 'funder'] ?? FUNDER_TABS
 
   return (
     // Literal position:fixed pinned to the viewport edge — the same

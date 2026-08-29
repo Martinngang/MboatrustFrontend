@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useApp, fmt } from '../context'
+import { fmt } from '../context'
+import { useMaterials, type MaterialOrderItem } from '../materials'
+import { useMyInventoryQuery, useQuincaillerieInventoryQuery } from '../api/inventoryItems'
+import { useProjectQuery } from '../api/projects'
 import {
-  useMaterials, type MaterialOrderItem, type InventoryItem,
-} from '../materials'
+  useMaterialOrdersForMyQuincaillerieQuery, useConfirmMaterialOrderMutation, useRejectMaterialOrderMutation,
+  useCreateMaterialOrderMutation,
+} from '../api/materialOrders'
 import {
   C, FONT, AppShell, Card, PillButton, Header, StepIndicator,
   DashboardShell, DashboardHero, Stars, MomoOmPicker,
@@ -13,13 +17,13 @@ import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { EmptyState } from '../components/EmptyState'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
+import { InventoryItemCard } from '../components/InventoryItemCard'
 import { RegionSelect } from '../components/LocationSelect'
 import { getCameroonRegionName } from '../utils/locationData'
 import { AppIcon } from '../components/icons'
 import { useToast } from '../components/Toast'
 
 const CATEGORY_OPTIONS = ['Cement', 'Roofing', 'Plumbing', 'Electrical', 'Timber']
-const UNIT_OPTIONS: InventoryItem['unit'][] = ['bag', 'sheet', 'meter', 'unit', 'roll', 'litre']
 
 function toPaymentProvider(m: 'momo' | 'om'): 'mtn_momo' | 'orange_money' {
   return m === 'momo' ? 'mtn_momo' : 'orange_money'
@@ -28,6 +32,7 @@ function toPaymentProvider(m: 'momo' | 'om'): 'mtn_momo' | 'orange_money' {
 // ── Quincaillerie registration / onboarding ──────────────────────────────
 export function QuincaillerieRegistrationScreen() {
   const nav = useNavigate()
+  const { show: showToast } = useToast()
   const { registerQuincaillerie } = useMaterials()
   const [step, setStep] = useState<'business' | 'payout' | 'id'>('business')
   const [form, setForm] = useState({
@@ -36,19 +41,27 @@ export function QuincaillerieRegistrationScreen() {
   const [method, setMethod] = useState<'momo' | 'om'>('momo')
   const [payoutPhoneNumber, setPayoutPhoneNumber] = useState('')
   const [docFile, setDocFile] = useState<File | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  const finish = () => {
-    registerQuincaillerie({
-      businessName: form.businessName.trim(),
-      address: form.address.trim(),
-      region: form.regionCode ? getCameroonRegionName(form.regionCode) : '',
-      categories: form.categories,
-      phone: form.phone.trim(),
-      paymentProvider: toPaymentProvider(method),
-      payoutPhoneNumber: payoutPhoneNumber.trim(),
-      docUploaded: !!docFile,
-    })
-    nav('/quincaillerie/dashboard')
+  const finish = async () => {
+    setSubmitting(true)
+    try {
+      await registerQuincaillerie({
+        businessName: form.businessName.trim(),
+        address: form.address.trim(),
+        region: form.regionCode ? getCameroonRegionName(form.regionCode) : '',
+        categories: form.categories,
+        phone: form.phone.trim(),
+        paymentProvider: toPaymentProvider(method),
+        payoutPhoneNumber: payoutPhoneNumber.trim(),
+        docUploaded: !!docFile,
+      })
+      nav('/quincaillerie/dashboard')
+    } catch {
+      showToast({ title: 'Registration failed', description: 'Please check your connection and try again.', tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -153,7 +166,7 @@ export function QuincaillerieRegistrationScreen() {
                 </>
               )}
             </label>
-            <PillButton onClick={finish} fullWidth disabled={!docFile}>Complete registration</PillButton>
+            <PillButton onClick={finish} fullWidth disabled={!docFile || submitting}>{submitting ? 'Submitting…' : 'Complete registration'}</PillButton>
           </>
         )}
       </div>
@@ -165,12 +178,16 @@ export function QuincaillerieRegistrationScreen() {
 export function QuincaillerieDashboardScreen() {
   const nav = useNavigate()
   const { show: showToast } = useToast()
-  const {
-    myQuincaillerie, getInventoryForQuincaillerie, addInventoryItem, updateInventoryItem, removeInventoryItem,
-    getOrdersForQuincaillerie, confirmMaterialOrder, rejectMaterialOrder,
-  } = useMaterials()
+  const { myQuincaillerie, isLoadingMyQuincaillerie } = useMaterials()
   const [tab, setTab] = useState<'inventory' | 'orders' | 'history'>('orders')
-  const [newItem, setNewItem] = useState({ itemName: '', category: CATEGORY_OPTIONS[0], unit: 'bag' as InventoryItem['unit'], currentPrice: '' })
+  const { data: inventorySummary } = useMyInventoryQuery({ status: 'all', limit: 1 }, Boolean(myQuincaillerie))
+  const { data: lowStockSummary } = useMyInventoryQuery({ status: 'active', lowStockOnly: true, limit: 1 }, Boolean(myQuincaillerie))
+  const isVerified = myQuincaillerie?.verificationStatus === 'verified'
+  const { data: orders = [] } = useMaterialOrdersForMyQuincaillerieQuery('all', isVerified)
+  const confirmOrder = useConfirmMaterialOrderMutation()
+  const rejectOrder = useRejectMaterialOrderMutation()
+
+  if (isLoadingMyQuincaillerie) return <AppShell noNav>{null}</AppShell>
 
   if (!myQuincaillerie || myQuincaillerie.verificationStatus !== 'verified') {
     const isPending = myQuincaillerie?.verificationStatus === 'pending'
@@ -200,18 +217,9 @@ export function QuincaillerieDashboardScreen() {
     )
   }
 
-  const inventory = getInventoryForQuincaillerie(myQuincaillerie.id)
-  const orders = getOrdersForQuincaillerie(myQuincaillerie.id)
   const requested = orders.filter((o) => o.status === 'requested')
   const history = orders.filter((o) => o.status !== 'requested')
-  const earnings = orders.filter((o) => o.status === 'confirmed' || o.status === 'fulfilled' || o.status === 'delivered').reduce((s, o) => s + o.totalAmount, 0)
-
-  const submitNewItem = () => {
-    if (!newItem.itemName.trim() || !newItem.currentPrice) return
-    addInventoryItem(myQuincaillerie.id, { itemName: newItem.itemName.trim(), category: newItem.category, unit: newItem.unit, currentPrice: Number(newItem.currentPrice) })
-    setNewItem({ itemName: '', category: CATEGORY_OPTIONS[0], unit: 'bag', currentPrice: '' })
-    showToast({ title: 'Item added', tone: 'success' })
-  }
+  const earnings = orders.filter((o) => o.status === 'confirmed' || o.status === 'out_for_delivery' || o.status === 'delivered').reduce((s, o) => s + o.totalAmount, 0)
 
   return (
     <AppShell>
@@ -251,15 +259,31 @@ export function QuincaillerieDashboardScreen() {
                   <MaterialOrderCard order={order} />
                   <div className="flex gap-2 mt-2">
                     <button
-                      onClick={() => { confirmMaterialOrder(order.id); showToast({ title: 'Order confirmed — receipt generated', tone: 'success' }) }}
-                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold"
+                      onClick={async () => {
+                        try {
+                          await confirmOrder.mutateAsync({ orderId: order.id })
+                          showToast({ title: 'Order confirmed — receipt generated', tone: 'success' })
+                        } catch {
+                          showToast({ title: 'Failed to confirm order', tone: 'error' })
+                        }
+                      }}
+                      disabled={confirmOrder.isPending || rejectOrder.isPending}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
                       style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
                     >
                       Confirm pricing & fulfill
                     </button>
                     <button
-                      onClick={() => { rejectMaterialOrder(order.id, 'Item(s) currently out of stock'); showToast({ title: 'Order rejected', tone: 'info' }) }}
-                      className="px-3 py-2 rounded-lg text-xs font-semibold border"
+                      onClick={async () => {
+                        try {
+                          await rejectOrder.mutateAsync({ orderId: order.id, reason: 'Item(s) currently out of stock' })
+                          showToast({ title: 'Order rejected', tone: 'info' })
+                        } catch {
+                          showToast({ title: 'Failed to reject order', tone: 'error' })
+                        }
+                      }}
+                      disabled={confirmOrder.isPending || rejectOrder.isPending}
+                      className="px-3 py-2 rounded-lg text-xs font-semibold border disabled:opacity-50"
                       style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
                     >
                       Reject
@@ -274,67 +298,23 @@ export function QuincaillerieDashboardScreen() {
         {tab === 'inventory' && (
           <div className="mt-4 space-y-4">
             <Card>
-              <div className="p-4 space-y-3">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Add item</div>
-                <input
-                  value={newItem.itemName}
-                  onChange={(e) => setNewItem({ ...newItem, itemName: e.target.value })}
-                  placeholder="Item name"
-                  className="w-full border-2 rounded-xl px-3 py-2 outline-none text-sm"
-                  style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
-                />
-                <ChipGroup options={CATEGORY_OPTIONS} value={newItem.category} onChange={(v) => setNewItem({ ...newItem, category: v as string })} />
-                <div className="flex gap-2">
-                  <select
-                    value={newItem.unit}
-                    onChange={(e) => setNewItem({ ...newItem, unit: e.target.value as InventoryItem['unit'] })}
-                    className="border-2 rounded-xl px-3 py-2 outline-none text-sm"
-                    style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
-                  >
-                    {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
-                  </select>
-                  <input
-                    value={newItem.currentPrice}
-                    onChange={(e) => setNewItem({ ...newItem, currentPrice: e.target.value.replace(/[^0-9]/g, '') })}
-                    placeholder="Price (XAF)"
-                    inputMode="numeric"
-                    className="flex-1 border-2 rounded-xl px-3 py-2 outline-none text-sm"
-                    style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
-                  />
+              <div className="flex items-center justify-between gap-3 p-4">
+                <div className="flex gap-5">
+                  <div>
+                    <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{inventorySummary?.total ?? 0}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">Products</div>
+                  </div>
+                  <div>
+                    <div style={{ fontFamily: FONT.serif, color: (lowStockSummary?.total ?? 0) > 0 ? 'var(--status-error-text)' : C.ink }} className="text-xl font-bold">{lowStockSummary?.total ?? 0}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">Low stock</div>
+                  </div>
                 </div>
-                <PillButton onClick={submitNewItem} fullWidth disabled={!newItem.itemName.trim() || !newItem.currentPrice}>Add to inventory</PillButton>
+                <PillButton onClick={() => nav('/quincaillerie/inventory')}>Manage inventory →</PillButton>
               </div>
             </Card>
-
-            {inventory.length === 0 ? (
-              <EmptyState icon="clipboard" title="No items yet" description="Add what you stock so contractors can order it against a milestone." illustration="tilt" />
-            ) : (
-              <StaggerList className="space-y-2">
-                {inventory.map((item) => (
-                  <StaggerItem key={item.id}>
-                    <Card>
-                      <div className="p-3 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{item.itemName}</div>
-                          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{item.category} · per {item.unit}</div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <input
-                            value={item.currentPrice}
-                            onChange={(e) => updateInventoryItem(item.id, { currentPrice: Number(e.target.value.replace(/[^0-9]/g, '')) || 0 })}
-                            className="w-24 border-2 rounded-lg px-2 py-1.5 text-xs text-right outline-none"
-                            style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, color: C.ink }}
-                          />
-                          <button onClick={() => removeInventoryItem(item.id)} className="w-8 h-8 flex items-center justify-center rounded-lg" style={{ color: 'var(--status-error-text)' }}>
-                            <AppIcon name="close" size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </Card>
-                  </StaggerItem>
-                ))}
-              </StaggerList>
-            )}
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="px-1 text-xs">
+              A full product catalogue — categories, images, specs, stock levels and more — lives on its own page so it doesn't crowd this dashboard.
+            </p>
           </div>
         )}
 
@@ -358,14 +338,19 @@ export function QuincaillerieDashboardScreen() {
   )
 }
 
-// ── Request materials (contractor/recipient side) ────────────────────────
+// ── Request materials (funder/recipient/contractor side) ─────────────────
 export function RequestMaterialsScreen() {
   const nav = useNavigate()
   const { projectId, milestoneId } = useParams()
-  const { projects, name, devUserId } = useApp()
-  const { quincailleries, getInventoryForQuincaillerie, requestMaterialOrder } = useMaterials()
+  const { show: showToast } = useToast()
+  // Pillar-agnostic single-project fetch (funding or tender) — this screen
+  // is reached from both a recipient's funding-project milestone submission
+  // and a contractor's active tender contract, which useApp().projects
+  // (funding-only) could never resolve for the latter.
+  const { data: project, isLoading: projectLoading } = useProjectQuery(projectId)
+  const { quincailleries } = useMaterials()
+  const createOrder = useCreateMaterialOrderMutation()
 
-  const project = projects.find((p) => p.id === projectId)
   const milestone = project?.milestones.find((m) => m.id === milestoneId)
 
   const [category, setCategory] = useState('All')
@@ -374,6 +359,16 @@ export function RequestMaterialsScreen() {
   const [customItems, setCustomItems] = useState<MaterialOrderItem[]>([])
   const [customForm, setCustomForm] = useState({ name: '', quantity: '1', unitPrice: '' })
   const [submitted, setSubmitted] = useState(false)
+
+  // The project owner chose a preferred supplier at creation time (see
+  // PostJobScreen) — pre-select it so the requester skips the store-picker
+  // step entirely, rather than asking them to re-find a store that was
+  // already decided on when the project was posted.
+  useEffect(() => {
+    if (project?.materialsManagedBy === 'quincaillerie' && project.preferredQuincaillerieId && !selectedId) {
+      setSelectedId(project.preferredQuincaillerieId)
+    }
+  }, [project, selectedId])
 
   const addCustomItem = () => {
     const quantity = Number(customForm.quantity) || 0
@@ -386,24 +381,31 @@ export function RequestMaterialsScreen() {
   const verified = quincailleries.filter((q) => q.verificationStatus === 'verified')
   const filtered = category === 'All' ? verified : verified.filter((q) => q.registeredCategories.includes(category))
   const selected = quincailleries.find((q) => q.id === selectedId) ?? null
-  const selectedInventory = selected ? getInventoryForQuincaillerie(selected.id) : []
+  const { data: selectedInventory = [] } = useQuincaillerieInventoryQuery(selected?.id)
 
   const cartItems: MaterialOrderItem[] = [
     ...selectedInventory
       .filter((i) => (cart[i.id] ?? 0) > 0)
-      .map((i) => ({ inventoryItemId: i.id, name: i.itemName, quantity: cart[i.id], unitPrice: i.currentPrice, subtotal: cart[i.id] * i.currentPrice })),
+      .map((i) => ({ inventoryItemId: i.id, name: i.name, quantity: cart[i.id], unitPrice: i.price, subtotal: cart[i.id] * i.price })),
     ...customItems,
   ]
   const total = cartItems.reduce((s, it) => s + it.subtotal, 0)
 
-  const submit = () => {
+  const submit = async () => {
     if (!selected || !project || !milestone || cartItems.length === 0) return
-    requestMaterialOrder({
-      projectId: project.id, projectTitle: project.title, milestoneId: milestone.id, milestoneTitle: milestone.title,
-      quincaillerieId: selected.id, requestedBy: name || 'You', requestedById: devUserId ?? undefined,
-      items: cartItems.map(({ inventoryItemId, name: n, quantity, unitPrice }) => ({ inventoryItemId, name: n, quantity, unitPrice })),
-    })
-    setSubmitted(true)
+    try {
+      await createOrder.mutateAsync({
+        projectId: project.id, milestoneId: milestone.id, quincaillerieId: selected.id,
+        items: cartItems.map(({ inventoryItemId, name: n, quantity, unitPrice }) => ({ inventoryItemId, name: n, quantity, unitPrice })),
+      })
+      setSubmitted(true)
+    } catch {
+      showToast({ title: 'Failed to send order request', description: 'Please check your connection and try again.', tone: 'error' })
+    }
+  }
+
+  if (projectLoading) {
+    return <AppShell noNav>{null}</AppShell>
   }
 
   if (!project || !milestone) {
@@ -427,7 +429,7 @@ export function RequestMaterialsScreen() {
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
             {selected?.businessName} will confirm pricing and availability. You'll see the digital receipt here once they do.
           </p>
-          <PillButton onClick={() => nav(`/funder/project/${project.id}`)} fullWidth>Back to project</PillButton>
+          <PillButton onClick={() => nav(-1)} fullWidth>Back to project</PillButton>
         </div>
       </AppShell>
     )
@@ -484,27 +486,11 @@ export function RequestMaterialsScreen() {
               {selectedInventory.length === 0 ? (
                 <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">This store hasn't listed any items yet — add a custom item below.</div>
               ) : selectedInventory.map((item) => (
-                <Card key={item.id}>
-                  <div className="p-3 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{item.itemName}</div>
-                      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{fmt(item.currentPrice)} per {item.unit}</div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => setCart({ ...cart, [item.id]: Math.max(0, (cart[item.id] ?? 0) - 1) })}
-                        className="w-7 h-7 rounded-full border flex items-center justify-center text-sm font-bold"
-                        style={{ borderColor: C.parchmentDark }}
-                      >−</button>
-                      <span style={{ fontFamily: FONT.mono, color: C.ink }} className="w-6 text-center text-sm">{cart[item.id] ?? 0}</span>
-                      <button
-                        onClick={() => setCart({ ...cart, [item.id]: (cart[item.id] ?? 0) + 1 })}
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                        style={{ background: C.forest }}
-                      >+</button>
-                    </div>
-                  </div>
-                </Card>
+                <InventoryItemCard
+                  key={item.id}
+                  item={item}
+                  quantityControl={{ quantity: cart[item.id] ?? 0, onChange: (q) => setCart({ ...cart, [item.id]: q }) }}
+                />
               ))}
             </div>
 
@@ -580,7 +566,9 @@ export function RequestMaterialsScreen() {
 
       {selected && (
         <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-          <PillButton onClick={submit} fullWidth disabled={cartItems.length === 0}>Send order request</PillButton>
+          <PillButton onClick={submit} fullWidth disabled={cartItems.length === 0 || createOrder.isPending}>
+            {createOrder.isPending ? 'Sending…' : 'Send order request'}
+          </PillButton>
         </div>
       )}
     </AppShell>
@@ -590,8 +578,9 @@ export function RequestMaterialsScreen() {
 // ── Quincaillerie public profile ──────────────────────────────────────────
 export function QuincaillerieProfileScreen() {
   const { id } = useParams()
-  const { quincailleries, getInventoryForQuincaillerie } = useMaterials()
+  const { quincailleries } = useMaterials()
   const quincaillerie = quincailleries.find((q) => q.id === id)
+  const { data: inventory = [] } = useQuincaillerieInventoryQuery(quincaillerie?.id)
 
   if (!quincaillerie) {
     return (
@@ -603,8 +592,6 @@ export function QuincaillerieProfileScreen() {
       </AppShell>
     )
   }
-
-  const inventory = getInventoryForQuincaillerie(quincaillerie.id)
 
   return (
     <AppShell>
@@ -654,14 +641,7 @@ export function QuincaillerieProfileScreen() {
             <Card><div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>No items listed yet.</div></Card>
           ) : (
             <div className="space-y-2">
-              {inventory.map((item) => (
-                <Card key={item.id}>
-                  <div className="p-3 flex items-center justify-between">
-                    <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{item.itemName}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">{fmt(item.currentPrice)} / {item.unit}</div>
-                  </div>
-                </Card>
-              ))}
+              {inventory.map((item) => <InventoryItemCard key={item.id} item={item} />)}
             </div>
           )}
         </div>

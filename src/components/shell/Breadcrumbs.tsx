@@ -31,7 +31,10 @@ function useBreadcrumbTrail(): Crumb[] {
   }
   if (pathname.startsWith('/contractor/job/')) {
     const job = jobs.find((j) => j.id === id)
-    return [{ label: 'Home', path: '/home' }, { label: 'Tenders', path: '/workspace/jobs' }, { label: job?.title ?? 'Tender' }]
+    // Not '/workspace/jobs' — that's the funder's own tender-management
+    // board (RequireRole-gated to 'funder'), so a contractor clicking this
+    // crumb would get bounced straight to /home instead of their job list.
+    return [{ label: 'Home', path: '/home' }, { label: 'Tenders', path: '/contractor/jobs' }, { label: job?.title ?? 'Tender' }]
   }
 
   if (pathname.startsWith('/workspace/land') || pathname.startsWith('/land/browse')) {

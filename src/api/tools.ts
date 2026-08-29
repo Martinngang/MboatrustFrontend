@@ -27,3 +27,20 @@ export function useCurrencyConversionQuery(amount: number, from: string, to: str
     staleTime: 30_000,
   })
 }
+
+/** Real backend reverse-geocode (GET /tools/reverse-geocode) — resolves a
+ * GPS fix to a short place name via the backend's Nominatim wrapper (see
+ * geocodingService.js) instead of showing raw coordinates. A given lat/lng
+ * pair always resolves to the same name, so this is cached indefinitely
+ * once fetched rather than treated as something that goes stale. */
+export function useReverseGeocodeQuery(lat: number | undefined, lng: number | undefined) {
+  return useQuery({
+    queryKey: ['reverseGeocode', lat, lng],
+    queryFn: async (): Promise<string | null> => {
+      const { data } = await api.get<{ data: { placeName: string | null } }>('/tools/reverse-geocode', { params: { lat, lng } })
+      return data.data.placeName
+    },
+    enabled: lat != null && lng != null,
+    staleTime: Infinity,
+  })
+}

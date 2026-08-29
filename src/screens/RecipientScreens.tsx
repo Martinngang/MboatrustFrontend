@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useOfflineQueue } from '../offlineQueue'
-import { C, FONT, AppShell, Card, Stars, StatusBadge, ProgressBar, PillButton, Header, MomoOmPicker, VerticalSteps } from '../components/MobileLayout'
+import { C, FONT, AppShell, Card, Stars, StatusBadge, ProgressBar, PillButton, Header, VerticalSteps } from '../components/MobileLayout'
 import { Chip } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
@@ -10,9 +10,14 @@ import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useRatingSummaryQuery, useRatingsQuery, useCreateRatingMutation } from '../api/reputation'
-import { useMyProjectsQuery } from '../api/projects'
-import { useMaterials } from '../materials'
+import { useMyProjectsQuery, useProjectQuery } from '../api/projects'
+import { useReverseGeocodeQuery } from '../api/tools'
+import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
+import { useSessionQuery } from '../api/session'
+import type { PayoutMethod } from '../api/payoutMethods'
+import { useWithdrawableQuery, useWithdrawMutation } from '../api/escrow'
+import { AIPhotoInspector } from '../components/AIPhotoInspector'
 
 
 // ── Milestone submission ───────────────────────────────────────────────────────
@@ -33,17 +38,36 @@ function filesToDataUrls(files: FileList): Promise<string[]> {
 export function MilestoneSubmitScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { devUserId, submitMilestoneProof } = useApp()
-  const { data: projects = [], isLoading } = useMyProjectsQuery(devUserId ?? undefined)
+  const { devUserId, bids, submitMilestoneProof } = useApp()
+  // Two different callers, two different queries. With no id, this is the
+  // recipient dashboard's generic "submit proof" entry point — "my next
+  // pending milestone across projects I own" only makes sense scoped to
+  // useMyProjectsQuery. With an id (every other entry point, including a
+  // contractor's "Submit next milestone proof" on their own accepted tender
+  // — see ContractDetailScreen), fetch that exact project directly instead:
+  // useMyProjectsQuery hardcodes projectType=funding and ownerId=me, which a
+  // tender-type project the viewer merely *works on* (as its accepted
+  // contractor, not its owner) never matches — every such lookup 404'd here
+  // even though the backend's own submitEvidence already explicitly allows
+  // the accepted contractor (see projectController.assertProjectParty).
+  // getOne has no extra access check, so this is safe for both; the actual
+  // write (submitEvidence) enforces the real authorization boundary.
+  const { data: myProjects = [], isLoading: myProjectsLoading } = useMyProjectsQuery(id ? undefined : (devUserId ?? undefined))
+  const { data: directProject, isLoading: directProjectLoading } = useProjectQuery(id)
+  const isLoading = id ? directProjectLoading : myProjectsLoading
+  const project = id ? directProject : (myProjects.find((p) => p.milestones.some((m) => m.status === 'pending')) ?? myProjects[0])
+  const milestone = project?.milestones.find((m) => m.status === 'pending') ?? project?.milestones.find((m) => m.status !== 'released') ?? project?.milestones[0]
   const { isOnline, queue, enqueue, syncNow, isSyncing } = useOfflineQueue()
   const { show: showToast } = useToast()
-  const { getMaterialOrderForMilestone } = useMaterials()
-  // Only falls back to "my next pending milestone" when no id was given at
-  // all (e.g. reached via the dashboard's generic "Submit proof" button) —
-  // an id that doesn't match one of *my own* projects is treated as not
-  // found rather than silently substituting a different project.
-  const project = id ? projects.find((p) => p.id === id) : (projects.find((p) => p.milestones.some((m) => m.status === 'pending')) ?? projects[0])
-  const milestone = project?.milestones.find((m) => m.status === 'pending') ?? project?.milestones.find((m) => m.status !== 'released') ?? project?.milestones[0]
+  // Whether the current viewer is here as the accepted contractor on a
+  // tender (not the project's owner) — decides where "back to my stuff"
+  // should actually go after submitting, since /recipient/... routes are
+  // scoped to projects the viewer owns and 404 the same way this screen
+  // used to for a contractor.
+  const myBidForThisProject = project ? bids.find((b) => b.jobId === project.id) : undefined
+  // Called unconditionally (before the not-found early return below) per the
+  // Rules of Hooks — the query itself no-ops via `enabled` until both ids resolve.
+  const { data: materialOrders = [] } = useMaterialOrdersForMilestoneQuery(project?.id, milestone?.id)
   const [step, setStep] = useState<'capture' | 'submitted' | 'queued'>('capture')
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState('')
@@ -51,6 +75,11 @@ export function MilestoneSubmitScreen() {
   const [photoFiles, setPhotoFiles] = useState<File[]>([])
   const [geo, setGeo] = useState<{ lat: number; lng: number; label: string } | null>(null)
   const [geoStatus, setGeoStatus] = useState<'locating' | 'ok' | 'unavailable'>('locating')
+  // Resolves the raw fix to a real place name ("Bonabéri, Douala, Littoral
+  // Region") the moment it comes in — geo.label stays the raw-coordinate
+  // fallback for while this is loading or if it fails (offline, geocoder
+  // down), so there's always something to show either way.
+  const { data: placeName, isLoading: placeNameLoading } = useReverseGeocodeQuery(geo?.lat, geo?.lng)
 
   // Real GPS — works fully offline, no network required to read device location.
   useEffect(() => {
@@ -83,7 +112,7 @@ export function MilestoneSubmitScreen() {
   // If this milestone already has an unsynced queue entry (e.g. captured offline,
   // navigated away, came back before it synced), show its status instead of a blank form.
   const existingQueued = queue.find((q) => q.projectId === project.id && q.milestoneId === milestone.id && q.status !== 'synced')
-  const materialOrder = getMaterialOrderForMilestone(milestone.id)
+  const materialOrder = materialOrders[0]
 
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -96,7 +125,7 @@ export function MilestoneSubmitScreen() {
     if (isOnline) {
       setSubmitting(true)
       try {
-        await submitMilestoneProof(project.id, milestone.id, photoFiles, geo ? { lat: geo.lat, lng: geo.lng } : null, notes)
+        await submitMilestoneProof(project.id, milestone.id, photoFiles, geo ? { lat: geo.lat, lng: geo.lng } : null, notes, placeName)
         setStep('submitted')
       } catch (err) {
         showToast({ title: 'Submission failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -138,9 +167,16 @@ export function MilestoneSubmitScreen() {
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submission ID</div>
             <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm">SUB-2025-{Math.floor(Math.random() * 90000 + 10000)}</div>
           </div>
-          <PillButton onClick={() => nav('/recipient/submission-status')} fullWidth>View submission status</PillButton>
+          <PillButton
+            onClick={() => nav(myBidForThisProject ? `/contractor/contract/${myBidForThisProject.id}` : '/recipient/submission-status')}
+            fullWidth
+          >
+            {myBidForThisProject ? 'Back to the job' : 'View submission status'}
+          </PillButton>
           <div className="mt-3 w-full">
-            <PillButton onClick={() => nav('/home')} variant="ghost" fullWidth>Return to dashboard</PillButton>
+            <PillButton onClick={() => nav(myBidForThisProject ? '/contractor/bids' : '/home')} variant="ghost" fullWidth>
+              {myBidForThisProject ? 'Back to My Bids' : 'Return to dashboard'}
+            </PillButton>
           </div>
         </div>
       </AppShell>
@@ -190,7 +226,22 @@ export function MilestoneSubmitScreen() {
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Submitting for</div>
           <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} held in escrow</div>
+          {milestone.description && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-2 leading-relaxed">{milestone.description}</p>
+          )}
         </div>
+
+        {/* Sent back for corrections — the funder's most recent reason,
+            shown prominently since this is exactly what needs fixing before
+            resubmitting. */}
+        {milestone.status === 'pending' && milestone.changeRequests.length > 0 && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.amber, background: 'var(--status-warning-bg)' }}>
+            <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Corrections requested</div>
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm italic">
+              "{milestone.changeRequests[milestone.changeRequests.length - 1].reason}"
+            </p>
+          </div>
+        )}
 
         {/* Materials — an alternative (or addition) to photo proof: request
             materials from a verified quincaillerie instead of handling cash
@@ -208,9 +259,32 @@ export function MilestoneSubmitScreen() {
           </button>
         )}
 
+        {/* AI Photo Inspector */}
+        <div className="space-y-2">
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">
+            AI Photo Quality & Fraud Audit
+          </div>
+          <AIPhotoInspector
+            label="Upload Milestone Site Photo for AI Inspection"
+            onFileSelected={(file) => {
+              // Add to files queue
+              setPhotoFiles((f) => [...f, file])
+              // Convert to dataUrl for preview
+              filesToDataUrls(Object.assign([file], { item: () => file, length: 1 }) as unknown as FileList).then((urls) => {
+                setPhotos((p) => [...p, ...urls])
+              })
+            }}
+            onAnalysisComplete={(res) => {
+              if (res.verdict === 'fail') {
+                showToast({ title: 'AI Flagged Photo', description: res.summary, tone: 'error' })
+              }
+            }}
+          />
+        </div>
+
         {/* Photo upload */}
         <div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Photo / video evidence</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Photo / video evidence gallery</div>
           {photos.length > 0 ? (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
@@ -275,7 +349,9 @@ export function MilestoneSubmitScreen() {
                 {geoStatus === 'locating' ? 'Locating…' : geoStatus === 'ok' ? 'GPS location attached' : 'Location unavailable'}
               </div>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
-                {geoStatus === 'ok' && geo ? `${geo.label} · ${new Date().toLocaleDateString()}` : geoStatus === 'unavailable' ? 'Enable location access to attach GPS proof' : 'Waiting for a GPS fix…'}
+                {geoStatus === 'ok' && geo
+                  ? `${placeNameLoading ? 'Resolving place name…' : placeName ? `${placeName} (${geo.label})` : geo.label} · ${new Date().toLocaleDateString()}`
+                  : geoStatus === 'unavailable' ? 'Enable location access to attach GPS proof' : 'Waiting for a GPS fix…'}
               </div>
             </div>
           </div>
@@ -325,22 +401,46 @@ export function MilestoneSubmitScreen() {
 // ── Withdrawal screen ─────────────────────────────────────────────────────────
 export function WithdrawalScreen() {
   const nav = useNavigate()
-  const { devUserId, phone } = useApp()
-  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
-  const [method, setMethod] = useState<'momo' | 'om'>('momo')
-  const [step, setStep] = useState<'select' | 'success'>('select')
-  // Real, per-account data — was a hardcoded `400000` shown identically to
-  // every recipient regardless of whether they had any released funds at
-  // all (a brand-new account with zero projects still saw it). Sums this
-  // recipient's own released milestones across their own project(s), the
-  // same "mine" query MilestoneSubmitScreen/SubmissionStatusScreen use.
-  // NOTE: the backend has no ledger of amounts already withdrawn, so this
-  // is "released to date", not "released minus already-withdrawn" — a real
-  // payout history would need a backend Withdrawal record to subtract.
-  const releasedMilestones = projects.flatMap((p) => p.milestones).filter((m) => m.status === 'released')
-  const available = releasedMilestones.reduce((sum, m) => sum + m.amount, 0)
+  const { phone, devUserId } = useApp()
+  const { show: showToast } = useToast()
+  const { data: user } = useSessionQuery(devUserId ?? undefined)
+  const { data: withdrawable, isLoading } = useWithdrawableQuery()
+  const withdrawMutation = useWithdrawMutation()
 
-  if (available === 0) {
+  const payoutMethods: PayoutMethod[] = user?.payoutMethods || []
+  const defaultMethod = payoutMethods.find((pm: PayoutMethod) => pm.isDefault) || payoutMethods[0]
+  const [selectedMethodId, setSelectedMethodId] = useState<string>(defaultMethod?._id || '')
+  const [step, setStep] = useState<'select' | 'success'>('select')
+  const [settled, setSettled] = useState<{ amount: number; count: number } | null>(null)
+
+  const activeMethod = payoutMethods.find((pm: PayoutMethod) => pm._id === selectedMethodId) || defaultMethod
+  const destinationPhone = activeMethod?.phoneNumber || phone
+
+  const available = withdrawable?.available ?? 0
+  const entries = withdrawable?.entries ?? []
+  const grossReleased = entries.reduce((sum, e) => sum + e.grossAmount, 0)
+  const feeAlreadyDeducted = grossReleased - available
+
+  const submitWithdrawal = async () => {
+    try {
+      const result = await withdrawMutation.mutateAsync()
+      setSettled({ amount: result.amount, count: result.count })
+      setStep('success')
+    } catch (err) {
+      showToast({ title: 'Withdrawal failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <AppShell noNav>
+        <Header title="Withdraw Funds" back />
+        <div className="px-5 py-8"><SkeletonCard /></div>
+      </AppShell>
+    )
+  }
+
+  if (available === 0 && step !== 'success') {
     return (
       <AppShell noNav>
         <Header title="Withdraw Funds" back />
@@ -364,9 +464,9 @@ export function WithdrawalScreen() {
               <path d="M8 18L15 25L28 11" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
           </div>
-          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Withdrawal initiated</h1>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            {fmt(available)} will arrive in your {method === 'momo' ? 'MTN MoMo' : 'Orange Money'} account within 5–15 minutes.
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Withdrawal confirmed</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-2">
+            {fmt(settled?.amount ?? 0)} from {settled?.count ?? 0} released milestone{settled?.count === 1 ? '' : 's'} was already sent to your {activeMethod?.provider === 'orange_money' ? 'Orange Money' : 'MTN MoMo'} account ({destinationPhone}) when each milestone was approved.
           </p>
           <PillButton onClick={() => nav('/home')} fullWidth>Done</PillButton>
         </div>
@@ -383,37 +483,84 @@ export function WithdrawalScreen() {
           <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Available to withdraw</div>
           <div style={{ fontFamily: FONT.serif }} className="text-4xl font-bold text-white">{fmt(available)}</div>
           <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.5)' }} className="text-[10px] mt-2 uppercase tracking-wider">
-            From {releasedMilestones.length} released milestone{releasedMilestones.length === 1 ? '' : 's'}
+            From {entries.length} released milestone{entries.length === 1 ? '' : 's'}
           </div>
         </div>
 
         <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Withdraw to</label>
-          <MomoOmPicker method={method} onChange={setMethod} />
-        </div>
-
-        <div className="border-2 rounded-xl px-4 py-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Sending to</div>
-          <div style={{ fontFamily: FONT.sans, color: phone ? C.ink : 'var(--status-error-text)' }} className="text-sm font-medium">
-            {phone || 'No number on file — add one in Settings'}
+          <div className="flex items-center justify-between mb-2">
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block">Withdraw to</label>
+            <button onClick={() => nav('/account/payout-settings')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">
+              Manage accounts →
+            </button>
           </div>
+
+          {payoutMethods.length > 0 ? (
+            <div className="space-y-2">
+              {payoutMethods.map((pm: PayoutMethod) => (
+                <button
+                  key={pm._id}
+                  type="button"
+                  onClick={() => setSelectedMethodId(pm._id)}
+                  className="w-full border-2 rounded-xl p-3 flex items-center justify-between transition-all text-left"
+                  style={{
+                    borderColor: selectedMethodId === pm._id || (!selectedMethodId && pm.isDefault) ? C.forest : C.parchmentDark,
+                    background: selectedMethodId === pm._id || (!selectedMethodId && pm.isDefault) ? 'var(--color-surface)' : C.parchment,
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-[10px] shrink-0"
+                      style={{ background: pm.provider === 'mtn_momo' ? '#FFCC00' : '#FF6600', color: pm.provider === 'mtn_momo' ? '#000' : '#fff' }}
+                    >
+                      {pm.provider === 'mtn_momo' ? 'MoMo' : 'OM'}
+                    </div>
+                    <div>
+                      <p style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">
+                        {pm.label || (pm.provider === 'mtn_momo' ? 'MTN MoMo' : 'Orange Money')}
+                      </p>
+                      <p style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[11px]">
+                        {pm.phoneNumber}
+                      </p>
+                    </div>
+                  </div>
+                  {(selectedMethodId === pm._id || (!selectedMethodId && pm.isDefault)) && (
+                    <span style={{ color: C.forest }} className="text-xs font-bold font-mono">Selected</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="border-2 rounded-xl px-4 py-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Default phone number</div>
+              <div style={{ fontFamily: FONT.sans, color: destinationPhone ? C.ink : 'var(--status-error-text)' }} className="text-sm font-medium">
+                {destinationPhone || 'No number on file — add one in Payout Settings'}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl p-3 border" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
           <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-            <span>Amount</span><span style={{ color: C.ink }}>{fmt(available)}</span>
+            <span>Gross released</span><span style={{ color: C.ink }}>{fmt(grossReleased)}</span>
           </div>
           <div className="flex justify-between text-xs mt-1" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
-            <span>Platform fee (1.5%)</span><span style={{ color: C.ink }}>{fmt(Math.round(available * 0.015))}</span>
+            <span>Platform fee (already deducted)</span><span style={{ color: C.ink }}>{fmt(feeAlreadyDeducted)}</span>
           </div>
           <div className="flex justify-between text-xs mt-1 pt-1 border-t font-bold" style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, color: C.ink }}>
-            <span>You receive</span><span>{fmt(Math.round(available * 0.985))}</span>
+            <span>Already sent to you</span><span>{fmt(available)}</span>
           </div>
         </div>
+
+        <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs text-center px-2">
+          This amount was already disbursed to your MoMo/Orange Money account when each milestone released — "Withdraw now" just confirms you've received it.
+        </p>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={() => setStep('success')} fullWidth disabled={!phone}>Withdraw now</PillButton>
+        <PillButton onClick={submitWithdrawal} fullWidth disabled={!destinationPhone || withdrawMutation.isPending}>
+          {withdrawMutation.isPending ? 'Confirming…' : 'Withdraw now'}
+        </PillButton>
       </div>
     </AppShell>
   )

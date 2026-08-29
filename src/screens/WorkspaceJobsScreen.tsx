@@ -9,7 +9,7 @@ import { CalendarView } from '../components/dataview/CalendarView'
 import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
-import { useCancelJobMutation } from '../api/tenders'
+import { useCancelJobMutation, useMyTendersQuery } from '../api/tenders'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 
@@ -32,7 +32,11 @@ function parsedDeadline(job: JobPosting): Date {
  * here on JobPosting data instead of being rebuilt. */
 export function WorkspaceJobsScreen() {
   const nav = useNavigate()
-  const { jobs } = useApp()
+  const { devUserId } = useApp()
+  // Scoped to tenders this account posted — useApp().jobs is the
+  // platform-wide catalog contractors browse (needed there), never the
+  // right source for a funder's personal "manage what I posted" view.
+  const { data: jobs = [] } = useMyTendersQuery(devUserId ?? undefined)
   const [mode, setMode] = useViewMode('jobs')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = jobs.find((j) => j.id === previewId) ?? null

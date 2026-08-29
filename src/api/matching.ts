@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from './client'
-import type { Bid } from '../context'
+import type { Bid, BidNegotiationRound, BidScheduleMilestone } from '../context'
 
 /** Mirrors contractorMatchingService.scoreContractor's breakdown exactly —
  * every point traceable to a dimension so the UI can show why, not just how
@@ -68,6 +68,15 @@ export interface BidWithScore extends Bid {
   stats: MatchStats
 }
 
+interface BackendMilestoneProposal { title: string; description: string; amount: number }
+interface BackendNegotiationRound {
+  proposedBy: 'funder' | 'contractor'
+  price: number
+  timelineDays: number
+  milestones: BackendMilestoneProposal[]
+  message: string
+  createdAt: string
+}
 interface BackendBidWithScore {
   _id: string
   projectId: string
@@ -80,6 +89,16 @@ interface BackendBidWithScore {
   createdAt: string
   score: MatchScore
   stats: MatchStats
+  milestones?: BackendMilestoneProposal[]
+  rounds?: BackendNegotiationRound[]
+  lastProposedBy?: 'funder' | 'contractor'
+}
+
+function mapRound(r: BackendNegotiationRound): BidNegotiationRound {
+  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', createdAt: r.createdAt }
+}
+function mapMilestones(ms: BackendMilestoneProposal[] | undefined): BidScheduleMilestone[] {
+  return (ms ?? []).map((m) => ({ title: m.title, description: m.description ?? '', amount: m.amount }))
 }
 
 /** Same scoring function as recommendations, applied to the contractors who
@@ -100,8 +119,20 @@ export function useBidsWithScoresQuery(projectId: string | undefined) {
         timeline: `${b.timelineDays} days`,
         materials: b.materialsPlan,
         notes: b.notes,
-        status: b.status,
+        // Backend Bid.status is 'submitted'/'accepted'/'rejected'/'withdrawn'
+        // (see Bid.js) — every other bid-status check in the app (Negotiation
+        // Screen's myTurn, ContractorScreens' negotiating flag) is written
+        // against 'pending' for the not-yet-decided state, matching the
+        // normalization api/tenders.ts's bid mapper already does. This one
+        // passed the raw backend value through unmapped, so a freshly
+        // submitted bid's status here was 'submitted' — never equal to
+        // 'pending' anywhere it was checked — silently hiding the Negotiate
+        // action and the "your turn" indicator for every new bid.
+        status: b.status === 'submitted' ? 'pending' : b.status,
         submitted: new Date(b.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        milestones: mapMilestones(b.milestones),
+        rounds: (b.rounds ?? []).map(mapRound),
+        lastProposedBy: b.lastProposedBy ?? 'contractor',
         score: b.score,
         stats: b.stats,
       }))

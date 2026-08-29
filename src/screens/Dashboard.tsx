@@ -3,6 +3,7 @@ import { useNavigate, Navigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useMaterials } from '../materials'
 import { useMyProjectsQuery, useMyFundedProjectsQuery } from '../api/projects'
+import { useMyRoleTypesQuery } from '../api/session'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
 import { StaggerList, StaggerItem } from '../components/Stagger'
@@ -15,15 +16,34 @@ import { OnboardingChecklistWidget } from '../components/dashboard/OnboardingChe
 
 // ── Home dashboard — routes to role-specific view ────────────────────────────
 export function HomeScreen() {
-  const { role } = useApp()
-  const { myQuincaillerie } = useMaterials()
+  const { role, isLoggedIn } = useApp()
+  const { myQuincaillerie, isLoadingMyQuincaillerie } = useMaterials()
   // A quincaillerie-only account (no real funder/recipient/contractor/
   // seller role — just Quincaillerie picked at onboarding) has no "home"
   // dashboard of its own among the four below; it must land on its own
   // page directly rather than falling through to the funder dashboard by
   // default, which is exactly the bug reported (picking Quincaillerie-only
   // silently showed a funder home screen with fake "funded projects" copy).
-  if (role === null && myQuincaillerie) return <Navigate to="/quincaillerie/dashboard" replace />
+  // myQuincaillerie is a real network fetch now (see materials.tsx) — wait
+  // for it before falling through to FunderHome, so a quincaillerie-only
+  // account never flashes the wrong dashboard on the first render.
+  //
+  // myQuincaillerie alone isn't a complete signal, though: it's the
+  // QuincaillerieProfile document, which only exists once someone has
+  // submitted the registration form. An account whose quincaillerie role
+  // was granted directly (e.g. an admin using the generic role-grant
+  // instead of the profile-approval flow) has the role on User.roles with
+  // no profile document at all — myQuincaillerie is then null, and this
+  // used to fall through to FunderHome despite genuinely holding the role.
+  // useMyRoleTypesQuery reads the raw roles (unlike `role`, which drops
+  // quincaillerie entirely — see api/session.ts), so it catches that case;
+  // QuincaillerieDashboardScreen already renders a "Get started" / register
+  // prompt when there's no profile yet, so landing there with role-but-no-
+  // profile is the correct, graceful outcome, not a dead end.
+  const { data: myRoleTypes, isLoading: isLoadingRoleTypes } = useMyRoleTypesQuery(isLoggedIn && role === null)
+  const hasQuincaillerieRole = myRoleTypes?.includes('quincaillerie') ?? false
+  if (role === null && (isLoadingMyQuincaillerie || isLoadingRoleTypes)) return null
+  if (role === null && (myQuincaillerie || hasQuincaillerieRole)) return <Navigate to="/quincaillerie/dashboard" replace />
   if (role === 'recipient') return <RecipientHome />
   if (role === 'contractor') return <ContractorHome />
   if (role === 'seller') return <SellerHome />

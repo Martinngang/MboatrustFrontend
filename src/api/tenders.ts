@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { Bid, JobPosting } from '../context'
+import type { Bid, BidNegotiationRound, BidScheduleMilestone, JobPosting } from '../context'
 
 interface BackendMilestone { _id: string; name: string; amount: number; status: string }
 interface BackendProject {
@@ -10,12 +10,24 @@ interface BackendProject {
   description: string
   category: string
   locationName: string
+  location?: { lat: number | null; lng: number | null }
   totalAmount: number
   status: string
   deadline: string | null
   createdAt: string
   milestones: BackendMilestone[]
   ownerId: { _id: string; fullName: string } | string
+  materialsManagedBy?: 'contractor' | 'quincaillerie'
+  preferredQuincaillerieId?: string | null
+}
+interface BackendMilestoneProposal { title: string; description: string; amount: number }
+interface BackendNegotiationRound {
+  proposedBy: 'funder' | 'contractor'
+  price: number
+  timelineDays: number
+  milestones: BackendMilestoneProposal[]
+  message: string
+  createdAt: string
 }
 interface BackendBid {
   _id: string
@@ -27,6 +39,9 @@ interface BackendBid {
   notes: string
   status: string
   createdAt: string
+  milestones?: BackendMilestoneProposal[]
+  rounds?: BackendNegotiationRound[]
+  lastProposedBy?: 'funder' | 'contractor'
 }
 
 function mapTenderStatus(status: string): string {
@@ -49,9 +64,20 @@ function formatPosted(createdAt: string): string {
   return `${days} days ago`
 }
 
+// Swallows failures instead of letting them propagate — this runs inside a
+// Promise.all in useJobsQuery below, and an unrelated transient failure on
+// any single project's count (e.g. a request that raced ahead of the
+// dev-bypass identity resolving on first load) used to reject the whole
+// batch, permanently emptying `jobs` for the rest of the session since
+// nothing ever re-triggers that fetch afterward. A wrong count temporarily
+// showing 0 is a much smaller problem than the entire job list disappearing.
 async function fetchBidCount(projectId: string): Promise<number> {
-  const { data } = await api.get<{ meta: { total: number } }>('/bids', { params: { projectId, limit: 1 } })
-  return data.meta.total
+  try {
+    const { data } = await api.get<{ meta: { total: number } }>('/bids', { params: { projectId, limit: 1 } })
+    return data.meta.total
+  } catch {
+    return 0
+  }
 }
 
 function mapJob(doc: BackendProject, bidCount: number): JobPosting {
@@ -60,6 +86,7 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     title: doc.title,
     category: doc.category || 'General',
     location: doc.locationName || '',
+    coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
     budget: doc.totalAmount,
     deadline: formatDeadline(doc.deadline),
     bids: bidCount,
@@ -68,6 +95,8 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     description: doc.description || '',
     status: mapTenderStatus(doc.status),
     ownerId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
+    materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
+    preferredQuincaillerieId: doc.preferredQuincaillerieId ?? null,
   }
 }
 
@@ -87,12 +116,15 @@ export function useJobsQuery() {
  * stays as-is (used broadly for dashboards/workspace boards that
  * legitimately want the full small dataset); only the high-traffic browse
  * screen needs real "load more" instead of silently capping at the
- * backend's default page size. */
-export function useJobsInfiniteQuery(limit = 10) {
+ * backend's default page size. Defaults to open-only: a contractor
+ * browsing for work to bid on should never see an already-awarded or
+ * closed tender mixed into the results — those aren't "eligible tenders"
+ * any more, even though they're still projectType 'tender'. */
+export function useJobsInfiniteQuery(limit = 10, status: string | undefined = 'open') {
   return useInfiniteQuery({
-    queryKey: ['jobs', 'infinite'],
+    queryKey: ['jobs', 'infinite', status],
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: JobPosting[]; meta: PageMeta }> => {
-      const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'tender', page: pageParam, limit } })
+      const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'tender', status, page: pageParam, limit } })
       const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
       return { items: data.data.map((p, i) => mapJob(p, counts[i])), meta: data.meta }
     },
@@ -102,32 +134,67 @@ export function useJobsInfiniteQuery(limit = 10) {
   })
 }
 
+/** A funder's own posted tenders — scoped by ownerId, same convention as
+ * api/projects.ts's useMyProjectsQuery for the funding side. Without this,
+ * the only tender queries available were platform-wide (useJobsQuery/
+ * useJobsInfiniteQuery, no ownerId param at all) — a funder posting a
+ * tender had no scoped list that would ever show it back to them. */
+export function useMyTendersQuery(ownerId: string | undefined) {
+  return useQuery({
+    queryKey: ['jobs', 'mine', ownerId],
+    queryFn: async (): Promise<JobPosting[]> => {
+      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'tender', ownerId } })
+      const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+      return data.data.map((p, i) => mapJob(p, counts[i]))
+    },
+    enabled: Boolean(ownerId),
+    staleTime: 10_000,
+  })
+}
+
 export interface CreateJobInput {
   title: string
   category: string
   location: string
+  coordinates?: { lat: number; lng: number } | null
   budget: number
   deadline: string
   milestoneCount: number
   description: string
+  /** A funder-defined payment schedule (weekly or otherwise) — each entry
+   * becomes one real Project milestone with its own label, amount, and
+   * work description. Falls back to an even auto-split across
+   * milestoneCount when omitted, the original PostJobScreen behavior. */
+  milestoneSchedule?: { title: string; amount: number; description: string }[]
 }
 
+// Every new tender starts contractor-managed (Project.materialsManagedBy's
+// schema default) — a materials supplier is assigned afterwards via
+// useAssignQuincaillerieMutation (api/projects.ts), once the funder has had
+// a chance to actually browse/compare real stores, not forced into the pick
+// at creation time.
 export function useCreateJobMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (j: CreateJobInput): Promise<JobPosting> => {
-      const perMilestone = Math.round(j.budget / Math.max(1, j.milestoneCount))
-      const milestones = Array.from({ length: Math.max(1, j.milestoneCount) }, (_, i) => ({
-        name: `Milestone ${i + 1}`,
-        amount: i === j.milestoneCount - 1 ? j.budget - perMilestone * (j.milestoneCount - 1) : perMilestone,
-        orderIndex: i,
-      }))
+      let milestones
+      if (j.milestoneSchedule?.length) {
+        milestones = j.milestoneSchedule.map((m, i) => ({ name: m.title, amount: m.amount, description: m.description, orderIndex: i }))
+      } else {
+        const perMilestone = Math.round(j.budget / Math.max(1, j.milestoneCount))
+        milestones = Array.from({ length: Math.max(1, j.milestoneCount) }, (_, i) => ({
+          name: `Milestone ${i + 1}`,
+          amount: i === j.milestoneCount - 1 ? j.budget - perMilestone * (j.milestoneCount - 1) : perMilestone,
+          orderIndex: i,
+        }))
+      }
       const { data } = await api.post<{ data: BackendProject }>('/projects', {
         projectType: 'tender',
         title: j.title,
         description: j.description,
         category: j.category,
         locationName: j.location,
+        ...(j.coordinates ? { location: j.coordinates } : {}),
         totalAmount: j.budget,
         ...(j.deadline ? { deadline: j.deadline } : {}),
         milestones,
@@ -168,6 +235,10 @@ function formatTimelineDays(days: number): string {
   return `${days} days`
 }
 
+function mapRound(r: BackendNegotiationRound): BidNegotiationRound {
+  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', createdAt: r.createdAt }
+}
+
 function mapBid(doc: BackendBid, jobTitle: string): Bid {
   return {
     id: doc._id,
@@ -181,6 +252,9 @@ function mapBid(doc: BackendBid, jobTitle: string): Bid {
     notes: doc.notes,
     status: doc.status === 'submitted' ? 'pending' : doc.status,
     submitted: new Date(doc.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    milestones: (doc.milestones ?? []).map((m) => ({ title: m.title, description: m.description ?? '', amount: m.amount })),
+    rounds: (doc.rounds ?? []).map(mapRound),
+    lastProposedBy: doc.lastProposedBy ?? 'contractor',
   }
 }
 
@@ -208,12 +282,37 @@ export function useBidsQuery(filter: { projectId?: string; contractorId?: string
   })
 }
 
+/** A single bid by id, real-time-ish for the negotiation screen (both
+ * parties poll this while a live back-and-forth is happening) — party
+ * access is enforced server-side (bidController.getOne: owner or bidder
+ * only, admin bypass). */
+export function useBidQuery(bidId: string | undefined) {
+  return useQuery({
+    queryKey: ['bids', 'one', bidId],
+    queryFn: async (): Promise<Bid> => {
+      const { data } = await api.get<{ data: BackendBid }>(`/bids/${bidId}`)
+      let jobTitle = ''
+      try {
+        const { data: proj } = await api.get<{ data: BackendProject }>(`/projects/${data.data.projectId}`)
+        jobTitle = proj.data.title
+      } catch { /* left blank — a missing project shouldn't fail the whole bid view */ }
+      return mapBid(data.data, jobTitle)
+    },
+    enabled: Boolean(bidId),
+    staleTime: 5_000,
+    refetchInterval: 8_000,
+  })
+}
+
 export interface CreateBidInput {
   jobId: string
   price: number
   timeline: string
   materials: string
   notes: string
+  /** An optional opening payment schedule — becomes rounds[0]'s milestones.
+   * Empty/omitted means a lump-sum quote, same as before this existed. */
+  milestones?: BidScheduleMilestone[]
 }
 
 export function useCreateBidMutation() {
@@ -226,6 +325,7 @@ export function useCreateBidMutation() {
         timelineDays: parseTimelineDays(b.timeline),
         materialsPlan: b.materials,
         notes: b.notes,
+        milestones: b.milestones ?? [],
       })
       return mapBid(data.data, '')
     },
@@ -233,6 +333,24 @@ export function useCreateBidMutation() {
       qc.invalidateQueries({ queryKey: ['bids'] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
     },
+  })
+}
+
+/** Either real party to the negotiation (the tender owner or the bidder)
+ * appends a new round — see bidController.counter. Unlimited rounds, not
+ * strictly alternating: whoever wants to move the number does. */
+export function useCounterBidMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ bidId, price, timelineDays, milestones, message }: {
+      bidId: string; price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string
+    }): Promise<Bid> => {
+      const { data } = await api.post<{ data: BackendBid }>(`/bids/${bidId}/counter`, {
+        price, timelineDays, milestones: milestones ?? [], message: message ?? '',
+      })
+      return mapBid(data.data, '')
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bids'] }),
   })
 }
 

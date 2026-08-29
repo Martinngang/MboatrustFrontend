@@ -4,12 +4,12 @@
 // system instead of emoji whose weight/size vary by OS and font.
 import type { CSSProperties } from 'react'
 import {
-  AlertTriangle, ArrowLeftRight, Award, BarChart3, Bell, BellRing, Briefcase, Building2, Calendar, Camera,
-  Check, CheckCircle2, CircleDot, Clock, Compass, CreditCard, FileEdit, FileText,
+  AlertTriangle, Archive, ArrowLeftRight, ArrowUpDown, Award, BarChart3, Bell, BellRing, Boxes, Briefcase, Building2, Calendar, Camera,
+  Check, CheckCircle2, ChevronDown, CircleDot, Clock, Compass, Copy, CreditCard, FileEdit, FileText, Filter,
   Flag, FolderOpen, Globe, Handshake, HardHat, Hourglass, IdCard, Image, Info, Languages,
-  Layers, LayoutGrid, Lock, LockOpen, Mail, MapPin, Megaphone, MessageCircle, Monitor, Music,
-  PartyPopper, Phone, Plus, Puzzle, Receipt, Repeat, Rocket, Scale, ScanFace,
-  Search, Settings, Shield, ShieldCheck, Sparkles, Star, Store, ThumbsUp, Trophy,
+  Layers, LayoutGrid, List, Lock, LockOpen, Mail, MapPin, Megaphone, MessageCircle, MoreVertical, Monitor, Music,
+  Package, PartyPopper, Pencil, Phone, Plus, Puzzle, Receipt, Repeat, Rocket, Scale, ScanFace,
+  Search, Settings, Shield, ShieldCheck, Sparkles, Star, Store, ThumbsUp, Trash2, Trophy,
   Users, User, Video, Wallet, Wifi, Wrench, X, Zap, Menu, Home,
   type LucideIcon,
 } from 'lucide-react'
@@ -96,6 +96,19 @@ export const ICONS = {
   rocket: Rocket,
   store: Store,
   music: Music,
+
+  // Inventory management (catalogue, product CRUD)
+  boxes: Boxes,
+  package: Package,
+  edit: Pencil,
+  copy: Copy,
+  archive: Archive,
+  trash: Trash2,
+  filter: Filter,
+  sortArrows: ArrowUpDown,
+  chevronDown: ChevronDown,
+  moreVertical: MoreVertical,
+  list: List,
 } as const
 
 export type IconName = keyof typeof ICONS

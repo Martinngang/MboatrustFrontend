@@ -46,6 +46,21 @@ export function useMyCertificationsQuery() {
   })
 }
 
+/** Any one contractor's certifications, by id — the public portfolio view
+ * a funder sees uses this (GET /contractor-certifications/:userId), separate
+ * from useMyCertificationsQuery's self-only /me. */
+export function useCertificationsForUserQuery(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['certifications', 'user', userId],
+    queryFn: async (): Promise<Certification[]> => {
+      const { data } = await api.get<{ data: BackendCertification[] }>(`/contractor-certifications/${userId}`)
+      return data.data.map(mapCertification)
+    },
+    enabled: Boolean(userId),
+    staleTime: 10_000,
+  })
+}
+
 /** Admin review queue — every contractor's certifications platform-wide. */
 export function useAllCertificationsQuery() {
   return useQuery({
@@ -68,6 +83,22 @@ export function useCreateCertificationMutation() {
       form.append('file', file)
       const { data } = await api.post<{ data: BackendCertification }>('/contractor-certifications', form)
       return mapCertification(data.data)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['certifications'] }),
+  })
+}
+
+/** Self-service delete of the caller's own certification — reuses
+ * DELETE /contractor-certifications/:id, which the backend already allows
+ * for the owning contractor, not just an admin (see the controller's
+ * isOwner check). Previously only exposed via the admin-only-named hook
+ * below, so a contractor who uploaded the wrong file had no way to remove
+ * it themselves. */
+export function useRemoveCertificationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (certId: string) => {
+      await api.delete(`/contractor-certifications/${certId}`)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['certifications'] }),
   })

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 
-export const ADMIN_NOTIFICATION_TARGET_ROLES = ['funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin'] as const
+export const ADMIN_NOTIFICATION_TARGET_ROLES = ['funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin', 'quincaillerie'] as const
 export type AdminNotificationTargetRole = (typeof ADMIN_NOTIFICATION_TARGET_ROLES)[number]
 
 export interface AdminNotificationHistoryRow {

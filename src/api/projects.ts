@@ -17,6 +17,7 @@ interface BackendEvidence {
   fileUrl: string
   notes: string
   geotag: { lat: number | null; lng: number | null } | null
+  placeName: string | null
   capturedAt: string | null
   createdAt: string
   fileHash: string
@@ -24,20 +25,27 @@ interface BackendEvidence {
   timestampRecent: boolean | null
   duplicateFlag: boolean
 }
+interface BackendChangeRequest {
+  reason: string
+  requestedAt: string
+}
 interface BackendMilestone {
   _id: string
   name: string
+  description?: string
   amount: number
   status: string
   evidence: BackendEvidence[]
   requiresCosigner: boolean
   requiresVideo: boolean
   approvers: BackendApprover[]
+  changeRequests?: BackendChangeRequest[]
 }
 interface BackendProject {
   _id: string
   title: string
   description: string
+  projectType: string
   category: string
   locationName: string
   location: { lat: number | null; lng: number | null }
@@ -48,6 +56,8 @@ interface BackendProject {
   milestones: BackendMilestone[]
   requiresMultiSig: boolean
   coSignerId: { _id: string; fullName: string } | string | null
+  materialsManagedBy?: 'contractor' | 'quincaillerie'
+  preferredQuincaillerieId?: string | null
 }
 interface FundingSummary {
   raised: number
@@ -80,6 +90,7 @@ function mapEvidence(e: BackendEvidence): MilestoneEvidence {
     fileUrl: e.fileUrl,
     notes: e.notes || null,
     geotag: e.geotag && e.geotag.lat != null && e.geotag.lng != null ? { lat: e.geotag.lat, lng: e.geotag.lng } : null,
+    placeName: e.placeName || null,
     capturedAt: e.capturedAt ?? e.createdAt,
     locationMatch: e.locationMatch,
     timestampRecent: e.timestampRecent,
@@ -91,10 +102,12 @@ function mapMilestone(m: BackendMilestone): Milestone {
   return {
     id: m._id,
     title: m.name,
+    description: m.description ?? '',
     amount: m.amount,
     status: m.status,
     proof: (m.evidence?.length ?? 0) > 0,
     evidence: (m.evidence || []).map(mapEvidence),
+    changeRequests: (m.changeRequests ?? []).map((c) => ({ reason: c.reason, requestedAt: c.requestedAt })),
     requiresCosigner: m.requiresCosigner,
     requiresVideo: m.requiresVideo,
     approvers: (m.approvers || []).map(mapApprover),
@@ -105,8 +118,21 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined, re
   return {
     id: doc._id,
     title: doc.title,
+    // Previously dropped entirely — every consumer of the mapped Project
+    // shape (ProjectDetailScreen, FundProjectScreen's post-funding routing)
+    // had no way to tell a tender apart from a funding request, which is
+    // exactly what let "Back to project" after funding a tender's escrow
+    // route into ProjectDetailScreen — a screen built entirely around
+    // funding-project concepts (recipient, co-signer, group contributors)
+    // that a tender doesn't have — instead of somewhere tender-appropriate.
+    projectType: doc.projectType,
     category: doc.category || 'General',
     location: doc.locationName || '',
+    // Same "dropped during mapping" issue as projectType above — the real
+    // coordinates were always present on the backend document but never
+    // reached the frontend at all, so a project's location was only ever a
+    // display string with nothing to put a map marker on.
+    coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
     totalAmount: doc.totalAmount,
     raised: funding?.raised ?? 0,
     status: mapProjectStatus(doc.status),
@@ -122,6 +148,8 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined, re
     requiresMultiSig: doc.requiresMultiSig,
     coSignerId: doc.coSignerId ? (typeof doc.coSignerId === 'object' ? doc.coSignerId._id : doc.coSignerId) : undefined,
     coSignerName: doc.coSignerId && typeof doc.coSignerId === 'object' ? doc.coSignerId.fullName : undefined,
+    materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
+    preferredQuincaillerieId: doc.preferredQuincaillerieId ?? null,
   }
 }
 
@@ -322,6 +350,22 @@ export function useProjectQuery(id: string | undefined) {
   })
 }
 
+/** Real raised/released/escrowBalance for one project by id — separate from
+ * useProjectQuery above (which skips it, see its own comment) since most of
+ * that hook's callers don't need it; screens that actually have to compute
+ * a remaining-unfunded amount (FundProjectScreen, ContractSummaryScreen's
+ * "fund escrow" prompt) pull this alongside it instead. Same
+ * GET /projects/:id/funding-summary useProjectsQuery already calls per row
+ * for the funding-only list — this just exposes it for a single id. */
+export function useProjectFundingSummaryQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['projectFundingSummary', id],
+    queryFn: () => fetchFundingSummary(id!),
+    enabled: Boolean(id),
+    staleTime: 10_000,
+  })
+}
+
 function isHttpUrl(s: string | undefined): s is string {
   return Boolean(s && /^https?:\/\//.test(s))
 }
@@ -336,6 +380,7 @@ export function useCreateProjectMutation() {
         description: p.description,
         category: p.category,
         locationName: p.location,
+        ...(p.coordinates ? { location: p.coordinates } : {}),
         totalAmount: p.totalAmount,
         ...(isHttpUrl(p.image) ? { imageUrl: p.image } : {}),
         milestones: p.milestones.map((m, i) => ({ name: m.title, amount: m.amount, orderIndex: i, requiresCosigner: m.requiresCosigner, requiresVideo: m.requiresVideo })),
@@ -349,20 +394,33 @@ export function useCreateProjectMutation() {
 export interface FundProjectInput {
   id: string
   amount: number
-  paymentProvider: 'mtn_momo' | 'orange_money'
-  payerPhoneNumber: string
+  paymentProvider: 'mtn_momo' | 'orange_money' | 'stripe' | 'flutterwave'
+  payerPhoneNumber?: string
+  currency?: string
+}
+
+export interface FundProjectResult {
+  _id: string
+  status: string
+  paymentUrl?: string
+  clientSecret?: string
 }
 
 export function useFundProjectMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ id, amount, paymentProvider, payerPhoneNumber }: FundProjectInput) => {
+    mutationFn: async ({ id, amount, paymentProvider, payerPhoneNumber, currency }: FundProjectInput): Promise<FundProjectResult> => {
       const { data } = await api.post(
         `/projects/${id}/fund`,
-        { amount, paymentProvider, payerPhoneNumber },
+        // `currency` was previously dropped here entirely — a diaspora
+        // funder choosing "Fund in EUR/USD" always got charged against the
+        // project's own currency (XAF) regardless, silently ignoring their
+        // selection, since the backend defaults to project.currency when
+        // none is sent.
+        { amount, paymentProvider, payerPhoneNumber, currency },
         { headers: { 'Idempotency-Key': crypto.randomUUID() } }
       )
-      return data.data as { paymentUrl?: string; status: string }
+      return data.data as FundProjectResult
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
@@ -383,19 +441,43 @@ export function useAddCoSignerMutation() {
   })
 }
 
+/** Assigns (or, with quincaillerieId: null, clears) the project's preferred
+ * materials supplier — its own endpoint, legal at any project status (see
+ * projectController.assignQuincaillerie), reached from a "browse and
+ * compare real stores" screen rather than a picker on the creation form. */
+export function useAssignQuincaillerieMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, quincaillerieId }: { projectId: string; quincaillerieId: string | null }) => {
+      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/assign-quincaillerie`, { quincaillerieId })
+      return mapProject(data.data, undefined, 0)
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['jobs'] })
+    },
+  })
+}
+
 export interface SubmitEvidenceInput {
   projectId: string
   milestoneId: string
   file?: File
   fileUrl?: string
   geotag?: { lat: number; lng: number } | null
+  /** Already resolved client-side (see useReverseGeocodeQuery in
+   * MilestoneSubmitScreen) — sent along so the backend persists the same
+   * name the submitter saw during capture instead of re-geocoding, and
+   * every later viewer reads a real place name instead of raw coordinates. */
+  placeName?: string | null
   notes?: string
 }
 
 export function useSubmitEvidenceMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag, notes }: SubmitEvidenceInput) => {
+    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag, placeName, notes }: SubmitEvidenceInput) => {
       const form = new FormData()
       form.append('type', 'photo')
       if (file) form.append('file', file)
@@ -404,11 +486,22 @@ export function useSubmitEvidenceMutation() {
         form.append('geotagLat', String(geotag.lat))
         form.append('geotagLng', String(geotag.lng))
       }
+      if (placeName) form.append('placeName', placeName)
       if (notes) form.append('notes', notes)
       const { data } = await api.post(`/projects/${projectId}/milestones/${milestoneId}/evidence`, form)
       return data.data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    // Only invalidated the submitter's own "my projects" list — fine for a
+    // recipient submitting on their own project, but a contractor submits
+    // proof on a project someone *else* owns, read via the singular
+    // useProjectQuery(id) cache (see ContractDetailScreen), which this never
+    // touched. Without this, returning to the contract screen after
+    // submitting showed the milestone still "pending" until something else
+    // happened to invalidate it.
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+    },
   })
 }
 
@@ -425,7 +518,36 @@ export function useDecideApprovalMutation() {
       // totals/rating aren't relevant to an approval decision's result.
       return { project: mapProject(data.data.project, undefined, 0), releasedEscrow: data.data.releasedEscrow }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    // Same gap useSubmitEvidenceMutation was fixed for above: a funder
+    // approves/rejects from MilestoneReviewScreen (FunderScreens.tsx), which
+    // reads via the singular useProjectQuery(projectId) cache — same cache
+    // ContractDetailScreen/ContractorScreens read from — never touched by
+    // invalidating the plural 'projects' list alone. Without this, approving
+    // a milestone (including releasing escrow) left every project-detail
+    // screen showing the stale pre-approval status until an unrelated
+    // refetch happened to occur.
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+    },
+  })
+}
+
+/** Lighter-weight than a dispute — sends a submitted milestone back to
+ * 'pending' with a reason so the contractor/recipient can resubmit, no
+ * escalation, no money moves. See projectController.requestMilestoneChanges. */
+export function useRequestMilestoneChangesMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, milestoneId, reason }: { projectId: string; milestoneId: string; reason: string }) => {
+      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/milestones/${milestoneId}/request-changes`, { reason })
+      return mapProject(data.data, undefined, 0)
+    },
+    // Same singular-cache gap as useDecideApprovalMutation above.
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+    },
   })
 }
 
@@ -440,7 +562,11 @@ export function useCancelProjectMutation() {
       const { data } = await api.post<{ data: BackendProject }>(`/projects/${id}/cancel`, {})
       return data.data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    // Same singular-cache gap as useDecideApprovalMutation above.
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', id] })
+    },
   })
 }
 
@@ -452,6 +578,10 @@ export function useDisputeMilestoneMutation() {
       const { data } = await api.post(path, { reason })
       return data.data
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    // Same singular-cache gap as useDecideApprovalMutation above.
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+    },
   })
 }

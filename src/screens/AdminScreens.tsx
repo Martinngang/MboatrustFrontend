@@ -29,6 +29,9 @@ import {
   type VerifierProfileRecord,
 } from '../api/verifierProfiles'
 import {
+  useQuincaillerieApplicationsQuery, useDecideQuincaillerieProfileMutation,
+} from '../api/quincaillerieProfiles'
+import {
   useAllCertificationsQuery, useDecideCertificationMutation, useAdminUpdateCertificationMutation, useAdminRemoveCertificationMutation,
   type Certification,
 } from '../api/certifications'
@@ -76,7 +79,7 @@ import {
 import { useMyAdminPermissionsQuery } from '../api/session'
 import { ADMIN_NAV } from '../components/shell/adminNav'
 import { useUserSearchQuery } from '../api/users'
-import { useMaterials, type QuincaillerieProfile } from '../materials'
+import type { QuincaillerieProfile } from '../materials'
 
 const ACTION_LABEL: Record<string, string> = {
   'user.deactivate': 'deactivated a user',
@@ -213,8 +216,8 @@ export function AdminOverviewScreen() {
 }
 
 // ── Users management ────────────────────────────────────────────────────────
-const ROLE_OPTIONS = ['all', 'funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin']
-const GRANTABLE_ROLES = ['funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin']
+const ROLE_OPTIONS = ['all', 'funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin', 'quincaillerie']
+const GRANTABLE_ROLES = ['funder', 'recipient', 'contractor', 'land_seller', 'verifier', 'admin', 'quincaillerie']
 
 export function AdminUsersScreen() {
   const { show: showToast } = useToast()
@@ -921,9 +924,12 @@ export function AdminVerificationsScreen() {
   const [tab, setTab] = useState<'verifiers' | 'quincailleries' | 'certifications' | 'tasks' | 'video' | 'ratings' | 'conversations'>('verifiers')
 
   const { data: applications = [], isLoading: appsLoading } = useVerifierApplicationsQuery('pending')
-  // Quincaillerie registrations — mock data (see materials.tsx), same
-  // pending-review shape as verifier applications above.
-  const { quincailleries, decideQuincaillerie } = useMaterials()
+  // Quincaillerie registrations — real backend now (see
+  // api/quincaillerieProfiles.ts), same review-queue shape as verifier
+  // applications above. Fetches every status (not just 'pending') since
+  // this tab also shows rejected ones awaiting resubmission.
+  const { data: quincailleries = [], isLoading: quincLoading } = useQuincaillerieApplicationsQuery()
+  const decideQuincaillerieMutation = useDecideQuincaillerieProfileMutation()
   const pendingQuincailleries = quincailleries.filter((q) => q.verificationStatus === 'pending')
   const decideVerifier = useDecideVerifierApplicationMutation()
   const updateVerifierProfile = useAdminUpdateVerifierProfileMutation()
@@ -953,7 +959,7 @@ export function AdminVerificationsScreen() {
   const [ratingFromUserId, setRatingFromUserId] = useState('')
   const [ratingToUserId, setRatingToUserId] = useState('')
   const [ratingProjectId, setRatingProjectId] = useState('')
-  const [ratingRoleContext, setRatingRoleContext] = useState<'recipient' | 'contractor' | 'verifier' | 'land_seller'>('contractor')
+  const [ratingRoleContext, setRatingRoleContext] = useState<'recipient' | 'contractor' | 'verifier' | 'land_seller' | 'quincaillerie'>('contractor')
   const [ratingNewScore, setRatingNewScore] = useState(5)
   const [ratingNewComment, setRatingNewComment] = useState('')
   const [ratingEditTarget, setRatingEditTarget] = useState<AdminRatingRow | null>(null)
@@ -1092,6 +1098,9 @@ export function AdminVerificationsScreen() {
             />
           )
         ) : tab === 'quincailleries' ? (
+          quincLoading ? (
+            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>
+          ) : (
           <DataTable
             columns={quincaillerieColumns}
             rows={quincailleries.filter((q) => q.verificationStatus === 'pending' || q.verificationStatus === 'rejected')}
@@ -1101,12 +1110,18 @@ export function AdminVerificationsScreen() {
               q.verificationStatus === 'pending' ? (
                 <div className="flex gap-1.5">
                   <button
-                    onClick={() => { decideQuincaillerie(q.id, 'approve'); showToast({ title: 'Quincaillerie verified', tone: 'success' }) }}
+                    onClick={() => decideQuincaillerieMutation.mutate({ id: q.id, decision: 'approve' }, {
+                      onSuccess: () => showToast({ title: 'Quincaillerie verified', tone: 'success' }),
+                      onError: (err) => showToast({ title: 'Failed', description: apiErrorMessage(err), tone: 'error' }),
+                    })}
                     className="rounded-lg px-2.5 py-1 text-xs font-semibold"
                     style={{ background: C.emerald, color: '#fff', fontFamily: FONT.sans }}
                   >Approve</button>
                   <button
-                    onClick={() => { decideQuincaillerie(q.id, 'reject'); showToast({ title: 'Registration rejected', tone: 'success' }) }}
+                    onClick={() => decideQuincaillerieMutation.mutate({ id: q.id, decision: 'reject' }, {
+                      onSuccess: () => showToast({ title: 'Registration rejected', tone: 'success' }),
+                      onError: (err) => showToast({ title: 'Failed', description: apiErrorMessage(err), tone: 'error' }),
+                    })}
                     className="rounded-lg px-2.5 py-1 text-xs font-semibold"
                     style={{ background: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
                   >Reject</button>
@@ -1116,6 +1131,7 @@ export function AdminVerificationsScreen() {
               )
             )}
           />
+          )
         ) : tab === 'certifications' ? (
           certsLoading ? (
             <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>
@@ -1271,7 +1287,7 @@ export function AdminVerificationsScreen() {
           <input value={ratingToUserId} onChange={(e) => setRatingToUserId(e.target.value)} placeholder="To user ID" className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, background: C.white, color: C.ink }} />
           <input value={ratingProjectId} onChange={(e) => setRatingProjectId(e.target.value)} placeholder="Project ID" className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.mono, background: C.white, color: C.ink }} />
           <select value={ratingRoleContext} onChange={(e) => setRatingRoleContext(e.target.value as typeof ratingRoleContext)} className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, background: C.white, color: C.ink }}>
-            {(['recipient', 'contractor', 'verifier', 'land_seller'] as const).map((r) => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
+            {(['recipient', 'contractor', 'verifier', 'land_seller', 'quincaillerie'] as const).map((r) => <option key={r} value={r}>{r.replace('_', ' ')}</option>)}
           </select>
           <select value={ratingNewScore} onChange={(e) => setRatingNewScore(Number(e.target.value))} className="w-full rounded-lg border px-2.5 py-1.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, background: C.white, color: C.ink }}>
             {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} star{n === 1 ? '' : 's'}</option>)}

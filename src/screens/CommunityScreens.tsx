@@ -7,6 +7,7 @@ import {
   useMyGroupsQuery,
   useGroupDashboardQuery,
   useCreateGroupMutation,
+  useJoinGroupMutation,
   useInviteGroupMemberMutation,
 } from '../api/groups'
 import { useUserSearchQuery } from '../api/users'
@@ -82,6 +83,64 @@ export function GroupSetupScreen() {
         </div>
 
         <PillButton onClick={submit} fullWidth disabled={!canCreate || createGroup.isPending}>{createGroup.isPending ? 'Creating…' : 'Create group'}</PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Diaspora group: join an existing group by id/shared link ──────────────────
+// groupController.join is self-service ("anyone with the group id can join
+// directly, e.g. via a shared link") but previously had no frontend surface
+// at all — a user handed a group id had no way to actually use it.
+export function JoinGroupScreen() {
+  const nav = useNavigate()
+  const { id } = useParams<{ id?: string }>()
+  const { show: showToast } = useToast()
+  const joinGroup = useJoinGroupMutation()
+  const [groupId, setGroupId] = useState(id || '')
+
+  const submit = async (targetId: string) => {
+    const trimmed = targetId.trim()
+    if (!trimmed) return
+    try {
+      await joinGroup.mutateAsync(trimmed)
+      nav(`/groups/dashboard/${trimmed}`)
+    } catch (err) {
+      showToast({ title: 'Failed to join group', description: apiErrorMessage(err, 'Check the group ID and try again'), tone: 'error' })
+    }
+  }
+
+  // A shared link (/groups/join/:id) joins immediately — the recipient
+  // shouldn't have to re-type the id they were just handed.
+  const autoJoinedRef = useRef(false)
+  useEffect(() => {
+    if (id && !autoJoinedRef.current) {
+      autoJoinedRef.current = true
+      submit(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  return (
+    <AppShell>
+      <Header title="Join a Group" back />
+      <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">
+          Enter the group ID your association shared with you to join their shared account and see its pooled contributions.
+        </p>
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Group ID</label>
+          <input
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            placeholder="Paste the group ID or link you were sent"
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
+            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+          />
+        </div>
+        <PillButton onClick={() => submit(groupId)} fullWidth disabled={!groupId.trim() || joinGroup.isPending}>
+          {joinGroup.isPending ? 'Joining…' : 'Join group'}
+        </PillButton>
       </div>
     </AppShell>
   )
@@ -308,7 +367,14 @@ function EmptyGroupState() {
         title="No diaspora group yet"
         description="Set up a shared account so members can pool contributions and track every project you fund together."
         illustration="tilt"
-        action={<PillButton onClick={() => nav('/groups/create')}>Create a group</PillButton>}
+        action={
+          <div className="flex flex-col items-center gap-2">
+            <PillButton onClick={() => nav('/groups/create')}>Create a group</PillButton>
+            <button onClick={() => nav('/groups/join')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">
+              Have a group ID? Join instead →
+            </button>
+          </div>
+        }
       />
     </div>
   )

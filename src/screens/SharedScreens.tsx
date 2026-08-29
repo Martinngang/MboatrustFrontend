@@ -1007,12 +1007,18 @@ export function ProfileScreen() {
   const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const isVerifier = roleTypes.includes('verifier')
   const isAdmin = roleTypes.includes('admin')
+  // myQuincaillerie (the QuincaillerieProfile document) can be missing even
+  // when the role is already on User.roles — e.g. an admin granted it
+  // directly via the role drawer rather than through register→approve.
+  // Same gap already fixed in Dashboard.tsx/Sidebar.tsx/MobileLayout.tsx.
+  const isQuincaillerie = Boolean(myQuincaillerie) || roleTypes.includes('quincaillerie')
   const kycLabel: Record<KycStatus, string> = { unverified: 'Not verified', pending: 'Under review', verified: 'Verified', rejected: 'Rejected — action needed' }
   const roleLabel: Record<string, string> = {
     funder: 'Diaspora Funder',
     recipient: 'Project Recipient',
     contractor: 'Local Contractor',
     seller: 'Land Seller',
+    quincaillerie: 'Quincaillerie',
   }
 
   const roleStats: Record<string, { label: string; value: string; icon: GlyphName }[]> = {
@@ -1036,6 +1042,11 @@ export function ProfileScreen() {
       { label: 'Verified', value: String(landListings.filter((l) => l.verified).length), icon: 'shield' },
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
+    quincaillerie: [
+      { label: 'Completed', value: String(myQuincaillerie?.completedOrderCount ?? 0), icon: 'coin' },
+      { label: 'Rating', value: myQuincaillerie && myQuincaillerie.averageRating > 0 ? myQuincaillerie.averageRating.toFixed(1) : '—', icon: 'star' },
+      { label: 'Since', value: '2024', icon: 'calendar' },
+    ],
   }
 
   const roleProfileLink: Record<string, { label: string; sub: string; path: string }> = {
@@ -1043,6 +1054,7 @@ export function ProfileScreen() {
     recipient: { label: 'My reputation', sub: 'Ratings from funders you\'ve worked with', path: '/recipient/reputation' },
     contractor: { label: 'Contractor profile', sub: 'Certifications, availability & rate card', path: '/contractor/profile' },
     seller: { label: 'My listings', sub: 'Manage everything you have for sale', path: '/land/my-listings' },
+    quincaillerie: { label: 'Quincaillerie dashboard', sub: 'Manage inventory & material orders', path: '/quincaillerie/dashboard' },
   }
 
   // One-tap access to the task each role opens this app for most often.
@@ -1071,9 +1083,19 @@ export function ProfileScreen() {
       { label: 'My listings', icon: 'shield', action: () => nav('/land/my-listings') },
       { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
     ],
+    quincaillerie: [
+      { label: 'Dashboard', icon: 'store', action: () => nav('/quincaillerie/dashboard') },
+      { label: 'Messages', icon: 'chat', action: () => nav('/messages') },
+      { label: 'Public profile', icon: 'shield', action: () => nav(myQuincaillerie ? `/quincaillerie/profile/${myQuincaillerie.id}` : '/quincaillerie/dashboard') },
+      { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
+    ],
   }
 
-  const key = role ?? 'funder'
+  // Same effectiveRole computation as Sidebar.tsx/MobileLayout.tsx/TopBar.tsx
+  // — a quincaillerie-only account has role===null, so without this the
+  // whole profile screen (label, stats, profile link, quick actions) below
+  // silently showed a Diaspora Funder's content instead.
+  const key = role === null && isQuincaillerie ? 'quincaillerie' : role ?? 'funder'
 
   // A quiet, deterministic trust figure — not a vanity metric, a rollup of
   // the two things a counterparty would actually want to know.
@@ -1270,6 +1292,15 @@ export function ProfileScreen() {
           </div>
         </div>
 
+        {key !== 'seller' && (
+          <GroupedLinks
+            title="Land"
+            items={[
+              { label: 'Browse land for sale', sub: 'Verified listings — make or negotiate an offer', action: () => nav('/land/browse'), icon: 'globe' },
+            ]}
+          />
+        )}
+
         <GroupedLinks
           title="Financial tools"
           items={[
@@ -1292,9 +1323,9 @@ export function ProfileScreen() {
             items={[
               { label: 'Register as verifier', sub: 'Set up a verifier profile', action: () => nav('/verifier/register'), icon: 'shield' },
               {
-                label: myQuincaillerie ? 'Quincaillerie dashboard' : 'Register a quincaillerie',
-                sub: myQuincaillerie ? 'Manage inventory & material orders' : 'List your hardware/materials store',
-                action: () => nav(myQuincaillerie ? '/quincaillerie/dashboard' : '/quincaillerie/register'),
+                label: isQuincaillerie ? 'Quincaillerie dashboard' : 'Register a quincaillerie',
+                sub: isQuincaillerie ? 'Manage inventory & material orders' : 'List your hardware/materials store',
+                action: () => nav(isQuincaillerie ? '/quincaillerie/dashboard' : '/quincaillerie/register'),
                 icon: 'store',
               },
             ]}

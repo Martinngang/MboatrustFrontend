@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useApp } from '../../context'
+import { useMaterials } from '../../materials'
+import { useMyRoleTypesQuery } from '../../api/session'
 import { C, FONT, NotificationBell, ThemeToggle, UserAvatar } from '../MobileLayout'
 import { ConnectivityBar } from '../ConnectivityBar'
 import { InstallButton } from '../InstallButton'
@@ -25,12 +27,19 @@ import { useNotificationsDrawer } from '../NotificationsDrawer'
  * touch) — nothing else is removed. */
 export function TopBar() {
   const nav = useNavigate()
-  const { role, setLoggedIn, setRole } = useApp()
+  const { role, devUserId, setLoggedIn, setRole } = useApp()
+  const { myQuincaillerie } = useMaterials()
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const { show } = useCommandPalette()
   const { show: showShortcuts } = useShortcutsHelp()
   const { toggle: toggleNotifications } = useNotificationsDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
-  const quickCreate = QUICK_CREATE_BY_ROLE[role ?? 'funder']
+  // Same effectiveRole computation as Sidebar.tsx/MobileLayout.tsx/
+  // KeyboardShortcuts.tsx — a quincaillerie-only account has role===null,
+  // so without this the quick-create button silently showed funder's
+  // "New project" action instead.
+  const effectiveRole = role === null && (myQuincaillerie || roleTypes.includes('quincaillerie')) ? 'quincaillerie' : role ?? 'funder'
+  const quickCreate = QUICK_CREATE_BY_ROLE[effectiveRole]
 
   const signOut = () => {
     setMenuOpen(false)

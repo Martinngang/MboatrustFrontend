@@ -116,7 +116,7 @@ export interface AdminCreateRatingInput {
   projectId: string
   score: number
   comment?: string
-  roleContext: 'recipient' | 'contractor' | 'verifier' | 'land_seller'
+  roleContext: 'recipient' | 'contractor' | 'verifier' | 'land_seller' | 'quincaillerie'
 }
 
 /** Admin-authored rating on a user's behalf — POST /ratings/admin (distinct
@@ -149,7 +149,7 @@ export interface CreateRatingInput {
   projectId: string
   score: number
   comment?: string
-  roleContext: 'recipient' | 'contractor' | 'verifier' | 'land_seller'
+  roleContext: 'recipient' | 'contractor' | 'verifier' | 'land_seller' | 'quincaillerie'
 }
 
 export function useCreateRatingMutation() {

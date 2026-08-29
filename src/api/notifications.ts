@@ -95,6 +95,18 @@ function describe(n: BackendNotification): Described {
         stat: { label: statusLabel(p.status), tone: statusTone(p.status) },
         path: '/contractor/bids',
       }
+    case 'bid_countered':
+      return {
+        icon: 'refresh', category: 'marketplace', title: 'Counter-offer received',
+        body: 'The other side proposed new terms on a bid negotiation — your turn to respond.',
+        path: p.bidId ? `/negotiation/${p.bidId}` : undefined,
+      }
+    case 'milestone_changes_requested':
+      return {
+        icon: 'refresh', category: 'milestones', title: 'Corrections requested',
+        body: typeof p.reason === 'string' ? `"${p.reason}"` : 'The funder asked for corrections before this milestone can be approved.',
+        path: p.projectId ? `/recipient/submit/${p.projectId}` : undefined,
+      }
     case 'land_purchase_started':
       return {
         icon: 'home', category: 'marketplace', title: 'Purchase started',

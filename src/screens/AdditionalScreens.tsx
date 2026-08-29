@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useState, lazy, Suspense, type ReactNode } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
@@ -22,14 +22,22 @@ import { useCreateRatingMutation, useRatingSummaryQuery } from '../api/reputatio
 import { useAllCertificationsQuery, useDecideCertificationMutation } from '../api/certifications'
 import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } from '../api/verifierProfiles'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
-import { useProjectQuery } from '../api/projects'
+import { useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { useEscrowQuery, useRefreshEscrowStatusMutation } from '../api/escrow'
+// Code-split: Leaflet (pulled in by ProjectMap.tsx) would otherwise inflate
+// the main bundle past vite-plugin-pwa's 2 MiB precache limit — loaded only
+// when a location section actually renders.
+const ProjectLocationSection = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.ProjectLocationSection }))
+)
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
 import { useDisputesQuery, useResolveDisputeMutation, useCreateDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation, useSystemHealthQuery } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
-import { RegionSelect } from '../components/LocationSelect'
-import { getCameroonRegionName } from '../utils/locationData'
+import { RegionSelect, RegionTownSelect } from '../components/LocationSelect'
+import { getCameroonRegionName, getTownCoords } from '../utils/locationData'
+import { MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone } from '../components/MilestoneScheduleEditor'
 
 function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
   return {
@@ -218,13 +226,22 @@ export function PostJobScreen() {
   const nav = useNavigate()
   const { addJob } = useApp()
   const { show: showToast } = useToast()
-  const [form, setForm] = useState({ title: '', description: '', category: '', budget: '', deadline: '', milestones: '3' })
+  const [form, setForm] = useState({ title: '', description: '', category: '', region: '', town: '', budget: '', deadline: '' })
+  const [weekly, setWeekly] = useState(false)
+  const [milestones, setMilestones] = useState<DraftScheduleMilestone[]>(makeDefaultSchedule(3))
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
   const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
 
-  const canSubmit = form.title.trim() !== '' && form.category !== '' && Number(form.budget) > 0
+  const budgetNumber = Number(form.budget) || 0
+  // Previously hardcoded to the literal string 'Cameroon' with no field to
+  // pick anything else at all — every tender showed the same non-answer for
+  // location no matter where the work actually was, and there was nothing
+  // to put a map marker on.
+  const location = form.region && form.town ? `${form.town}, ${getCameroonRegionName(form.region)}` : ''
+  const canSubmit = form.title.trim() !== '' && form.category !== '' && form.region !== '' && form.town !== '' && budgetNumber > 0
+    && scheduleRowsValid(milestones) && scheduleTotal(milestones) === budgetNumber
 
   const submit = async () => {
     setSubmitting(true)
@@ -232,11 +249,13 @@ export function PostJobScreen() {
       const created = await addJob({
         title: form.title,
         category: form.category || 'General',
-        location: 'Cameroon',
-        budget: Number(form.budget) || 0,
+        location,
+        coordinates: getTownCoords(form.region, form.town),
+        budget: budgetNumber,
         deadline: form.deadline || 'TBD',
         bids: 0,
-        milestones: Math.max(1, Number(form.milestones) || 1),
+        milestones: milestones.length,
+        milestoneSchedule: milestones.map((m) => ({ title: m.title, amount: Number(m.amount) || 0, description: m.description })),
         posted: 'Just now',
         description: form.description,
         status: 'open',
@@ -262,7 +281,8 @@ export function PostJobScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Job posted</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            Your job is now visible to verified contractors. You will receive bids within 48 hours.
+            Your job is now visible to verified contractors. You will receive bids within 48 hours. You can browse and
+            assign a materials supplier for it any time from the bids screen.
           </p>
           <PillButton onClick={() => nav(createdJobId ? `/funder/tender/${createdJobId}/bids` : '/funder/contractors')} fullWidth>View bids as they come in</PillButton>
         </div>
@@ -296,6 +316,15 @@ export function PostJobScreen() {
             style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
         </div>
 
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Where is the work?</label>
+          <RegionTownSelect
+            regionValue={form.region} townValue={form.town}
+            onRegionChange={(v) => setForm({ ...form, region: v })}
+            onTownChange={(v) => setForm({ ...form, town: v })}
+          />
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Budget (XAF)</label>
@@ -312,12 +341,13 @@ export function PostJobScreen() {
           </div>
         </div>
 
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Number of milestones</label>
-          <input type="number" min={1} max={10} value={form.milestones} onChange={(e) => setForm({ ...form, milestones: e.target.value })}
-            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-        </div>
+        <MilestoneScheduleEditor
+          milestones={milestones}
+          onChange={setMilestones}
+          budget={budgetNumber}
+          weekly={weekly}
+          onWeeklyChange={setWeekly}
+        />
 
         <div className="rounded-xl p-3 border" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Escrow protection</div>
@@ -336,11 +366,42 @@ export function PostJobScreen() {
 
 // ── Contract summary (auto-generated digital contract) ────────────────────────
 export function ContractSummaryScreen() {
+  const nav = useNavigate()
   const { bidId } = useParams()
   const { show: showToast } = useToast()
   const { data: contracts, isLoading: contractLoading } = useContractsQuery({ bidId })
   const contract = contracts?.[0]
   const { data: project, isLoading: projectLoading } = useProjectQuery(contract?.projectId)
+  // Real raised-so-far, since useProjectQuery itself skips it — needed to
+  // know whether (and how much) escrow funding is still outstanding on this
+  // now-awarded tender. Without a "fund escrow" prompt anywhere on the
+  // funder's side, accepting a bid had no next step at all — the contract
+  // just sat there with nothing funded and no way from the UI to change that.
+  const { data: fundingSummary } = useProjectFundingSummaryQuery(contract?.projectId)
+  const remainingToFund = project ? Math.max(0, project.totalAmount - (fundingSummary?.raised ?? 0)) : 0
+  // A provider whose webhook can't reach this backend (Stripe, on
+  // localhost) leaves its escrow at status='pending' until something
+  // explicitly reconciles it — without checking for that here, "Fund
+  // escrow" stayed visible even for a payment that had already gone
+  // through, and clicking it again created a genuine second real charge
+  // rather than just re-showing a stale prompt.
+  const { data: pendingEscrows } = useEscrowQuery({ projectId: contract?.projectId, type: 'fund', status: 'pending' })
+  const hasPendingPayment = (pendingEscrows?.entries.length ?? 0) > 0
+  const refreshEscrowStatus = useRefreshEscrowStatusMutation()
+  const [checkingStatus, setCheckingStatus] = useState(false)
+  const checkPendingPayment = async () => {
+    if (!pendingEscrows?.entries.length) return
+    setCheckingStatus(true)
+    try {
+      for (const e of pendingEscrows.entries) {
+        await refreshEscrowStatus.mutateAsync(e.id)
+      }
+    } catch (err) {
+      showToast({ title: 'Could not check payment status', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setCheckingStatus(false)
+    }
+  }
   const { data: bids } = useBidsQuery({ projectId: contract?.projectId })
   const bid = bids?.find((b) => b.id === bidId)
   const completeContract = useCompleteContractMutation()
@@ -410,6 +471,10 @@ export function ContractSummaryScreen() {
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">{project.description}</p>
         </div>
 
+        <Suspense fallback={<div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white, minHeight: 64 }} />}>
+          <ProjectLocationSection locationName={project.location} coordinates={project.coordinates} />
+        </Suspense>
+
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Payment schedule</div>
           <div className="space-y-2">
@@ -418,6 +483,12 @@ export function ContractSummaryScreen() {
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style={{ background: C.forest, fontFamily: FONT.mono }}>{i + 1}</div>
                   <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs">{m.title}</span>
+                  {/* Was showing only the title/amount with no status at all — a
+                      funder had no way to tell a milestone had proof submitted
+                      and waiting on them without already knowing to check
+                      notifications; this is the tender-side equivalent of what
+                      ProjectDetailScreen already shows for funding projects. */}
+                  <StatusBadge status={m.status} />
                 </div>
                 <span style={{ fontFamily: FONT.mono, color: C.ink }} className="text-xs font-bold">{fmt(m.amount)}</span>
               </div>
@@ -427,6 +498,52 @@ export function ContractSummaryScreen() {
             <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-wider">Total contract value</span>
             <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-lg font-bold">{fmt(contract.totalAmount)}</span>
           </div>
+        </div>
+
+        {project.milestones.some((m) => m.status === 'under_review') && (
+          <button
+            onClick={() => nav(`/funder/review/${project.id}`)}
+            className="w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+            style={{ background: C.amber, color: C.forestDark, fontFamily: FONT.sans }}
+          >
+            Review pending milestone proof
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M3 7H11M8 4L11 7L8 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+
+        {/* Awarding a bid only locks in the terms — it never moves money on
+            its own. Nothing else on the funder's side prompted funding the
+            escrow after that, so a fully-awarded contract could sit forever
+            with zero funded and no visible next step. */}
+        <div className="rounded-2xl border-2 p-4" style={{ borderColor: hasPendingPayment ? C.steel : remainingToFund > 0 ? C.amber : C.forest, background: hasPendingPayment ? 'var(--status-info-bg)' : remainingToFund > 0 ? 'var(--status-warning-bg)' : 'var(--status-success-bg)' }}>
+          <div style={{ fontFamily: FONT.mono, color: hasPendingPayment ? 'var(--status-info-text)' : remainingToFund > 0 ? 'var(--status-warning-text)' : 'var(--status-success-text)' }} className="text-[10px] uppercase tracking-widest mb-1">
+            Escrow funding
+          </div>
+          {hasPendingPayment ? (
+            <>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-sm font-semibold mb-1">
+                Payment processing…
+              </p>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
+                A payment is still confirming — this can take a moment. Don't fund again; check its status instead once it's actually gone through.
+              </p>
+            </>
+          ) : remainingToFund > 0 ? (
+            <>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm font-semibold mb-1">
+                {fmt(project.raised)} of {fmt(contract.totalAmount)} funded
+              </p>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
+                Work can't start until this is in escrow. Fund the remaining {fmt(remainingToFund)} to release the contractor to begin.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-sm font-semibold">
+              Fully funded — {fmt(contract.totalAmount)} held in escrow.
+            </p>
+          )}
         </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
@@ -440,6 +557,15 @@ export function ContractSummaryScreen() {
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl space-y-2" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
+        {hasPendingPayment ? (
+          <PillButton onClick={checkPendingPayment} disabled={checkingStatus} fullWidth>
+            {checkingStatus ? 'Checking…' : 'Check payment status'}
+          </PillButton>
+        ) : remainingToFund > 0 && (
+          <PillButton onClick={() => nav('/funder/fund', { state: { projectId: project.id } })} fullWidth>
+            Fund escrow — {fmt(remainingToFund)}
+          </PillButton>
+        )}
         {contract.status === 'active' && (
           <div className="flex gap-2">
             <button

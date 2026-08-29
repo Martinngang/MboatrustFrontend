@@ -3,6 +3,12 @@ import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
 import type { Contractor } from '../context'
 
+export interface PortfolioImage {
+  _id?: string
+  url: string
+  caption: string
+}
+
 interface BackendContractorProfile {
   userId: string
   fullName: string
@@ -10,10 +16,115 @@ interface BackendContractorProfile {
   categories: string[]
   regions: string[]
   bio: string
+  headline: string
+  services: string[]
+  portfolioImages: PortfolioImage[]
   yearsExperience: number
   isAvailable: boolean
   kycStatus?: string
   stats: { completedProjects: number; totalBids: number; acceptedBids: number; completionRate: number; avgRating: number | null; ratingCount: number }
+}
+
+/** Full-fidelity portfolio shape — mapContractor below lossily reduces this
+ * same payload down to the simple `Contractor` card shape (one trade, one
+ * region, a rating with a neutral fallback) for browse/compare lists; the
+ * rich single-profile view (what a funder sees when evaluating one
+ * contractor, and what the contractor manages) needs everything underneath. */
+export interface ContractorPortfolio {
+  userId: string
+  fullName: string
+  avatarUrl: string | null
+  categories: string[]
+  regions: string[]
+  bio: string
+  headline: string
+  services: string[]
+  portfolioImages: PortfolioImage[]
+  yearsExperience: number
+  isAvailable: boolean
+  kycStatus?: string
+  stats: BackendContractorProfile['stats']
+}
+
+function mapPortfolio(doc: BackendContractorProfile): ContractorPortfolio {
+  return {
+    userId: doc.userId,
+    fullName: doc.fullName,
+    avatarUrl: doc.avatarUrl,
+    categories: doc.categories ?? [],
+    regions: doc.regions ?? [],
+    bio: doc.bio,
+    headline: doc.headline ?? '',
+    // Defensive fallback — a profile created before these fields existed on
+    // the schema could theoretically still reach here without them (the
+    // backend backfills defaults for exactly this case, but a crash here
+    // would take down the whole screen, so this costs nothing to guard too).
+    services: doc.services ?? [],
+    portfolioImages: doc.portfolioImages ?? [],
+    yearsExperience: doc.yearsExperience,
+    isAvailable: doc.isAvailable,
+    kycStatus: doc.kycStatus,
+    stats: doc.stats,
+  }
+}
+
+export function useContractorPortfolioQuery(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['contractorProfiles', 'portfolio', userId],
+    queryFn: async (): Promise<ContractorPortfolio> => {
+      const { data } = await api.get<{ data: BackendContractorProfile }>(`/contractor-profiles/${userId}`)
+      return mapPortfolio(data.data)
+    },
+    enabled: Boolean(userId),
+    staleTime: 10_000,
+  })
+}
+
+export interface CompletedWorkItem {
+  id: string
+  projectTitle: string
+  category: string
+  location: string
+  completedAt: string
+}
+
+export function useContractorCompletedWorkQuery(userId: string | undefined) {
+  return useQuery({
+    queryKey: ['contractorCompletedWork', userId],
+    queryFn: async (): Promise<CompletedWorkItem[]> => {
+      const { data } = await api.get<{ data: CompletedWorkItem[] }>(`/contractor-profiles/${userId}/completed-work`)
+      return data.data
+    },
+    enabled: Boolean(userId),
+    staleTime: 10_000,
+  })
+}
+
+// ── Public leaderboard ──────────────────────────────────────────────────
+export interface LeaderboardRow {
+  rank: number
+  userId: string
+  fullName: string
+  avatarUrl: string | null
+  kycStatus?: string
+  categories: string[]
+  regions: string[]
+  yearsExperience: number
+  stats: BackendContractorProfile['stats']
+  score: { total: number; breakdown: Record<string, number> }
+}
+
+export function useContractorLeaderboardQuery(filter: { search?: string; category?: string; region?: string; verified?: boolean; page?: number; limit?: number; enabled?: boolean } = {}) {
+  const { enabled = true, ...params } = filter
+  return useQuery({
+    queryKey: ['contractorLeaderboard', params],
+    queryFn: async (): Promise<{ rows: LeaderboardRow[]; total: number }> => {
+      const { data } = await api.get<{ data: LeaderboardRow[]; meta: { total: number } }>('/contractor-profiles/leaderboard', { params })
+      return { rows: data.data, total: data.meta.total }
+    },
+    enabled,
+    staleTime: 15_000,
+  })
 }
 
 // A brand new contractor with zero ratings yet shouldn't display as "0
@@ -115,17 +226,45 @@ export interface UpsertContractorProfileInput {
   categories?: string[]
   regions?: string[]
   bio?: string
+  headline?: string
+  services?: string[]
   yearsExperience?: number
+  isAvailable?: boolean
+  /** Portfolio images to keep (already-uploaded, possibly re-captioned or
+   * reordered) — omit entries to remove them. Only meaningful together with
+   * newPortfolioImages below; leave both undefined to not touch images at all. */
+  existingPortfolioImages?: PortfolioImage[]
+  newPortfolioImages?: File[]
+}
+
+/** Builds a plain JSON body when there's nothing to upload, or FormData
+ * (JSON-encoding array/object fields, same convention as the quincaillerie
+ * inventory and profile upserts) when new portfolio images are attached. */
+function toRequestBody(input: UpsertContractorProfileInput): FormData | Record<string, unknown> {
+  const { newPortfolioImages, ...rest } = input
+  if (!newPortfolioImages || newPortfolioImages.length === 0) {
+    return rest
+  }
+  const form = new FormData()
+  for (const [key, value] of Object.entries(rest)) {
+    if (value === undefined) continue
+    form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value))
+  }
+  for (const file of newPortfolioImages) form.append('images', file)
+  return form
 }
 
 export function useUpsertMyContractorProfileMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (p: UpsertContractorProfileInput) => {
-      const { data } = await api.put<{ data: BackendContractorProfile }>('/contractor-profiles/me', p)
-      return data.data
+      const { data } = await api.put<{ data: BackendContractorProfile }>('/contractor-profiles/me', toRequestBody(p))
+      return mapPortfolio(data.data)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['contractorProfiles'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['contractorProfiles'] })
+      qc.invalidateQueries({ queryKey: ['contractorLeaderboard'] })
+    },
   })
 }
 

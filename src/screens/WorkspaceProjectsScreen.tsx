@@ -10,8 +10,11 @@ import { ViewSwitcher, useViewMode } from '../components/dataview/ViewSwitcher'
 import { Drawer } from '../components/shell/Drawer'
 import { TagsCell, CustomFieldsEditor } from '../components/dataview/CustomFieldsEditor'
 import { useCancelProjectMutation, useMyProjectsQuery } from '../api/projects'
+import { useMyTendersQuery } from '../api/tenders'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
+import { Tabs } from '../components/Tabs'
+import { EmptyState } from '../components/EmptyState'
 
 // 'completed' and 'disputed' are only ever reached as a side effect of the
 // real milestone-approval/dispute flows, never a direct flip — so those two
@@ -43,6 +46,14 @@ export function WorkspaceProjectsScreen() {
   // returns (needed elsewhere for Browse/Discover) was never the right
   // source for a personal "manage my projects" workspace view.
   const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
+  // Posted tenders are a separate Project pillar (projectType: 'tender',
+  // funder-owned) from funding-type projects above — kept as its own tab
+  // rather than merged into one table (different columns/actions), but
+  // surfaced right here under "Projects" since that's where a funder
+  // actually looks for anything they've created, tender included. This is
+  // the direct fix for "I posted a tender and can't find it anywhere."
+  const { data: tenders = [] } = useMyTendersQuery(devUserId ?? undefined)
+  const [section, setSection] = useState<'projects' | 'tenders'>('projects')
   const [mode, setMode] = useViewMode('projects')
   const [previewId, setPreviewId] = useState<string | null>(null)
   const preview = projects.find((p) => p.id === previewId) ?? null
@@ -81,8 +92,49 @@ export function WorkspaceProjectsScreen() {
 
   return (
     <AppShell>
-      <Header title="Projects" subtitle={`${projects.length} total`} />
+      <Header title="Projects" subtitle={section === 'projects' ? `${projects.length} total` : `${tenders.length} total`} />
 
+      <div className="mb-4">
+        <Tabs
+          tabs={[{ id: 'projects', label: 'Funded Projects' }, { id: 'tenders', label: 'Posted Tenders' }]}
+          value={section}
+          onChange={(v) => setSection(v as typeof section)}
+          variant="pill"
+        />
+      </div>
+
+      {section === 'tenders' ? (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <PillButton onClick={() => nav('/workspace/jobs')} variant="secondary">Open full tenders workspace →</PillButton>
+            <PillButton onClick={() => nav('/funder/post-job')}>+ New tender</PillButton>
+          </div>
+          {tenders.length === 0 ? (
+            <EmptyState icon="briefcase" title="No tenders posted yet" description="Post a job to start receiving contractor bids." illustration="tilt" />
+          ) : (
+            <div className="space-y-2">
+              {tenders.map((j) => (
+                <button
+                  key={j.id}
+                  onClick={() => nav(`/funder/tender/${j.id}/bids`)}
+                  className="w-full flex items-center justify-between gap-3 rounded-2xl border-2 p-4 text-left transition-all hover:border-[var(--color-forest)]"
+                  style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}
+                >
+                  <div className="min-w-0">
+                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm truncate">{j.title}</div>
+                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-0.5">{j.category} · {j.location} · {fmt(j.budget)}</div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">{j.bids} bids</span>
+                    <StatusBadge status={j.status} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <ViewSwitcher mode={mode} onChange={setMode} />
         <PillButton onClick={() => nav('/funder/create')} variant="secondary">+ New project</PillButton>
@@ -181,6 +233,8 @@ export function WorkspaceProjectsScreen() {
           </div>
         )}
       </Drawer>
+      </>
+      )}
     </AppShell>
   )
 }

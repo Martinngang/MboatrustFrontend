@@ -1,10 +1,10 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap');
 @import 'tailwindcss';
 
 /* Obsidian / gold / emerald rebrand — Fraunces (display serif) + Inter (sans)
    + JetBrains Mono, replacing Playfair Display / Inter-via-Figma / DM Mono.
    Loaded from Google Fonts as one variable-font request each (covers the
    weight/optical-size/italic ranges the app actually uses). */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,300..900&family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..600&display=swap');
 
 @theme {
   --font-sans: 'Inter', system-ui, sans-serif;

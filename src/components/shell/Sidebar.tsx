@@ -26,12 +26,15 @@ export function Sidebar() {
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   // A quincaillerie-only account has role===null (it isn't a real Role —
   // see Onboarding.tsx), so it needs its own lookup key rather than
-  // silently falling back to funder's tabs/label.
-  const effectiveRole = role === null && myQuincaillerie ? 'quincaillerie' : role ?? 'funder'
+  // silently falling back to funder's tabs/label. myQuincaillerie (the
+  // profile document) alone misses an account whose role was granted
+  // directly with no profile ever submitted — roleTypes (the raw backend
+  // roles) catches that case too, same fix as Dashboard.tsx's HomeScreen.
+  const effectiveRole = role === null && (myQuincaillerie || roleTypes.includes('quincaillerie')) ? 'quincaillerie' : role ?? 'funder'
   const tabs = TAB_ROUTES[effectiveRole] ?? FUNDER_TABS
-  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const visibleAdminLinks = ADMIN_LINKS.filter((link) => roleTypes.includes(link.requiresRole))
   const springTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 380, damping: 32 }
 

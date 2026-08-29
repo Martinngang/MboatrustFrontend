@@ -19,12 +19,13 @@ import {
   useDeclineOfferMutation,
   useWithdrawOfferMutation,
 } from '../api/landOffers'
-import { useStartConversationMutation, useSendMessageMutation } from '../api/messaging'
+import { useSendDirectMessageMutation } from '../api/messaging'
 import { useAddLandDocumentMutation, useRecommendedListingsQuery, useLandListingsInfiniteQuery } from '../api/land'
 import { useVerificationTasksQuery } from '../api/reputation'
 import { AppIcon } from '../components/icons'
 import { RegionTownSelect } from '../components/LocationSelect'
 import { getCameroonRegionName, getCameroonRegions } from '../utils/locationData'
+import { AIDeedScanner } from '../components/AIDeedScanner'
 
 /** Opt-in row above the main feed — never a replacement for it. Ranked off
  * the viewer's own real offer history when they have one (see
@@ -529,8 +530,7 @@ export function ContactSellerScreen() {
   const [sent, setSent] = useState(false)
   const [sending, setSending] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
-  const startConversation = useStartConversationMutation(devUserId)
-  const sendMessage = useSendMessageMutation(devUserId)
+  const sendDirect = useSendDirectMessageMutation(devUserId)
 
   const submit = async () => {
     if (!listing.sellerId) {
@@ -539,8 +539,12 @@ export function ContactSellerScreen() {
     }
     setSending(true)
     try {
-      const conversation = await startConversation.mutateAsync({ contextType: 'land_listing', contextId: listing.id, otherUserId: listing.sellerId })
-      await sendMessage.mutateAsync({ conversationId: conversation.id, body: message.trim() })
+      const { conversation } = await sendDirect.mutateAsync({
+        recipientId: listing.sellerId,
+        contextType: 'land_listing',
+        contextId: listing.id,
+        body: message.trim(),
+      })
       setConversationId(conversation.id)
       setSent(true)
     } catch (err) {
@@ -827,6 +831,30 @@ export function CreateListingScreen() {
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         {step === 'details' ? (
           <>
+            {/* AI Deed Scanner */}
+            <div className="space-y-2 border-2 border-dashed rounded-2xl p-4" style={{ borderColor: C.parchmentDark, background: C.cream }}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🤖</span>
+                <div>
+                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">AI Title Deed Scanner</div>
+                  <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">Upload Titre Foncier to automatically extract land info</div>
+                </div>
+              </div>
+              <AIDeedScanner
+                onScanComplete={(res) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    title: res.titleNumber ? `Plot ${res.titleNumber}` : prev.title,
+                    size: res.plotAreaSqm ? String(res.plotAreaSqm) : prev.size,
+                    titleType: 'Titre Foncier (Verified by AI)',
+                  }))
+                  if (res.authenticityScore < 50) {
+                    showToast({ title: 'AI Flagged Document', description: 'Low authenticity score detected. Manual review required.', tone: 'error' })
+                  }
+                }}
+              />
+            </div>
+
             {[
               { key: 'title', label: 'Listing title', placeholder: 'e.g. 800m² plot — Bastos, Yaoundé' },
             ].map(({ key, label, placeholder }) => (

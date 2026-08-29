@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useParams, useLocation, Link } from 'react-router-dom'
 import { useApp, fmt, type Milestone, type Project } from '../context'
-import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, Stars, PillButton, Header, StepIndicator, MomoOmPicker } from '../components/MobileLayout'
+import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, Stars, PillButton, Header, StepIndicator } from '../components/MobileLayout'
 import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTimeline'
 import { ApprovalStatusList } from '../components/ApprovalStatusList'
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
@@ -21,14 +21,28 @@ import { Switch } from '../components/Switch'
 import { ConfirmDialog, Modal } from '../components/Modal'
 import { AppIcon } from '../components/icons'
 import { useTemplates } from '../templates'
-import { useMaterials, resolveMilestonePayee } from '../materials'
+import { resolveMilestonePayee } from '../materials'
+import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
-import { useProjectsInfiniteQuery } from '../api/projects'
+import { useProjectsInfiniteQuery, useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { useRefreshEscrowStatusMutation } from '../api/escrow'
+// Leaflet (pulled in by ProjectMap.tsx) is ~170KB and would push the main
+// bundle past vite-plugin-pwa's 2 MiB precache limit if imported statically
+// here — code-split into its own chunk, loaded only when a location section
+// actually renders, matching locationData.ts's own dynamic-import convention.
+const ProjectLocationSection = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.ProjectLocationSection }))
+)
+const LocationMapModal = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.LocationMapModal }))
+)
 import { RegionTownSelect } from '../components/LocationSelect'
-import { getCameroonRegionName } from '../utils/locationData'
+import { getCameroonRegionName, getTownCoords } from '../utils/locationData'
 import { useContractorProfilesInfiniteQuery } from '../api/contractors'
+import { PaymentMethodSelector, type PaymentMethodId } from '../components/PaymentMethodSelector'
+import { StripeCheckout } from '../components/StripeCheckout'
 
 interface DraftMilestone { id: number; title: string; amount: string; description: string; requiresMultiApproval?: boolean; requiresVideo?: boolean }
 
@@ -49,6 +63,7 @@ interface DraftProject {
   category: string
   description: string
   location: string
+  coordinates?: { lat: number; lng: number } | null
   totalAmount: number
   milestones?: DraftMilestone[]
 }
@@ -177,10 +192,31 @@ export function ProjectDetailScreen() {
   const { projects, devUserId } = useApp()
   const { show: showToast } = useToast()
   // id undefined (no specific project requested) falls back to projects[0]
-  // as before; id given but not found must NOT silently substitute a
-  // different real project — that's a fund/message screen, not read-only.
+  // as before. An id not in `projects` used to be treated as "not found"
+  // outright — but `projects` (useProjectsQuery) only ever holds
+  // projectType=funding projects, and several real entry points (funding-
+  // success's "Back to project", notifications, the command palette, admin
+  // search) link here without knowing/caring which projectType they're
+  // pointing at. Fall back to a direct-by-id fetch before giving up, so a
+  // genuinely-missing project still 404s but a tender doesn't.
   const found = projects.find((x) => x.id === id)
-  if (id && !found) {
+  const { data: directProject, isLoading: directProjectLoading } = useProjectQuery(!found && id ? id : undefined)
+
+  // This screen is built entirely around funding-project concepts
+  // (recipient, co-signer, group contributors) a tender doesn't have — no
+  // amount of extra branching here makes "recipient" mean anything for a
+  // contractor-executed tender. Redirect to its real home (the tender's
+  // bids/contract) instead of rendering nonsense.
+  useEffect(() => {
+    if (directProject?.projectType === 'tender') {
+      nav(`/funder/tender/${directProject.id}/bids`, { replace: true })
+    }
+  }, [directProject, nav])
+
+  if (id && !found && (directProjectLoading || directProject?.projectType === 'tender')) {
+    return <AppShell noNav>{null}</AppShell>
+  }
+  if (id && !found && !directProject) {
     return (
       <AppShell noNav>
         <div className="px-5 py-5">
@@ -189,7 +225,7 @@ export function ProjectDetailScreen() {
       </AppShell>
     )
   }
-  const p = found ?? projects[0]
+  const p = found ?? directProject ?? projects[0]
   const pct = Math.round((p.raised / p.totalAmount) * 100)
   const startConversation = useStartConversationMutation(devUserId)
 
@@ -197,7 +233,7 @@ export function ProjectDetailScreen() {
     if (!p.recipientId || p.recipientId === devUserId) return
     try {
       const conversation = await startConversation.mutateAsync({ contextType: 'project', contextId: p.id, otherUserId: p.recipientId })
-      nav(`/messages/${conversation.id}`)
+      nav(conversation.draft ? `/messages/new_${p.recipientId}?contextType=project&contextId=${p.id}` : `/messages/${conversation.id}`)
     } catch (err) {
       showToast({ title: 'Failed to start conversation', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     }
@@ -245,6 +281,10 @@ export function ProjectDetailScreen() {
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">About this project</p>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">{p.description}</p>
         </div>
+
+        <Suspense fallback={<SkeletonCard />}>
+          <ProjectLocationSection locationName={p.location} coordinates={p.coordinates} />
+        </Suspense>
 
         {/* Milestones */}
         <div>
@@ -429,7 +469,14 @@ export function CreateProjectScreen() {
       setStep('review')
       return
     }
-    const draft: DraftProject = { title: form.title, category: form.category, description: form.description, location, totalAmount: Number(form.totalAmount) }
+    // City-center coordinates for whatever town was actually picked — real,
+    // free (already bundled in the country-state-city dataset this form's
+    // own RegionTownSelect already uses), and the only "location" precision
+    // this form ever collects in the first place, so there's no separate
+    // pick-a-point map control to build for this to be a genuine coordinate
+    // rather than nothing at all.
+    const coordinates = getTownCoords(form.region, form.town)
+    const draft: DraftProject = { title: form.title, category: form.category, description: form.description, location, coordinates, totalAmount: Number(form.totalAmount) }
     nav('/funder/milestones', { state: { draft } })
   }
 
@@ -685,29 +732,61 @@ export function MilestonesScreen() {
 }
 
 // ── Fund project / MoMo payment ────────────────────────────────────────────────
+// Cameroon residents see local mobile money first; everyone else (diaspora)
+// sees the international rails first. Every method stays available to
+// everyone either way — this only orders/defaults, never hides — so a
+// diaspora funder who still has a Cameroon SIM, or a Cameroon-resident
+// funder who'd rather pay by card, is never blocked from doing so.
+const LOCAL_METHOD_ORDER: PaymentMethodId[] = ['mtn_momo', 'orange_money', 'stripe', 'flutterwave']
+const DIASPORA_METHOD_ORDER: PaymentMethodId[] = ['stripe', 'flutterwave', 'mtn_momo', 'orange_money']
+
 export function FundProjectScreen() {
   const nav = useNavigate()
   const location = useLocation()
-  const { projects, phone, addProject, fundProject } = useApp()
+  const { projects, phone, residenceCountry, addProject, fundProject } = useApp()
   const fees = useFeeCalculation()
   const { show: showToast } = useToast()
   const state = (location.state as { draft?: DraftProject; projectId?: string } | null) ?? {}
   const draft = state.draft
-  const existing = state.projectId ? projects.find((p) => p.id === state.projectId) : undefined
+  // `projects` (useProjectsQuery) only ever holds projectType=funding
+  // projects — a tender project reached here after a funder accepts a bid
+  // (see ContractSummaryScreen's "Fund escrow" button) was never in that
+  // list, so `existing` silently resolved to undefined and this screen fell
+  // back to funding a random project instead. Fetch the exact project by id
+  // directly instead, with its real funding-summary merged in (useProjectQuery
+  // alone skips it — see that hook's own comment) so the remaining-unfunded
+  // amount below is accurate for any project type.
+  const { data: directProject } = useProjectQuery(state.projectId)
+  const { data: fundingSummary } = useProjectFundingSummaryQuery(state.projectId)
+  const existing = state.projectId && directProject ? { ...directProject, raised: fundingSummary?.raised ?? 0 } : undefined
   const fallback = projects[0]
 
-  const [method, setMethod] = useState<'momo' | 'om'>('momo')
-  const [step, setStep] = useState<'select' | 'confirm' | 'success'>('select')
+  // Unset residenceCountry defaults to the local order — safest assumption
+  // for an account that hasn't finished onboarding/profile setup yet.
+  const availableMethods = residenceCountry && residenceCountry !== 'CM' ? DIASPORA_METHOD_ORDER : LOCAL_METHOD_ORDER
+  const [method, setMethod] = useState<PaymentMethodId>(availableMethods[0])
+  const [step, setStep] = useState<'select' | 'confirm' | 'stripe_card' | 'success'>('select')
   const [pin, setPin] = useState('')
   const [createdId, setCreatedId] = useState<string | null>(null)
   const [foreignCurrency, setForeignCurrency] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  // Frozen at submit time — `amount` below is derived from `existing.raised`,
-  // which the fund mutation's cache invalidation updates as soon as it
-  // succeeds. Without this, the success screen (rendered after that update)
-  // would recompute `amount` as the tiny *remaining* shortfall instead of
-  // showing what was actually just paid.
   const [paidAmount, setPaidAmount] = useState<number | null>(null)
+  // Real Stripe PaymentIntent secret, captured once fundProject() creates the
+  // pending escrow for the stripe path — undefined until then, so
+  // StripeCheckout correctly falls back to its sandbox form only when Stripe
+  // truly isn't configured, never because we forgot to fetch a real one.
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | undefined>(undefined)
+  // Guards against creating a second escrow (and a second real PaymentIntent)
+  // if the user backs out of the card form and hits "Proceed" again — the
+  // first attempt's escrow/intent is reused instead of re-calling fundProject.
+  const [stripeEscrowStarted, setStripeEscrowStarted] = useState(false)
+  // The escrow this Stripe payment created — needed after the card is
+  // confirmed to immediately reconcile its real status (see
+  // handleStripeSuccess), since Stripe's webhook can never reach this
+  // backend at all while it's running on localhost, and there is otherwise
+  // no path for a genuinely-succeeded charge to ever stop showing "pending".
+  const [stripeEscrowId, setStripeEscrowId] = useState<string | undefined>(undefined)
+  const refreshEscrowStatus = useRefreshEscrowStatusMutation()
 
   const amount = draft
     ? (draft.milestones && draft.milestones.length > 0
@@ -719,48 +798,133 @@ export function FundProjectScreen() {
   const title = draft?.title ?? existing?.title ?? fallback.title
   const { blocked: kycBlocked } = useKycGate(amount)
 
+  // Shared by both the stripe and non-stripe paths — creates the draft
+  // project (if this screen was reached from the project-creation wizard)
+  // exactly once, no matter which payment method ends up calling it.
+  const resolveTargetProjectId = async (): Promise<string> => {
+    if (createdId) return createdId
+    let targetProjectId = existing?.id
+
+    if (draft) {
+      const milestones: Milestone[] = (draft.milestones ?? []).map((m) => ({
+        id: '',
+        title: m.title || 'Milestone',
+        description: m.description || '',
+        amount: Number(m.amount) || 0,
+        status: 'pending',
+        proof: false,
+        evidence: [],
+        requiresCosigner: !!m.requiresMultiApproval,
+        requiresVideo: !!m.requiresVideo,
+        approvers: [],
+        changeRequests: [],
+      }))
+      const created = await addProject({
+        title: draft.title,
+        projectType: 'funding',
+        category: draft.category || 'General',
+        location: draft.location,
+        coordinates: draft.coordinates ?? null,
+        totalAmount: draft.totalAmount || amount,
+        raised: 0,
+        status: 'active',
+        recipient: 'Awaiting recipient',
+        recipientRating: 0,
+        milestones,
+        image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
+        description: draft.description,
+        daysLeft: 90,
+        requiresMultiSig: false,
+      })
+      targetProjectId = created.id
+      setCreatedId(created.id)
+    }
+
+    return targetProjectId ?? fallback.id
+  }
+
+  const handleNext = () => {
+    if (method === 'stripe') {
+      initiateStripePayment()
+    } else {
+      setStep('confirm')
+    }
+  }
+
+  // Creates the pending escrow (and, when Stripe is really configured, a
+  // real PaymentIntent) *before* rendering the card form — the reverse of
+  // the old order, where the fake card form reported "success" first and
+  // only then triggered fundProject(). Without the real clientSecret this
+  // produces, StripeCheckout has no PaymentIntent to actually confirm
+  // against, so it silently fell back to a form that charges no one.
+  const initiateStripePayment = async () => {
+    if (stripeEscrowStarted) {
+      setStep('stripe_card')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const targetProjectId = await resolveTargetProjectId()
+      const res = await fundProject(targetProjectId, amount, {
+        paymentProvider: 'stripe',
+        payerPhoneNumber: phone || '+237677234891',
+        currency: foreignCurrency ? 'EUR' : 'XAF',
+      })
+      setStripeClientSecret(res.clientSecret)
+      setStripeEscrowId(res._id)
+      setStripeEscrowStarted(true)
+      setPaidAmount(amount)
+      setStep('stripe_card')
+    } catch (err) {
+      showToast({ title: 'Could not start card payment', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // Fires only after Stripe's own stripe.confirmPayment genuinely succeeds
+  // (or, when Stripe isn't configured, the labeled sandbox-fallback form) —
+  // the escrow already exists from initiateStripePayment, so this must not
+  // call fundProject again, which would create a second escrow/charge.
+  // What it must do instead: this backend's webhook can never be reached by
+  // Stripe while running on localhost, so without an explicit reconcile
+  // here a genuinely-successful charge would sit at status='pending'
+  // forever — invisible to the funding-summary "raised" total, so the
+  // Contract screen would keep showing "Fund escrow" as if nothing had
+  // happened, even though the money was actually captured (the exact bug
+  // this was built to close).
+  const handleStripeSuccess = async () => {
+    if (stripeEscrowId) {
+      try {
+        await refreshEscrowStatus.mutateAsync(stripeEscrowId)
+      } catch {
+        // Reconciling immediately is a best-effort head start, not the only
+        // path to correctness — ContractSummaryScreen's own "check status"
+        // affordance (or a real webhook, in production) still catches this
+        // later if the call itself fails here.
+      }
+    }
+    setStep('success')
+  }
+
   const confirmPayment = async () => {
     setSubmitting(true)
     setPaidAmount(amount)
     try {
-      if (draft) {
-        const milestones: Milestone[] = (draft.milestones ?? []).map((m) => ({
-          id: '',
-          title: m.title || 'Milestone',
-          amount: Number(m.amount) || 0,
-          status: 'pending',
-          proof: false,
-          evidence: [],
-          requiresCosigner: !!m.requiresMultiApproval,
-          requiresVideo: !!m.requiresVideo,
-          approvers: [],
-        }))
-        const created = await addProject({
-          title: draft.title,
-          category: draft.category || 'General',
-          location: draft.location,
-          totalAmount: draft.totalAmount || amount,
-          raised: 0,
-          status: 'active',
-          recipient: 'Awaiting recipient',
-          recipientRating: 0,
-          milestones,
-          image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
-          description: draft.description,
-          daysLeft: 90,
-          requiresMultiSig: false,
-        })
-        await fundProject(created.id, amount, {
-          paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
-          payerPhoneNumber: phone || '+237677234891',
-        })
-        setCreatedId(created.id)
-      } else if (existing) {
-        await fundProject(existing.id, amount, {
-          paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
-          payerPhoneNumber: phone || '+237677234891',
-        })
+      const targetProjectId = await resolveTargetProjectId()
+
+      const res = await fundProject(targetProjectId, amount, {
+        paymentProvider: method,
+        payerPhoneNumber: phone || '+237677234891',
+        currency: foreignCurrency ? 'EUR' : 'XAF',
+      })
+
+      // If Flutterwave returned a payment redirect URL, open it
+      if (method === 'flutterwave' && res.paymentUrl) {
+        window.location.href = res.paymentUrl
+        return
       }
+
       setStep('success')
     } catch (err) {
       showToast({ title: 'Payment failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -771,6 +935,14 @@ export function FundProjectScreen() {
 
   if (step === 'success') {
     const targetId = createdId ?? existing?.id ?? fallback.id
+    // A tender-turned-project has no ProjectDetailScreen equivalent — that
+    // screen is built entirely around funding-project concepts (recipient,
+    // co-signer, group contributors) a tender doesn't have. This was the
+    // actual "Project not found" a funder hit right after successfully
+    // funding an awarded tender's escrow: the button always pointed at
+    // ProjectDetailScreen, which also only ever reads from the funding-only
+    // project list — a tender was never going to be found there either way.
+    const backDestination = existing?.projectType === 'tender' ? `/funder/tender/${targetId}/bids` : `/funder/project/${targetId}`
     return (
       <AppShell noNav>
         <div className="flex flex-col items-center justify-center h-full px-8 text-center">
@@ -790,7 +962,7 @@ export function FundProjectScreen() {
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Transaction reference</div>
             <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm font-medium">DL-2025-07-{Math.floor(Math.random() * 90000 + 10000)}</div>
           </div>
-          <PillButton onClick={() => nav(`/funder/project/${targetId}`)} fullWidth>Back to project</PillButton>
+          <PillButton onClick={() => nav(backDestination)} fullWidth>Back to project</PillButton>
         </div>
       </AppShell>
     )
@@ -819,29 +991,39 @@ export function FundProjectScreen() {
 
         <FeeBreakdown result={fees.projectFunding(amount)} />
 
-        {/* Payment method */}
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Payment method</label>
-          <MomoOmPicker method={method} onChange={setMethod} />
-        </div>
+        {/* Payment method selector */}
+        <PaymentMethodSelector selected={method} onChange={setMethod} availableMethods={availableMethods} />
 
-        {/* Phone confirm */}
-        <div>
-          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Paying from</label>
-          <div className="flex items-center gap-3 border-2 rounded-xl px-4 py-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">+237 677 234 891</span>
-            <div className="ml-auto w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
-              </svg>
+        {/* Stripe Card Checkout Step */}
+        {step === 'stripe_card' && (
+          <StripeCheckout
+            clientSecret={stripeClientSecret}
+            onSuccess={handleStripeSuccess}
+            onCancel={() => setStep('select')}
+          />
+        )}
+
+        {/* Phone confirm for MoMo / OM */}
+        {['mtn_momo', 'orange_money'].includes(method) && (
+          <div>
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Paying from</label>
+            <div className="flex items-center gap-3 border-2 rounded-xl px-4 py-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
+              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">{phone || '+237 677 234 891'}</span>
+              <div className="ml-auto w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.3" strokeLinecap="round" />
+                </svg>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* PIN */}
-        {step === 'confirm' && (
+        {/* PIN prompt */}
+        {step === 'confirm' && ['mtn_momo', 'orange_money'].includes(method) && (
           <div>
-            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Enter MoMo PIN</label>
+            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">
+              Enter {method === 'mtn_momo' ? 'MoMo' : 'Orange Money'} PIN
+            </label>
             <div className="flex gap-3 justify-center">
               {[0, 1, 2, 3].map((i) => (
                 <div key={i} className="w-12 h-12 rounded-xl border-2 flex items-center justify-center" style={{ borderColor: pin.length > i ? C.forest : C.parchmentDark, background: C.white }}>
@@ -856,14 +1038,14 @@ export function FundProjectScreen() {
 
         {/* Foreign currency toggle */}
         <div className="flex items-center justify-between rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">Fund in a different currency</span>
-          <Switch checked={foreignCurrency} onChange={setForeignCurrency} ariaLabel="Fund in a different currency" />
+          <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">Fund in EUR/USD (Diaspora)</span>
+          <Switch checked={foreignCurrency} onChange={setForeignCurrency} ariaLabel="Fund in EUR/USD" />
         </div>
         {foreignCurrency && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <CurrencyConverterWidget defaultAmount={Math.round(amount / fees.config.foreignCurrencies[0].xafRate)} />
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-3 leading-relaxed">
-              Send enough to cover {fmt(amount)} plus the conversion fee shown above. Your MoMo/Orange Money charge is always confirmed in XAF.
+              Send enough to cover {fmt(amount)} plus the conversion fee shown above. Escrow is always held in XAF.
             </p>
           </div>
         )}
@@ -879,11 +1061,13 @@ export function FundProjectScreen() {
         <KycGateBanner amount={amount} />
       </div>
 
-      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={() => step === 'select' ? setStep('confirm') : confirmPayment()} fullWidth disabled={kycBlocked || submitting}>
-          {submitting ? 'Processing…' : step === 'select' ? `Pay ${fmt(amount)} via ${method === 'momo' ? 'MTN MoMo' : 'Orange Money'}` : 'Confirm payment'}
-        </PillButton>
-      </div>
+      {step !== 'stripe_card' && (
+        <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
+          <PillButton onClick={() => step === 'select' ? handleNext() : confirmPayment()} fullWidth disabled={kycBlocked || submitting}>
+            {submitting ? 'Processing…' : step === 'select' ? `Proceed with ${method === 'mtn_momo' ? 'MTN MoMo' : method === 'orange_money' ? 'Orange Money' : method === 'stripe' ? 'Card' : 'Flutterwave'}` : 'Confirm Payment'}
+          </PillButton>
+        </div>
+      )}
     </AppShell>
   )
 }
@@ -894,26 +1078,60 @@ export function MilestoneReviewScreen() {
   const { id } = useParams()
   const { projects, approveMilestone, devUserId } = useApp()
   const { show: showToast } = useToast()
-  const project = projects.find((p) => p.id === id)
-    ?? projects.find((p) => p.milestones.some((m) => m.status === 'under_review'))
-    ?? projects[0]
-  const milestone = project.milestones.find((m) => m.status === 'under_review') ?? project.milestones[0]
-  const [decision, setDecision] = useState<'approve' | 'dispute' | null>(null)
+  // Same bug class as MilestoneSubmitScreen (see its comment) — `projects`
+  // (useProjectsQuery) hardcodes projectType=funding, so it never includes
+  // a tender-turned-project a funder is reviewing a contractor's milestone
+  // evidence on. Every real entry point here (notifications, the dashboard,
+  // ProjectDetailScreen) already passes a real project id, so fetch that
+  // project directly instead of hoping it's in the funding-only list — the
+  // id-less "my next under-review milestone" fallback stays scoped to
+  // `projects` since that's specifically a funding-project dashboard
+  // shortcut, same convention as MilestoneSubmitScreen's.
+  const { data: directProject, isLoading: directProjectLoading } = useProjectQuery(id)
+  const project = id
+    ? directProject
+    : (projects.find((p) => p.milestones.some((m) => m.status === 'under_review')) ?? projects[0])
+  const milestone = project?.milestones.find((m) => m.status === 'under_review') ?? project?.milestones[0]
+  const [decision, setDecision] = useState<'approve' | 'dispute' | 'changes' | null>(null)
   const [approving, setApproving] = useState(false)
+  const [geoMapOpen, setGeoMapOpen] = useState(false)
+
+  // All hooks below are called unconditionally (before the loading/not-found
+  // returns further down) per the Rules of Hooks — each no-ops via its own
+  // `enabled`/undefined-arg handling until project/milestone resolve.
 
   // Real, human, on-site verifier report — not every milestone has one
   // (only ones an admin assigned a verifier to), so the section below only
   // renders when a task actually exists and has a submitted report.
-  const { data: verificationTasks = [] } = useVerificationTasksQuery({ targetType: 'milestone', targetId: milestone.id })
+  const { data: verificationTasks = [] } = useVerificationTasksQuery({ targetType: 'milestone', targetId: milestone?.id })
   const verifierReport = verificationTasks.find((t) => t.status === 'submitted')
 
-  // Materials-routed milestone — when a supplier has confirmed an order for
-  // this milestone, approval pays them directly instead of the recipient
-  // (see materials.tsx's resolveMilestonePayee, mirroring the real Escrow
-  // payeeType logic this is prototyping ahead of the real backend).
-  const { getMaterialOrderForMilestone } = useMaterials()
-  const materialOrder = getMaterialOrderForMilestone(milestone.id)
+  // Materials-routed milestone — when a supplier has confirmed a real order
+  // for this milestone, approval is understood to pay them directly instead
+  // of the recipient (see materials.tsx's resolveMilestonePayee — display
+  // only; the real Escrow release path has no payee-type concept wired in
+  // yet, so this doesn't change where money actually moves).
+  const { data: materialOrders = [] } = useMaterialOrdersForMilestoneQuery(project?.id, milestone?.id)
+  const materialOrder = materialOrders[0]
   const { payeeType, payoutLabel } = resolveMilestonePayee(materialOrder)
+
+  const { data: videoSessions = [] } = useVideoSessionsQuery(project?.id, milestone?.id)
+
+  // Every hook above has now been called unconditionally regardless of
+  // whether project/milestone actually resolved — safe to bail out below,
+  // and everything after this point can use project/milestone directly
+  // (TypeScript narrows both to non-undefined past these guards).
+  if (id ? directProjectLoading : !project) {
+    return <AppShell noNav>{null}</AppShell>
+  }
+  if (!project || !milestone) {
+    return (
+      <AppShell noNav>
+        <Header title="Milestone Review" back />
+        <div className="px-5 py-4"><EmptyState icon="camera" title="Project not found" description="This project may have been removed, or the link is out of date." illustration="tilt" /></div>
+      </AppShell>
+    )
+  }
 
   // The backend is the source of truth for multi-sig: it auto-registers
   // whoever decides as an approver on their first decision and only
@@ -933,8 +1151,6 @@ export function MilestoneReviewScreen() {
     return { name: req.userId === devUserId ? 'You' : req.userName, status: real?.status === 'approved' ? 'approved' : 'pending' }
   })
   const myApprovalDone = milestone.approvers.find((a) => a.userId === devUserId)?.status === 'approved'
-
-  const { data: videoSessions = [] } = useVideoSessionsQuery(project.id, milestone.id)
   // Most recent non-cancelled session, if any — a milestone can be
   // re-requested after a cancellation.
   const videoCall = videoSessions.find((s) => s.status !== 'cancelled')
@@ -978,6 +1194,10 @@ export function MilestoneReviewScreen() {
 
   if (decision === 'dispute') {
     return <DisputeForm projectId={project.id} milestoneId={milestone.id} onBack={() => setDecision(null)} onDone={() => nav('/home')} />
+  }
+
+  if (decision === 'changes') {
+    return <RequestChangesForm projectId={project.id} milestoneId={milestone.id} onBack={() => setDecision(null)} onDone={() => nav('/home')} />
   }
 
   return (
@@ -1072,7 +1292,16 @@ export function MilestoneReviewScreen() {
           const locationLooksOff = withGeotag.locationMatch === false
           return (
             <div className="rounded-2xl border p-4" style={{ borderColor: locationLooksOff ? 'var(--status-error-bg)' : C.parchmentDark, background: C.white }}>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Geo verification</div>
+              <div className="flex items-center justify-between mb-3">
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Geo verification</div>
+                <button
+                  onClick={() => setGeoMapOpen(true)}
+                  className="flex-shrink-0 text-xs font-semibold whitespace-nowrap"
+                  style={{ fontFamily: FONT.sans, color: C.forest }}
+                >
+                  View on Map →
+                </button>
+              </div>
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: locationLooksOff ? 'var(--status-error-bg)' : 'var(--status-info-bg)' }}>
                   <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
@@ -1082,7 +1311,9 @@ export function MilestoneReviewScreen() {
                 </div>
                 <div>
                   <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{locationLooksOff ? "Location doesn't match project site" : 'Location confirmed'}</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs mt-0.5">{lat.toFixed(5)}, {lng.toFixed(5)} — {project.location}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs mt-0.5">
+                    {withGeotag.placeName ? `${withGeotag.placeName} (${lat.toFixed(5)}, ${lng.toFixed(5)})` : `${lat.toFixed(5)}, ${lng.toFixed(5)}`} — {project.location}
+                  </div>
                   {withGeotag.capturedAt && (
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
                       Submitted: {new Date(withGeotag.capturedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
@@ -1090,6 +1321,16 @@ export function MilestoneReviewScreen() {
                   )}
                 </div>
               </div>
+              <Suspense fallback={null}>
+                <LocationMapModal
+                  open={geoMapOpen}
+                  onClose={() => setGeoMapOpen(false)}
+                  lat={lat}
+                  lng={lng}
+                  title={withGeotag.placeName || 'Milestone proof location'}
+                  address={withGeotag.placeName ? `${withGeotag.placeName} — evidence submitted for ${milestone.title}` : `Evidence submitted for ${milestone.title}`}
+                />
+              </Suspense>
             </div>
           )
         })()}
@@ -1123,9 +1364,32 @@ export function MilestoneReviewScreen() {
           {materialOrder ? (
             <MaterialOrderCard order={materialOrder} />
           ) : (
-            <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No material order linked to this milestone.</div>
+            <>
+              <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic mb-2">No material order linked to this milestone.</div>
+              <button
+                onClick={() => nav(`/materials/request/${project.id}/${milestone.id}`)}
+                className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
+                style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
+              >
+                Request materials from a verified store →
+              </button>
+            </>
           )}
         </div>
+
+        {/* Prior correction rounds — full history, so both sides see every back-and-forth on this milestone */}
+        {milestone.changeRequests.length > 0 && (
+          <div className="rounded-2xl border p-4 space-y-2" style={{ borderColor: C.amber, background: 'var(--status-warning-bg)' }}>
+            <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest">
+              Corrections requested ({milestone.changeRequests.length})
+            </div>
+            {milestone.changeRequests.map((c, i) => (
+              <p key={i} style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm">
+                "{c.reason}" <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">— {new Date(c.requestedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+              </p>
+            ))}
+          </div>
+        )}
 
         {/* Recipient notes — real text from the submission, when the recipient left any */}
         {milestone.evidence.some((e) => e.notes) && (
@@ -1153,6 +1417,13 @@ export function MilestoneReviewScreen() {
             {approving ? 'Releasing…' : requiresMultiSig ? `Add your approval (${approvers.filter((a) => a.status === 'approved').length}/${approvers.length})` : `Approve — release ${fmt(milestone.amount)}`}
           </button>
         )}
+        <button
+          onClick={() => setDecision('changes')}
+          className="w-full py-3.5 rounded-xl font-semibold text-sm border"
+          style={{ borderColor: C.amber, color: C.forestDark, background: 'var(--status-warning-bg)', fontFamily: FONT.sans }}
+        >
+          Request corrections
+        </button>
         <button
           onClick={() => setDecision('dispute')}
           className="w-full py-3.5 rounded-xl font-semibold text-sm border"
@@ -1382,6 +1653,78 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
   )
 }
 
+// ── Request corrections (embedded) ──────────────────────────────────────────
+/** Lighter-weight than DisputeForm above: no formal escalation, no issue-
+ * type picker — just a reason the contractor/recipient sees, sent back to
+ * 'pending' for resubmission. See projectController.requestMilestoneChanges. */
+function RequestChangesForm({ projectId, milestoneId, onBack, onDone }: { projectId: string; milestoneId: string; onBack: () => void; onDone: () => void }) {
+  const { requestMilestoneChanges } = useApp()
+  const [reason, setReason] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const { show: showToast } = useToast()
+
+  const submit = async () => {
+    if (!reason.trim()) return
+    setSubmitting(true)
+    try {
+      await requestMilestoneChanges(projectId, milestoneId, reason.trim())
+      setSubmitted(true)
+    } catch (err) {
+      showToast({ title: 'Failed to send back for corrections', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (submitted) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: C.amber }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <path d="M12 18H24M18 12L24 18L18 24" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" transform="rotate(180 18 18)" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Sent back for corrections</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            No money has moved. The milestone is back to pending with your note attached — they can resubmit whenever it's ready.
+          </p>
+          <PillButton onClick={onDone} fullWidth>Return to dashboard</PillButton>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Request Corrections" back onBack={onBack} />
+
+      <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
+        <div className="rounded-xl border p-3" style={{ background: 'var(--status-warning-bg)', borderColor: C.amber }}>
+          <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
+            No money moves and nothing is escalated — the milestone goes back to pending so they can fix the issue and resubmit.
+          </p>
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">What needs fixing?</label>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={5}
+            placeholder="Be specific — this is what they'll see when they resubmit..."
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }} />
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
+        <PillButton onClick={submit} fullWidth disabled={!reason.trim() || submitting}>
+          {submitting ? 'Sending…' : 'Send back for corrections'}
+        </PillButton>
+      </div>
+    </AppShell>
+  )
+}
+
 // ── Dispute screen — deep-linkable wrapper ─────────────────────────────────────
 export function DisputeScreen() {
   const nav = useNavigate()
@@ -1474,7 +1817,12 @@ export function BidComparisonScreen() {
 
   return (
     <AppShell noNav>
-      <Header title="Browse Contractors" subtitle={`${contractors.length} contractors`} back />
+      <Header title="Browse Contractors" subtitle={`${contractors.length} contractors`} back>
+        <Link to="/contractors/leaderboard" className="flex items-center gap-1.5 text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+          <AppIcon name="trophy" size={13} />
+          View leaderboard →
+        </Link>
+      </Header>
 
       <div className="px-5 py-4 space-y-4 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         {contractors.map((c) => (
@@ -1505,15 +1853,26 @@ export function BidComparisonScreen() {
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">{c.jobs} completed jobs</div>
               </div>
             </div>
-            <Link
-              to={`/contractor/availability/${c.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="mt-3 flex items-center gap-1.5 text-xs font-semibold"
-              style={{ fontFamily: FONT.sans, color: C.forest }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="2" width="9" height="8.5" rx="1" stroke={C.forest} strokeWidth="1.1" /><path d="M1.5 4.5H10.5" stroke={C.forest} strokeWidth="1.1" /></svg>
-              View availability calendar →
-            </Link>
+            <div className="mt-3 flex items-center gap-4">
+              <Link
+                to={`/contractor/portfolio/${c.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-xs font-semibold"
+                style={{ fontFamily: FONT.sans, color: C.forest }}
+              >
+                <AppIcon name="user" size={12} />
+                View portfolio →
+              </Link>
+              <Link
+                to={`/contractor/availability/${c.id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-xs font-semibold"
+                style={{ fontFamily: FONT.sans, color: C.forest }}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1.5" y="2" width="9" height="8.5" rx="1" stroke={C.forest} strokeWidth="1.1" /><path d="M1.5 4.5H10.5" stroke={C.forest} strokeWidth="1.1" /></svg>
+                Availability →
+              </Link>
+            </div>
           </div>
         ))}
       </div>

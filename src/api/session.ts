@@ -20,6 +20,11 @@ export interface BackendUser {
    * created before Phase 14 keeps full access). See useMyAdminPermissionsQuery
    * below and the backend's User.adminPermissions comment. */
   adminPermissions?: string[] | null
+  payoutMethods?: { _id: string; label: string; provider: 'mtn_momo' | 'orange_money'; phoneNumber: string; isDefault: boolean }[]
+  /** ISO 3166-1 alpha-2 (e.g. "CM"), set during onboarding (ProfileSetupScreen).
+   * Used to order/default the funding checkout's payment methods — see
+   * FundProjectScreen's availableMethods. */
+  residenceCountry?: string
 }
 
 // The frontend's Role union doesn't include 'verifier'/'admin' — those are
@@ -48,6 +53,14 @@ export async function fetchBackendUser(): Promise<BackendUser | null> {
   } catch {
     return null
   }
+}
+
+export function useSessionQuery(devUserId?: string) {
+  return useQuery({
+    queryKey: ['currentUser', devUserId],
+    queryFn: fetchBackendUser,
+    staleTime: 30_000,
+  })
 }
 
 /** True if the account carries the backend's 'admin' roleType — never part

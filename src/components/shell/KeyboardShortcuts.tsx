@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../context'
+import { useMaterials } from '../../materials'
+import { useMyRoleTypesQuery } from '../../api/session'
 import { QUICK_CREATE_BY_ROLE } from './quickCreate'
 import { ShortcutsHelpModal } from './ShortcutsHelpModal'
 
 const GO_TARGETS: Record<string, string> = { h: '/home', m: '/messages', a: '/activity' }
 const GO_PROJECTS_BY_ROLE: Record<string, string> = {
-  funder: '/workspace/projects', recipient: '/recipient/projects', contractor: '/workspace/jobs', seller: '/workspace/land',
+  funder: '/workspace/projects', recipient: '/recipient/projects', contractor: '/contractor/jobs', seller: '/workspace/land',
+  quincaillerie: '/quincaillerie/dashboard',
 }
 
 function isTypingTarget(target: EventTarget | null) {
@@ -28,7 +31,14 @@ export function useShortcutsHelp() {
  * never misfires a navigation. Mounted once in App.tsx. */
 export function KeyboardShortcutsProvider({ children }: { children: ReactNode }) {
   const nav = useNavigate()
-  const { role, isLoggedIn, authChecked } = useApp()
+  const { role, isLoggedIn, authChecked, devUserId } = useApp()
+  const { myQuincaillerie } = useMaterials()
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
+  // Same effectiveRole computation as Sidebar.tsx/MobileLayout.tsx — a
+  // quincaillerie-only account has role===null (it isn't a real Role, see
+  // Onboarding.tsx), so without this both shortcuts below silently fell
+  // back to funder's destinations for that account.
+  const effectiveRole = role === null && (myQuincaillerie || roleTypes.includes('quincaillerie')) ? 'quincaillerie' : role ?? 'funder'
   const [helpOpen, setHelpOpen] = useState(false)
   const leaderActive = useRef(false)
   const leaderTimeout = useRef<number | undefined>(undefined)
@@ -46,7 +56,7 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
       if (leaderActive.current) {
         leaderActive.current = false
         window.clearTimeout(leaderTimeout.current)
-        if (key === 'p') { e.preventDefault(); nav(GO_PROJECTS_BY_ROLE[role ?? 'funder']) }
+        if (key === 'p') { e.preventDefault(); nav(GO_PROJECTS_BY_ROLE[effectiveRole]) }
         else if (GO_TARGETS[key]) { e.preventDefault(); nav(GO_TARGETS[key]) }
         return
       }
@@ -57,7 +67,7 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
         return
       }
       if (key === 'c') {
-        const target = QUICK_CREATE_BY_ROLE[role ?? 'funder']
+        const target = QUICK_CREATE_BY_ROLE[effectiveRole]
         if (target) { e.preventDefault(); nav(target.path) }
         return
       }
@@ -65,7 +75,7 @@ export function KeyboardShortcutsProvider({ children }: { children: ReactNode })
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [nav, role, isLoggedIn, authChecked])
+  }, [nav, effectiveRole, isLoggedIn, authChecked])
 
   return (
     <ShortcutsHelpContext.Provider value={{ show: () => setHelpOpen(true) }}>

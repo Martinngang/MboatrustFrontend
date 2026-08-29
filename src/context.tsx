@@ -8,9 +8,10 @@ import type { StatusTone } from './components/tokens'
 import type { IconName } from './components/icons'
 import {
   useProjectsQuery, useCreateProjectMutation, useFundProjectMutation,
-  useSubmitEvidenceMutation, useDecideApprovalMutation, useDisputeMilestoneMutation,
+  useSubmitEvidenceMutation, useDecideApprovalMutation, useDisputeMilestoneMutation, useRequestMilestoneChangesMutation,
+  type FundProjectResult,
 } from './api/projects'
-import { useJobsQuery, useCreateJobMutation, useBidsQuery, useCreateBidMutation } from './api/tenders'
+import { useJobsQuery, useCreateJobMutation, useBidsQuery, useCreateBidMutation, useCounterBidMutation } from './api/tenders'
 import { useLandListingsQuery, useCreateListingMutation, useUpdateVerificationStatusMutation } from './api/land'
 import { useLandOffersQuery } from './api/landOffers'
 import { useContractorProfilesQuery } from './api/contractors'
@@ -32,15 +33,22 @@ export interface MilestoneEvidence {
   fileUrl: string
   notes: string | null
   geotag: { lat: number; lng: number } | null
+  placeName: string | null
   capturedAt: string | null
   locationMatch: boolean | null
   timestampRecent: boolean | null
   duplicateFlag: boolean
 }
 
+export interface MilestoneChangeRequest {
+  reason: string
+  requestedAt: string
+}
+
 export interface Milestone {
   id: string
   title: string
+  description: string
   amount: number
   status: string
   proof: boolean
@@ -48,13 +56,28 @@ export interface Milestone {
   requiresCosigner: boolean
   requiresVideo: boolean
   approvers: MilestoneApprover[]
+  /** Full history of "send this back for corrections" rounds — see
+   * projectController.requestMilestoneChanges. Newest last. */
+  changeRequests: MilestoneChangeRequest[]
 }
 
 export interface Project {
   id: string
   title: string
+  /** 'funding' | 'tender' | 'land_purchase' — distinguishes a recipient's own
+   * funding request from a tender awarded to a contractor, both of which
+   * end up as Project documents. Screens built around funding-specific
+   * concepts (recipient, co-signer) should redirect elsewhere for a tender. */
+  projectType: string
   category: string
   location: string
+  /** Real GPS coordinates for `location`'s place name, when the backend has
+   * them — null for a project created before this existed, or whose
+   * region/town has no coordinate data in the underlying dataset. Distinct
+   * from `location` (always a display string) and from a milestone's own
+   * per-photo `geotag` (where evidence was captured, not where the project
+   * itself is). */
+  coordinates: { lat: number; lng: number } | null
   totalAmount: number
   raised: number
   status: string
@@ -70,6 +93,13 @@ export interface Project {
   requiresMultiSig: boolean
   coSignerId?: string
   coSignerName?: string
+  /** Who sources materials for this project's milestones — the owner's
+   * choice at creation time (see PostJobScreen). 'contractor' (default)
+   * means today's ordinary behavior; 'quincaillerie' pre-selects
+   * preferredQuincaillerieId on RequestMaterialsScreen instead of asking
+   * the requester to pick a store from scratch. */
+  materialsManagedBy?: 'contractor' | 'quincaillerie'
+  preferredQuincaillerieId?: string | null
 }
 
 export interface JobPosting {
@@ -77,6 +107,10 @@ export interface JobPosting {
   title: string
   category: string
   location: string
+  /** Real GPS coordinates for `location`, when available — same convention
+   * as Project.coordinates. Optional (not required like Project's) since
+   * older/mock JobPosting literals never had a reason to carry it. */
+  coordinates?: { lat: number; lng: number } | null
   budget: number
   deadline: string
   bids: number
@@ -86,6 +120,8 @@ export interface JobPosting {
   status: string
   /** Real backend User _id for the tender owner — needed to start a real conversation. */
   ownerId?: string
+  materialsManagedBy?: 'contractor' | 'quincaillerie'
+  preferredQuincaillerieId?: string | null
 }
 
 export interface LandListing {
@@ -128,6 +164,17 @@ export interface Contractor {
   verified: boolean
 }
 
+export interface BidScheduleMilestone { title: string; description: string; amount: number }
+
+export interface BidNegotiationRound {
+  proposedBy: 'funder' | 'contractor'
+  price: number
+  timelineDays: number
+  milestones: BidScheduleMilestone[]
+  message: string
+  createdAt: string
+}
+
 export interface Bid {
   id: string
   jobId: string
@@ -141,6 +188,15 @@ export interface Bid {
   notes: string
   status: string
   submitted: string
+  /** The current proposed payment schedule, if either side has proposed
+   * one — empty means a lump-sum price with no breakdown yet. */
+  milestones: BidScheduleMilestone[]
+  /** Full negotiation history, oldest first — see
+   * bidController.create/counter. */
+  rounds: BidNegotiationRound[]
+  /** Who proposed the CURRENT live terms — the other party is the one who
+   * can Accept/Counter/Reject right now. */
+  lastProposedBy: 'funder' | 'contractor'
 }
 
 export interface Offer {
@@ -186,6 +242,10 @@ export interface AppState {
    * mobile header, ProfileScreen) falls back to an initials circle in that
    * case. See UserAvatar in components/MobileLayout.tsx. */
   avatarUrl: string | null
+  /** ISO 3166-1 alpha-2 (e.g. "CM"), set during onboarding — empty string
+   * until then. Used to order/default the funding checkout's payment
+   * methods (see FundProjectScreen). */
+  residenceCountry: string
   /** True for an account carrying the backend's 'admin' roleType — a
    * separate staff dashboard, not one of `role`'s four consumer values (see
    * resolveAuthDestination in api/session.ts for why admin never touches
@@ -208,6 +268,7 @@ export interface AppState {
   setPhone: (p: string) => void
   setName: (n: string) => void
   setAvatarUrl: (u: string | null) => void
+  setResidenceCountry: (c: string) => void
   setLoggedIn: (v: boolean) => void
   /** Call right after any successful Firebase sign-in (Google, email, or
    * phone). Resolves the backend User and routes based on its saved
@@ -232,19 +293,21 @@ export interface AppState {
   projects: Project[]
   projectsLoading: boolean
   addProject: (p: Omit<Project, 'id'>) => Promise<Project>
-  fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => Promise<{ paymentUrl?: string; status: string }>
-  submitMilestoneProof: (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string) => Promise<void>
+  fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money' | 'stripe' | 'flutterwave'; payerPhoneNumber?: string; currency?: string }) => Promise<FundProjectResult>
+  submitMilestoneProof: (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null) => Promise<void>
   approveMilestone: (projectId: string, milestoneId: string) => Promise<{ project: Project; releasedEscrow: unknown }>
   disputeMilestone: (projectId: string, milestoneId: string, reason?: string) => Promise<void>
+  requestMilestoneChanges: (projectId: string, milestoneId: string, reason: string) => Promise<void>
 
   jobs: JobPosting[]
-  addJob: (j: Omit<JobPosting, 'id'>) => Promise<JobPosting>
+  addJob: (j: Omit<JobPosting, 'id'> & { milestoneSchedule?: { title: string; amount: number; description: string }[] }) => Promise<JobPosting>
   landListings: LandListing[]
   addListing: (l: Omit<LandListing, 'id'>) => Promise<LandListing>
   updateListingStatus: (id: string, status: 'pending' | 'verified' | 'disputed') => void
   contractors: Contractor[]
   bids: Bid[]
-  addBid: (b: Omit<Bid, 'id'>) => Promise<Bid>
+  addBid: (b: Omit<Bid, 'id' | 'milestones' | 'rounds' | 'lastProposedBy'> & { milestones?: BidScheduleMilestone[] }) => Promise<Bid>
+  counterBid: (bidId: string, terms: { price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string }) => Promise<Bid>
   offers: Offer[]
 
   notifications: AppNotification[]
@@ -263,6 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [residenceCountry, setResidenceCountry] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
   const [isLoggedIn, setLoggedIn] = useState(false)
   // Nothing to restore when there's no Firebase project — dev-bypass mode
@@ -286,9 +350,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const mappedRoles = mapBackendRoles(backendUser.roles)
           setName(backendUser.fullName)
           setAvatarUrl(backendUser.avatarUrl)
+          setResidenceCountry(backendUser.residenceCountry || '')
           setIsAdmin(dest === 'admin')
           setRoles(mappedRoles)
-          setRole(mappedRoles[0])
+          // mappedRoles[0] is `undefined`, not `null`, for a quincaillerie-only
+          // account (mapBackendRoles returns []) — HomeScreen's quincaillerie
+          // redirect strictly checks `role === null`, so leaving this as
+          // `undefined` silently fell through to the funder dashboard on
+          // every session restore for a returning quincaillerie-only user.
+          setRole(mappedRoles[0] ?? null)
           setLoggedIn(true)
         }
       }
@@ -308,6 +378,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const mappedRoles = mapBackendRoles(backendUser.roles)
         setName(backendUser.fullName)
         setAvatarUrl(backendUser.avatarUrl)
+        setResidenceCountry(backendUser.residenceCountry || '')
         if (mappedRoles.length > 0) {
           setRoles(mappedRoles)
           setRole(mappedRoles[0])
@@ -320,6 +391,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (dest === 'admin') {
       setName(backendUser!.fullName)
       setAvatarUrl(backendUser!.avatarUrl)
+      setResidenceCountry(backendUser!.residenceCountry || '')
       setIsAdmin(true)
       setLoggedIn(true)
       return 'admin'
@@ -327,8 +399,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const mappedRoles = mapBackendRoles(backendUser!.roles)
     setName(backendUser!.fullName)
     setAvatarUrl(backendUser!.avatarUrl)
+    setResidenceCountry(backendUser!.residenceCountry || '')
     setRoles(mappedRoles)
-    setRole(mappedRoles[0])
+    // Same fix as the session-restore effect above — mappedRoles[0] is
+    // `undefined` (not `null`) when empty, which broke HomeScreen's strict
+    // `role === null` quincaillerie check for exactly this login path.
+    setRole(mappedRoles[0] ?? null)
     setLoggedIn(true)
     return 'home'
   }
@@ -341,6 +417,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setRoles([])
     setName('')
     setAvatarUrl(null)
+    setResidenceCountry('')
     setIsAdmin(false)
     // react-query's cache is a single app-wide store, not reset on its own
     // between sessions in the same tab. Most query keys here are scoped by
@@ -364,14 +441,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // /users/me and ignores the role string entirely), and the DEV_AUTH_BYPASS
   // fallback's demo-user lookup only needs *some* placeholder role, not a
   // real one — which matters for every account whose `role` is legitimately
-  // null: an admin (see resolveAuthDestination) and, now, a
-  // quincaillerie-only account (see Onboarding.tsx's RoleScreen). Gating
-  // this on role previously meant devUserId — and everything derived from
-  // it, including a quincaillerie-only user's own myQuincaillerie lookup —
-  // silently never resolved for either case.
+  // null: an admin (see resolveAuthDestination) and a quincaillerie-only
+  // account (see Onboarding.tsx's RoleScreen). Gating this on role
+  // previously meant devUserId — and everything derived from it, including
+  // a quincaillerie-only user's own myQuincaillerie lookup — silently never
+  // resolved for either case.
+  //
+  // The placeholder passed when role is null used to be the literal string
+  // 'funder' — meaning every null-role account (admin-only, quincaillerie-
+  // only) silently resolved onto the exact same shared "Demo Funder" dev
+  // identity as a real funder account, since resolveDevUserId keys its
+  // find-or-create purely on this string (see devController.js's
+  // DEMO_USERS). That was the actual root cause behind "signed in as
+  // Quincaillerie but the sidebar shows Diaspora Funder": every fix to the
+  // UI's role-derivation logic (Sidebar/BottomNav/HomeScreen/ProfileScreen)
+  // was correct but moot, because devUserId itself — the input every one of
+  // those screens' myQuincaillerie/roleTypes queries key on — was the
+  // funder demo account's id the whole time. 'null-role' is its own
+  // dedicated DEMO_USERS entry, never shared with any real role.
   useEffect(() => {
     if (isLoggedIn) {
-      resolveCurrentUserId(role ?? 'funder').then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
+      resolveCurrentUserId(role ?? 'null-role').then(setDevUserIdState).catch((err) => console.error('[auth] failed to resolve current user id', err))
     } else {
       clearDevUserId()
       setDevUserIdState(null)
@@ -411,6 +501,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const submitEvidenceMutation = useSubmitEvidenceMutation()
   const decideApprovalMutation = useDecideApprovalMutation()
   const disputeMilestoneMutation = useDisputeMilestoneMutation()
+  const requestMilestoneChangesMutation = useRequestMilestoneChangesMutation()
 
   const jobsQuery = useJobsQuery()
   const jobs = jobsQuery.data ?? (jobsQuery.isLoading ? MOCK_JOBS : [])
@@ -418,6 +509,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const bidsQuery = useBidsQuery(devUserId ? { contractorId: devUserId } : {})
   const bids = devUserId ? (bidsQuery.data ?? []) : []
   const createBidMutation = useCreateBidMutation()
+  const counterBidMutation = useCounterBidMutation()
 
   const landListingsQuery = useLandListingsQuery()
   const landListings = landListingsQuery.data ?? (landListingsQuery.isLoading ? MOCK_LAND : [])
@@ -440,11 +532,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const created = await createProjectMutation.mutateAsync(p)
     return created
   }
-  const fundProject = async (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money'; payerPhoneNumber: string }) => {
+  const fundProject = async (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money' | 'stripe' | 'flutterwave'; payerPhoneNumber?: string; currency?: string }): Promise<FundProjectResult> => {
     const result = await fundProjectMutation.mutateAsync({ id, amount, ...opts })
     return result
   }
-  const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string) => {
+  const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null) => {
     // The backend stores one Evidence sub-document per file (POST .../evidence
     // accepts a single file), so a multi-photo submission is one call per
     // photo, sequential to keep evidence order deterministic and avoid
@@ -452,9 +544,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // The recipient's notes describe the submission as a whole, not any one
     // photo, but there's nowhere else to store them — attached to every
     // evidence entry created in this batch so a reviewer sees them regardless
-    // of which entry they're looking at.
+    // of which entry they're looking at. Same for placeName — already
+    // resolved once client-side for the whole submission, not per photo.
     for (const file of files) {
-      await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag, notes })
+      await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag, notes, placeName })
     }
   }
   const approveMilestone = async (projectId: string, milestoneId: string) => {
@@ -464,10 +557,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const disputeMilestone = async (projectId: string, milestoneId: string, reason = 'Disputed from app') => {
     await disputeMilestoneMutation.mutateAsync({ projectId, milestoneId, reason })
   }
-  const addJob = async (j: Omit<JobPosting, 'id'>) => {
+  const requestMilestoneChanges = async (projectId: string, milestoneId: string, reason: string) => {
+    await requestMilestoneChangesMutation.mutateAsync({ projectId, milestoneId, reason })
+  }
+  const addJob: AppState['addJob'] = async (j) => {
     const created = await createJobMutation.mutateAsync({
-      title: j.title, category: j.category, location: j.location, budget: j.budget,
+      title: j.title, category: j.category, location: j.location, coordinates: j.coordinates, budget: j.budget,
       deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
+      milestoneSchedule: j.milestoneSchedule,
     })
     return created
   }
@@ -483,9 +580,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const verificationStatus = status === 'disputed' ? 'flagged' : status;
     updateVerificationStatusMutation.mutate({ listingId: id, verificationStatus })
   }
-  const addBid = async (b: Omit<Bid, 'id'>) => {
-    const created = await createBidMutation.mutateAsync({ jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes })
+  const addBid: AppState['addBid'] = async (b) => {
+    const created = await createBidMutation.mutateAsync({
+      jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes, milestones: b.milestones,
+    })
     return { ...created, jobTitle: b.jobTitle }
+  }
+  const counterBid: AppState['counterBid'] = async (bidId, terms) => {
+    return counterBidMutation.mutateAsync({ bidId, ...terms })
   }
   const markNotificationRead = (id: string) => {
     markNotificationReadMutation.mutate(id)
@@ -502,11 +604,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        role, roles, lang, phone, name, avatarUrl, isAdmin, isLoggedIn, authChecked, devUserId,
-        setRole, setRoles, setLang, setPhone, setName, setAvatarUrl, setLoggedIn, completeAuthSuccess, logout,
-        projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone,
+        role, roles, lang, phone, name, avatarUrl, residenceCountry, isAdmin, isLoggedIn, authChecked, devUserId,
+        setRole, setRoles, setLang, setPhone, setName, setAvatarUrl, setResidenceCountry, setLoggedIn, completeAuthSuccess, logout,
+        projects, projectsLoading: projectsQuery.isLoading, addProject, fundProject, submitMilestoneProof, approveMilestone, disputeMilestone, requestMilestoneChanges,
         jobs, addJob, landListings, addListing, updateListingStatus,
-        contractors, bids, addBid, offers,
+        contractors, bids, addBid, counterBid, offers,
         notifications, unreadNotifications, markNotificationRead, markAllNotificationsRead,
       }}
     >
@@ -523,17 +625,19 @@ export const MOCK_PROJECTS: Project[] = [
   {
     id: 'p1',
     title: 'Borehole — Bamenda North',
+    projectType: 'funding',
     category: 'Water & Sanitation',
     location: 'Bamenda, NW Region',
+    coordinates: { lat: 5.9631, lng: 10.1591 },
     totalAmount: 3200000,
     raised: 2100000,
     status: 'active',
     recipient: 'Emmanuel Njang',
     recipientRating: 4.8,
     milestones: [
-      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
     ],
     image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
     description: 'A community borehole serving 340 households in Bamenda North who currently walk 4km for clean water. Work started February 2025.',
@@ -543,17 +647,19 @@ export const MOCK_PROJECTS: Project[] = [
   {
     id: 'p2',
     title: 'Primary school roof — Maroua',
+    projectType: 'funding',
     category: 'Education',
     location: 'Maroua, Far North',
+    coordinates: { lat: 10.591, lng: 14.3159 },
     totalAmount: 1800000,
     raised: 1800000,
     status: 'completed',
     recipient: 'Fatima Oumarou',
     recipientRating: 4.9,
     milestones: [
-      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
     ],
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&h=220&fit=crop&auto=format',
     description: 'Replacement of the collapsed roof on Bloc C of the Government Primary School, Maroua. 280 pupils affected.',
@@ -563,18 +669,20 @@ export const MOCK_PROJECTS: Project[] = [
   {
     id: 'p3',
     title: 'Maternity clinic renovation — Limbe',
+    projectType: 'funding',
     category: 'Healthcare',
     location: 'Limbe, SW Region',
+    coordinates: { lat: 4.0225, lng: 9.2149 },
     totalAmount: 5500000,
     raised: 1200000,
     status: 'active',
     recipient: 'Dr. Ngole Mbah',
     recipientRating: 4.7,
     milestones: [
-      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
-      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [] },
+      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
     ],
     image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&h=220&fit=crop&auto=format',
     description: 'Renovation of the only maternity unit serving 8 villages in Limbe District. Building has not been maintained since 2009.',

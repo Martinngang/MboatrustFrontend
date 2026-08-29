@@ -166,7 +166,7 @@ export function LanguageScreen() {
   const pick = (l: 'en' | 'fr') => { setLang(l); nav('/signup') }
 
   return (
-    <OnboardingShell step={1} showBack={false} eyebrow="Welcome" title={T.select_lang.en}>
+    <OnboardingShell step={1} showBack={false} wide eyebrow="Welcome" title={T.select_lang.en}>
       <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="-mt-5 mb-8 text-xs uppercase tracking-widest">
         Choisissez votre langue
       </p>
@@ -866,7 +866,7 @@ export function ProfileSetupScreen() {
   const nav = useNavigate()
   const location = useLocation()
   const wantsQuincaillerie = Boolean((location.state as { wantsQuincaillerie?: boolean } | null)?.wantsQuincaillerie)
-  const { setName, setLoggedIn } = useApp()
+  const { setName, setLoggedIn, completeAuthSuccess } = useApp()
   const { show: showToast } = useToast()
   const [form, setForm] = useState({ name: '', residenceCity: '', residenceCountry: '', id: '' })
   const [step, setStep] = useState<'info' | 'id'>('info')
@@ -898,15 +898,25 @@ export function ProfileSetupScreen() {
           residenceCountry: form.residenceCountry,
           residenceCity: form.residenceCity,
         })
+        // Was setName + setLoggedIn(true) directly, which never hydrated
+        // residenceCountry (or roles/avatarUrl) into context — every other
+        // sign-in path goes through completeAuthSuccess for exactly that
+        // reason (see useAuthRouting above). Skipping it here meant a
+        // brand-new user's payment-method order (FundProjectScreen) stayed
+        // on the Cameroon default for their whole first session, only
+        // correcting itself after a reload/relogin re-ran the session
+        // -restore hydration.
+        await completeAuthSuccess()
       } catch (err) {
         showToast({ title: 'Failed to save profile', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
         setFinishing(false)
         return
       }
       setFinishing(false)
+    } else {
+      setName(fullName)
+      setLoggedIn(true)
     }
-    setName(fullName)
-    setLoggedIn(true)
     nav(wantsQuincaillerie ? '/quincaillerie/register' : '/home')
   }
 
