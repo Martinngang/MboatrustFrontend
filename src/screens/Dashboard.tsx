@@ -1,14 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
+import { useMyFundedProjectsQuery } from '../api/projects'
 import { useMaterials } from '../materials'
-import { useMyProjectsQuery, useMyFundedProjectsQuery } from '../api/projects'
-import { useMyRoleTypesQuery } from '../api/session'
+import { useVerification } from '../verification'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
 import { DeferredReveal, Skeleton, SkeletonCard } from '../components/Skeleton'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { ChipGroup } from '../components/Chip'
-import { EmptyState } from '../components/EmptyState'
 import { WidgetGrid, type WidgetDef } from '../components/dashboard/WidgetGrid'
 import { NeedsAttentionWidget, type AttentionItem } from '../components/dashboard/NeedsAttentionWidget'
 import { RecentActivityWidget } from '../components/dashboard/RecentActivityWidget'
@@ -16,37 +15,30 @@ import { OnboardingChecklistWidget } from '../components/dashboard/OnboardingChe
 
 // ── Home dashboard — routes to role-specific view ────────────────────────────
 export function HomeScreen() {
-  const { role, isLoggedIn } = useApp()
-  const { myQuincaillerie, isLoadingMyQuincaillerie } = useMaterials()
-  // A quincaillerie-only account (no real funder/recipient/contractor/
-  // seller role — just Quincaillerie picked at onboarding) has no "home"
-  // dashboard of its own among the four below; it must land on its own
-  // page directly rather than falling through to the funder dashboard by
-  // default, which is exactly the bug reported (picking Quincaillerie-only
-  // silently showed a funder home screen with fake "funded projects" copy).
-  // myQuincaillerie is a real network fetch now (see materials.tsx) — wait
-  // for it before falling through to FunderHome, so a quincaillerie-only
-  // account never flashes the wrong dashboard on the first render.
-  //
-  // myQuincaillerie alone isn't a complete signal, though: it's the
-  // QuincaillerieProfile document, which only exists once someone has
-  // submitted the registration form. An account whose quincaillerie role
-  // was granted directly (e.g. an admin using the generic role-grant
-  // instead of the profile-approval flow) has the role on User.roles with
-  // no profile document at all — myQuincaillerie is then null, and this
-  // used to fall through to FunderHome despite genuinely holding the role.
-  // useMyRoleTypesQuery reads the raw roles (unlike `role`, which drops
-  // quincaillerie entirely — see api/session.ts), so it catches that case;
-  // QuincaillerieDashboardScreen already renders a "Get started" / register
-  // prompt when there's no profile yet, so landing there with role-but-no-
-  // profile is the correct, graceful outcome, not a dead end.
-  const { data: myRoleTypes, isLoading: isLoadingRoleTypes } = useMyRoleTypesQuery(isLoggedIn && role === null)
-  const hasQuincaillerieRole = myRoleTypes?.includes('quincaillerie') ?? false
-  if (role === null && (isLoadingMyQuincaillerie || isLoadingRoleTypes)) return null
-  if (role === null && (myQuincaillerie || hasQuincaillerieRole)) return <Navigate to="/quincaillerie/dashboard" replace />
-  if (role === 'recipient') return <RecipientHome />
+  const { role } = useApp()
+  const { mySupplier } = useMaterials()
+  const { verifierProfile } = useVerification()
+  // Supplier has no inline "home" dashboard of its own among the three
+  // below — it lands directly on its own dashboard screen, which already
+  // renders a "Get started" / register prompt for an approved-role account
+  // with no profile submitted yet, so this is a graceful outcome either way.
+  if (role === 'supplier') return <Navigate to="/supplier/dashboard" replace />
   if (role === 'contractor') return <ContractorHome />
   if (role === 'seller') return <SellerHome />
+  // `role` is null both for a genuinely fresh account AND for a Supplier or
+  // Verifier applicant awaiting admin approval (see api/session.ts —
+  // mapBackendRoles only returns a value once the backend has actually
+  // granted the roleType, which happens on approval, not on application).
+  // Falling straight through to FunderHome here used to attach every
+  // approval-pending Supplier/Verifier account to the funder identity even
+  // though they never chose it and nothing was ever granted — this is the
+  // fix: check for a real pending (or rejected) application first and route
+  // to that role's own dashboard, which already renders the correct
+  // pending/rejected state, before ever defaulting to Funder.
+  if (role === null) {
+    if (mySupplier) return <Navigate to="/supplier/dashboard" replace />
+    if (verifierProfile) return <Navigate to="/verifier/dashboard" replace />
+  }
   return <FunderHome />
 }
 
@@ -123,7 +115,6 @@ function FunderHome() {
             <div>
               <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
               <QuickActionsGrid actions={[
-                { icon: 'plus', label: 'Create project', path: '/funder/create' },
                 { icon: 'search', label: 'Browse', path: '/funder/browse' },
                 { icon: 'clipboard', label: 'Post job', path: '/funder/post-job' },
                 { icon: 'barChart', label: 'Activity', path: '/funder/transactions' },
@@ -212,130 +203,6 @@ function FunderHome() {
         <div className="mt-6">
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Your dashboard</p>
           <WidgetGrid sectionKey="funder-home" widgets={widgets} />
-        </div>
-      </DashboardShell>
-    </AppShell>
-    </DeferredReveal>
-  )
-}
-
-// ── Recipient dashboard ────────────────────────────────────────────────────────
-function RecipientHome() {
-  const nav = useNavigate()
-  const { name, devUserId } = useApp()
-  const { data: projects = [] } = useMyProjectsQuery(devUserId ?? undefined)
-  const project = projects[0]
-
-  // A brand-new recipient account has no assigned project yet — every
-  // computation below assumes one exists, so bail out to an empty state
-  // rather than crashing on `project.milestones`.
-  if (!project) {
-    return (
-      <DeferredReveal skeleton={<DashboardSkeleton />}>
-        <AppShell>
-          <DashboardShell>
-            <DashboardHero
-              eyebrow="Project recipient"
-              title={name || 'Emmanuel N.'}
-              background={`linear-gradient(135deg, ${C.forestDark} 0%, ${C.forest} 100%)`}
-              stats={[
-                { label: 'Funds received', value: fmt(0) },
-                { label: 'Milestones done', value: '0 / 0' },
-                { label: 'Active project', value: 'No' },
-              ]}
-            />
-            <div className="mt-6"><OnboardingChecklistWidget role="recipient" /></div>
-            <div className="mt-6">
-              <EmptyState
-                icon="clipboard"
-                title="No projects yet"
-                description="Once a funder assigns you a project, it'll show up here."
-                illustration="tilt"
-              />
-            </div>
-          </DashboardShell>
-        </AppShell>
-      </DeferredReveal>
-    )
-  }
-
-  const nextMilestone = project.milestones.find((m) => m.status !== 'released')
-  const received = project.milestones.filter((m) => m.status === 'released').reduce((s, m) => s + m.amount, 0)
-
-  const attentionItems: AttentionItem[] = nextMilestone
-    ? [{ icon: 'camera', label: `Submit proof for ${nextMilestone.title}`, sub: `${fmt(nextMilestone.amount)} released on approval`, onClick: () => nav('/recipient/submit') }]
-    : []
-  const widgets: WidgetDef[] = [
-    { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
-    { id: 'activity', title: 'Recent activity', render: () => <RecentActivityWidget /> },
-  ]
-
-  return (
-    <DeferredReveal skeleton={<DashboardSkeleton />}>
-    <AppShell>
-      <DashboardShell>
-        <DashboardHero
-          eyebrow="Project recipient"
-          title={name || 'Emmanuel N.'}
-          background={`linear-gradient(135deg, ${C.forestDark} 0%, ${C.forest} 100%)`}
-          stats={[
-            { label: 'Funds received', value: fmt(received) },
-            { label: 'Milestones done', value: `${project.milestones.filter((m) => m.status === 'released').length} / ${project.milestones.length}` },
-            { label: 'Active project', value: project.status === 'active' ? 'Yes' : 'No' },
-          ]}
-        />
-
-        <div className="mt-6"><OnboardingChecklistWidget role="recipient" /></div>
-
-        <div className="mt-6 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-6">
-            {nextMilestone && (
-              <div className="rounded-[24px] border-2 p-5" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
-                <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-2">Next milestone</div>
-                <div style={{ fontFamily: FONT.serif }} className="font-bold text-base mb-1">{nextMilestone.title}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mb-3">{fmt(nextMilestone.amount)} will be released upon approval</div>
-                <button
-                  onClick={() => nav('/recipient/submit')}
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-semibold text-sm"
-                  style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans, boxShadow: `0 8px 20px ${C.glowForest}` }}
-                >
-                  Submit milestone proof →
-                </button>
-              </div>
-            )}
-
-            <div>
-              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Quick actions</p>
-              <QuickActionsGrid actions={[
-                { icon: 'camera', label: 'Submit proof', path: '/recipient/submit' },
-                { icon: 'card', label: 'Withdraw', path: '/recipient/withdrawal' },
-                { icon: 'clipboard', label: 'Status', path: '/recipient/submission-status' },
-                { icon: 'star', label: 'Reputation', path: '/recipient/reputation' },
-              ]} />
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">My active project</p>
-              <Card variant="interactive" onClick={() => nav(`/funder/project/${project.id}`)}>
-                <img src={project.image} alt={project.title} className="w-full h-32 object-cover rounded-t-xl" />
-                <div className="p-4">
-                  <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm mb-1">{project.title}</div>
-                  <ProgressBar pct={Math.round((project.raised / project.totalAmount) * 100)} />
-                  <div className="flex justify-between mt-2">
-                    <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{fmt(project.raised)} raised</span>
-                    <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] font-semibold">Active</span>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-[0.3em]">Your dashboard</p>
-          <WidgetGrid sectionKey="recipient-home" widgets={widgets} />
         </div>
       </DashboardShell>
     </AppShell>

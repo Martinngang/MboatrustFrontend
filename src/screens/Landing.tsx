@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp, fmt, T, type Role } from '../context'
-import { C, FONT, Card, ProgressBar, Stars, PillButton, ThemeToggle } from '../components/MobileLayout'
+import { C, FONT, Card, ProgressBar, PillButton, ThemeToggle } from '../components/MobileLayout'
 import { InstallButton } from '../components/InstallButton'
 import { Reveal } from '../components/Reveal'
 import { Tilt3D } from '../components/Tilt3D'
@@ -35,11 +35,8 @@ function Nav() {
     <div className="sticky top-0 z-40 border-b backdrop-blur-md" style={{ borderColor: C.navGlassBorder, background: C.navGlassBg }}>
       <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: C.forest }}>
-            <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
-              <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.amber} strokeWidth="1.6" />
-              <circle cx="11" cy="11" r="2.5" fill={C.amber} />
-            </svg>
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+            <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-7 w-7 object-contain" />
           </div>
           <span style={{ fontFamily: FONT.serif }} className="text-lg font-bold">Mboa Trust</span>
         </div>
@@ -454,7 +451,7 @@ function TrustPath() {
 // ── How it works ─────────────────────────────────────────────────────────────
 function HowItWorks() {
   const steps: { n: string; icon: IconName; title: string; body: string }[] = [
-    { n: '01', icon: 'lock', title: 'Fund into escrow', body: 'Pay via MTN MoMo or Orange Money. Funds are held securely — not sent to the recipient yet.' },
+    { n: '01', icon: 'lock', title: 'Fund into escrow', body: 'Pay via MTN MoMo or Orange Money. Funds are held securely — not sent to the contractor yet.' },
     { n: '02', icon: 'camera', title: 'Proof gets submitted', body: 'Photo, video and GPS-tagged evidence is submitted for every milestone, as it happens.' },
     { n: '03', icon: 'receipt', title: 'A local verifier checks it', body: 'An independent, on-ground agent confirms the work matches the evidence before anyone can approve.' },
     { n: '04', icon: 'checkCircle', title: 'You approve, funds release', body: 'Review the verified evidence and approve. Payment releases from escrow only then.' },
@@ -514,11 +511,11 @@ const ROLE_CARDS: { id: NonNullable<Role>; icon: IconName; title: string; body: 
     bg: 'linear-gradient(135deg, #1A4731 0%, #2D6B4A 100%)',
   },
   {
-    id: 'recipient',
-    icon: 'hardHat',
-    title: 'Project Recipient',
-    body: 'Get funded for community or family projects and prove progress with photo, video and GPS evidence.',
-    points: ['Simple milestone submission', 'Transparent status tracking', 'Fast MoMo/OM withdrawal'],
+    id: 'supplier',
+    icon: 'store',
+    title: 'Supplier',
+    body: 'Sell cement, sand, blocks, steel, timber, roofing and other building materials — get paid directly on milestone approval.',
+    points: ['Manage your own inventory & pricing', 'Escrow-backed material orders', 'Build a public rating'],
     bg: `linear-gradient(135deg, ${C.forestDark} 0%, ${C.forest} 100%)`,
   },
   {
@@ -597,7 +594,7 @@ function VerificationDeepDive() {
     { num: '01', title: 'Live capture only', body: 'Evidence is shot in-app with location and timestamp attached — no gallery uploads, no reused photos.' },
     { num: '02', title: 'Before-and-after comparison', body: 'Every milestone is checked against the previous one from the same angle, so progress is visible, not just claimed.' },
     { num: '03', title: 'Optional human verifier', body: 'For higher-value milestones, a local verifier confirms the work in person and files a short report.' },
-    { num: '04', title: 'Reputation that follows', body: 'Recipients, contractors and sellers build a visible track record across every project on the platform.' },
+    { num: '04', title: 'Reputation that follows', body: 'Contractors, sellers and suppliers build a visible track record across every project on the platform.' },
   ]
 
   return (
@@ -688,10 +685,9 @@ function LiveProjects() {
                   </div>
                   <div className="mt-4 flex items-center gap-2 border-t pt-4" style={{ borderColor: C.parchmentDark }}>
                     <div className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold text-white" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                      {p.recipient[0]}
+                      {(p.ownerName ?? '?')[0]}
                     </div>
-                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">{p.recipient}</span>
-                    <span className="ml-auto"><Stars rating={p.recipientRating} /></span>
+                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">{p.ownerName ?? 'Project owner'}</span>
                   </div>
                 </div>
               </Card>
@@ -708,7 +704,7 @@ function Testimonials() {
   const quotes = [
     { name: 'Marie-Claire N.', role: 'Diaspora Funder · Brussels', quote: "I've sent money home before and never known where it really went. With escrow and photo proof, I finally watched my borehole project happen step by step.", rating: 5 },
     { name: 'Théodore K.', role: 'Diaspora Funder · Toronto', quote: 'The milestone system means I only release funds once work is actually verified on-site. It changed how I think about giving from abroad.', rating: 5 },
-    { name: 'Emmanuel N.', role: 'Project Recipient · Bamenda', quote: 'Submitting proof takes minutes and the funder can see exactly what I\'ve done. Payments land within minutes of approval.', rating: 5 },
+    { name: 'Emmanuel N.', role: 'Local Contractor · Bamenda', quote: 'Submitting proof takes minutes and the funder can see exactly what I\'ve done. Payments land within minutes of approval.', rating: 5 },
   ]
 
   return (
@@ -794,11 +790,8 @@ function Footer() {
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr]">
           <div>
             <div className="flex items-center gap-2.5">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: C.amber }}>
-                <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
-                  <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.forestDark} strokeWidth="1.6" />
-                  <circle cx="11" cy="11" r="2.5" fill={C.forestDark} />
-                </svg>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+                <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-7 w-7 object-contain" />
               </div>
               <span style={{ fontFamily: FONT.serif }} className="text-lg font-bold text-white">Mboa Trust</span>
             </div>

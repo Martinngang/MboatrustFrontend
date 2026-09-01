@@ -6,6 +6,7 @@ import { pageVariants, pageTransition } from '../motion'
 import { ScreenErrorBoundary } from '../ErrorBoundary'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { OfflineSyncBanner } from '../OfflineSyncBanner'
 
 /** Management-app shell: persistent Sidebar + TopBar (breadcrumbs, global
  * search → command palette, quick-create, avatar menu), wrapping every
@@ -43,6 +44,7 @@ export function AppShell({
     // on <main> below remains the only thing that scrolls. BottomNav itself
     // is no longer part of this shell's flow at all — see the render below.
     <div className="fixed inset-0 w-full overflow-hidden" style={{ background: C.gradientSurface, color: C.ink }}>
+      <OfflineSyncBanner />
       <div className="mx-auto flex h-full max-w-[1600px] flex-col lg:flex-row">
         <Sidebar />
 

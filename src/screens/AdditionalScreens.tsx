@@ -82,8 +82,8 @@ export function ContractorOnboardingScreen() {
   const finish = async () => {
     setSubmitting(true)
     try {
-      // A funder/recipient picked at signup can still become a contractor
-      // later — make sure the role is actually on their account before
+      // A funder picked at signup can still become a contractor later —
+      // make sure the role is actually on their account before
       // upsertMine's role check (contractor-only) would otherwise 403.
       await api.post('/users/me/roles', { roleType: 'contractor' })
       await upsertProfile.mutateAsync({ categories: skills, regions: regionCode ? [getCameroonRegionName(regionCode)] : [] })
@@ -448,9 +448,9 @@ export function ContractSummaryScreen() {
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Parties</div>
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>{project.recipient[0]}</div>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>{(project.ownerName ?? '?')[0]}</div>
               <div>
-                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{project.recipient}</div>
+                <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{project.ownerName ?? 'Funder'}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">Project owner / Funder</div>
               </div>
             </div>
@@ -1669,7 +1669,7 @@ export function AdminPanelScreen() {
         {tab === 'users' && (
           <StaggerList className="space-y-3">
             <ChipGroup
-              options={['all', 'funder', 'recipient', 'contractor', 'land_seller', 'diaspora_group', 'admin']}
+              options={['all', 'funder', 'contractor', 'land_seller', 'diaspora_group', 'verifier', 'admin', 'supplier']}
               value={roleFilter}
               onChange={(v) => setRoleFilter(v as string)}
             />

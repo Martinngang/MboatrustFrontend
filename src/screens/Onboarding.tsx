@@ -631,7 +631,7 @@ export function LoginScreen() {
 
 /** Separate front door for staff, not a variant of the consumer LoginScreen
  * above — no language/Google/phone options, no "create account" prompt,
- * nothing from the funder/recipient/contractor/seller onboarding funnel.
+ * nothing from the funder/contractor/seller/supplier onboarding funnel.
  * Signing in successfully here still isn't enough on its own: the account
  * has to actually carry the backend's admin roleType (resolveAuthDestination
  * returning 'admin'), or it's signed straight back out with an error —
@@ -670,8 +670,8 @@ export function AdminLoginScreen() {
     <div className="flex min-h-screen w-full items-center justify-center px-5" style={{ background: C.forestDark }}>
       <div className="w-full max-w-sm rounded-3xl p-7" style={{ background: C.white, boxShadow: C.shadowXl }}>
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: C.forest, color: C.white }}>
-            <AppIcon name="shield" size={22} strokeWidth={2} />
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+            <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-9 w-9 object-contain" />
           </div>
           <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">Admin sign-in</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-1 text-[10px] uppercase tracking-widest">Staff access only</div>
@@ -701,16 +701,16 @@ export function AdminLoginScreen() {
 // ── Role selection ────────────────────────────────────────────────────────────
 const ROLES: { id: Role; icon: IconName; title: string; sub: string; accent: string }[] = [
   { id: 'funder', icon: 'globe', title: 'Diaspora Funder', sub: 'Fund projects, hire contractors, invest in land from abroad', accent: '#34A873' },
-  { id: 'recipient', icon: 'hardHat', title: 'Project Recipient', sub: 'Receive funding for community or family projects', accent: '#C9A227' },
   { id: 'contractor', icon: 'wrench', title: 'Local Contractor', sub: 'Bid on projects and get paid securely via escrow', accent: '#3F6EA8' },
   { id: 'seller', icon: 'home', title: 'Land / Property Seller', sub: 'List land or property with verified documentation', accent: '#A8492F' },
+  { id: 'supplier', icon: 'store', title: 'Supplier (Construction Materials)', sub: 'Sell cement, sand, blocks, steel, timber, roofing, and other building materials — manage your own inventory and pricing', accent: '#7B4B2A' },
 ]
 
 // Frontend role labels aren't always the backend's roleType string (mirrors
-// the same funder/recipient/contractor/seller → land_seller mapping
-// devController.js uses for the dev-bypass demo users).
-const ROLE_TYPE: Record<NonNullable<Role>, string> = {
-  funder: 'funder', recipient: 'recipient', contractor: 'contractor', seller: 'land_seller',
+// the same funder/contractor/seller → land_seller mapping devController.js
+// uses for the dev-bypass demo users).
+const ROLE_TYPE: Record<Exclude<NonNullable<Role>, 'supplier'>, string> = {
+  funder: 'funder', contractor: 'contractor', seller: 'land_seller',
 }
 
 export function RoleScreen() {
@@ -718,18 +718,16 @@ export function RoleScreen() {
   const { setRole, setRoles, lang } = useApp()
   const { show: showToast } = useToast()
   const [multi, setMulti] = useState<NonNullable<Role>[]>([])
+  // Verifier sits outside the `Role` union entirely (see api/session.ts's
+  // BACKEND_TO_FRONTEND_ROLE comment: it's reachable from any role via the
+  // workspace switcher, not a primary Role value) — widening `Role` to fit
+  // it here would ripple through every Role-keyed structure in the app for
+  // a value that's never actually assigned to `role`/`roles`. Tracked as
+  // its own standalone toggle instead, exactly like `wantsSupplier` below,
+  // so someone can pick Verifier alone at signup without it ever touching
+  // the real Role state.
+  const [wantsVerifier, setWantsVerifier] = useState(false)
   const [saving, setSaving] = useState(false)
-  // Quincaillerie is a real, selectable actor type but isn't a member of
-  // the core Role union (that drives dashboard/bottom-nav switching for
-  // funder/recipient/contractor/seller) and isn't a real backend roleType
-  // either — it's mock data (see materials.tsx), so it can't flow through
-  // the same POST /users/me/roles call the four roles above use (that
-  // endpoint's validator only recognizes the four real roleTypes; sending
-  // an unrecognized one would 400 and fail the whole Promise.all, taking
-  // the person's *real* role choices down with it). Tracked separately and
-  // only ever routes to the quincaillerie registration form after the real
-  // account/profile setup finishes.
-  const [wantsQuincaillerie, setWantsQuincaillerie] = useState(false)
 
   const toggleRole = (r: Role) => {
     if (!r) return
@@ -737,12 +735,28 @@ export function RoleScreen() {
   }
 
   const proceed = async () => {
+    // Supplier is a real, selectable actor type in this grid, but isn't a
+    // real backend roleType a self-service account can hold yet — it's
+    // trust-elevating (see userValidators.js's addRole), only ever granted
+    // once an admin approves the business-profile application on the
+    // registration screen this flow routes into afterward. It can't flow
+    // through the same POST /users/me/roles call the other roles use (that
+    // endpoint's validator only recognizes the self-service subset; sending
+    // an unrecognized one would 400 and fail the whole Promise.all, taking
+    // the person's *real* role choices down with it), so it's tracked
+    // separately here and only ever routes to the supplier registration
+    // form after the real account/profile setup finishes. Verifier is the
+    // same story — its own admin-gated application, tracked via
+    // `wantsVerifier` rather than `multi`.
+    const wantsSupplier = multi.includes('supplier')
+    const realRoles = multi.filter((r): r is Exclude<NonNullable<Role>, 'supplier'> => r !== 'supplier')
     // The "default to funder" safety net only applies when *nothing at
-    // all* was picked — someone who explicitly chose Quincaillerie-only
-    // must not be silently registered as a funder just because they
-    // didn't also tick one of the four core roles. This was the exact bug
-    // reported: picking Quincaillerie alone landed on the funder dashboard.
-    const chosen = multi.length > 0 ? multi : (wantsQuincaillerie ? [] : (['funder'] as NonNullable<Role>[]))
+    // all* was picked — someone who explicitly chose Supplier-only (or
+    // Verifier-only) must not be silently registered as a funder just
+    // because they didn't also tick one of the other roles. This was the
+    // exact bug reported: picking Supplier alone landed on the funder
+    // dashboard, and the same gap applied to Verifier.
+    const chosen = realRoles.length > 0 ? realRoles : ((wantsSupplier || wantsVerifier) ? [] : (['funder'] as Exclude<NonNullable<Role>, 'supplier'>[]))
     // Same check resolveCurrentUserId uses everywhere else — Firebase being
     // *configured* doesn't mean this browser has an active Firebase
     // *session* (e.g. the dev-bypass path, or a race right after signup).
@@ -771,87 +785,23 @@ export function RoleScreen() {
     }
     setRoles(chosen)
     setRole(chosen[0] ?? null)
-    nav('/profile', { state: { wantsQuincaillerie } })
+    nav('/profile', { state: { wantsSupplier, wantsVerifier } })
   }
 
   return (
     <OnboardingShell step={4} wide title={T.choose_role[lang]} subtitle="You can hold multiple roles — select as many as apply.">
       <div className="grid gap-3.5 sm:grid-cols-2">
-        {ROLES.map(({ id, icon, title, sub, accent }) => {
-          const active = multi.includes(id!)
-          return (
-            <Tilt3D key={id} max={4} className="rounded-2xl">
-              <button
-                onClick={() => toggleRole(id)}
-                className="flex h-full w-full items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all"
-                style={{
-                  background: active ? 'rgba(52,168,115,0.08)' : C.white,
-                  borderColor: active ? C.forest : C.parchmentDark,
-                  boxShadow: active ? '0 10px 28px -14px rgba(31,111,74,0.35)' : 'none',
-                }}
-              >
-                <span
-                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition-transform duration-500"
-                  style={{ background: `${accent}1F`, color: accent }}
-                >
-                  <AppIcon name={icon} size={20} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{title}</div>
-                  <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-1 text-xs leading-snug">{sub}</div>
-                </div>
-                <div
-                  className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
-                  style={{ borderColor: active ? C.forest : C.parchmentDark, background: active ? C.forest : 'transparent' }}
-                >
-                  {active && (
-                    <svg className="animate-pop-in" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                      <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  )}
-                </div>
-              </button>
-            </Tilt3D>
-          )
-        })}
-      </div>
-
-      <div className="mt-5">
-        <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-3 text-[10px] uppercase tracking-widest">Also run a hardware or building-materials store?</p>
-        <Tilt3D max={4} className="rounded-2xl">
-          <button
-            onClick={() => setWantsQuincaillerie((w) => !w)}
-            className="flex h-full w-full items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all"
-            style={{
-              background: wantsQuincaillerie ? 'rgba(52,168,115,0.08)' : C.white,
-              borderColor: wantsQuincaillerie ? C.forest : C.parchmentDark,
-              boxShadow: wantsQuincaillerie ? '0 10px 28px -14px rgba(31,111,74,0.35)' : 'none',
-            }}
-          >
-            <span
-              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition-transform duration-500"
-              style={{ background: '#7B4B2A1F', color: '#7B4B2A' }}
-            >
-              <AppIcon name="store" size={20} />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">Quincaillerie / Materials Supplier</div>
-              <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-1 text-xs leading-snug">
-                Get paid directly for materials on a funded milestone, with a digital receipt — instead of the contractor handling cash. Registration and admin verification happen after this step.
-              </div>
-            </div>
-            <div
-              className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
-              style={{ borderColor: wantsQuincaillerie ? C.forest : C.parchmentDark, background: wantsQuincaillerie ? C.forest : 'transparent' }}
-            >
-              {wantsQuincaillerie && (
-                <svg className="animate-pop-in" width="10" height="10" viewBox="0 0 10 10" fill="none">
-                  <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              )}
-            </div>
-          </button>
-        </Tilt3D>
+        {ROLES.map(({ id, icon, title, sub, accent }) => (
+          <RoleCard key={id} icon={icon} title={title} sub={sub} accent={accent} active={multi.includes(id!)} onClick={() => toggleRole(id)} />
+        ))}
+        <RoleCard
+          icon="shieldCheck"
+          title="Verifier (Field Inspections)"
+          sub="Conduct objective on-site inspections, verify milestone evidence, and file audit reports — manage your own assignments and reports"
+          accent="#2D4A2D"
+          active={wantsVerifier}
+          onClick={() => setWantsVerifier((w) => !w)}
+        />
       </div>
 
       <div className="mt-8">
@@ -861,11 +811,49 @@ export function RoleScreen() {
   )
 }
 
+function RoleCard({ icon, title, sub, accent, active, onClick }: { icon: IconName; title: string; sub: string; accent: string; active: boolean; onClick: () => void }) {
+  return (
+    <Tilt3D max={4} className="rounded-2xl">
+      <button
+        onClick={onClick}
+        className="flex h-full w-full items-start gap-4 rounded-2xl border-2 p-5 text-left transition-all"
+        style={{
+          background: active ? 'rgba(52,168,115,0.08)' : C.white,
+          borderColor: active ? C.forest : C.parchmentDark,
+          boxShadow: active ? '0 10px 28px -14px rgba(31,111,74,0.35)' : 'none',
+        }}
+      >
+        <span
+          className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl transition-transform duration-500"
+          style={{ background: `${accent}1F`, color: accent }}
+        >
+          <AppIcon name={icon} size={20} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{title}</div>
+          <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-1 text-xs leading-snug">{sub}</div>
+        </div>
+        <div
+          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border-2 transition-all"
+          style={{ borderColor: active ? C.forest : C.parchmentDark, background: active ? C.forest : 'transparent' }}
+        >
+          {active && (
+            <svg className="animate-pop-in" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+          )}
+        </div>
+      </button>
+    </Tilt3D>
+  )
+}
+
 // ── Profile setup ─────────────────────────────────────────────────────────────
 export function ProfileSetupScreen() {
   const nav = useNavigate()
   const location = useLocation()
-  const wantsQuincaillerie = Boolean((location.state as { wantsQuincaillerie?: boolean } | null)?.wantsQuincaillerie)
+  const wantsSupplier = Boolean((location.state as { wantsSupplier?: boolean } | null)?.wantsSupplier)
+  const wantsVerifier = Boolean((location.state as { wantsVerifier?: boolean } | null)?.wantsVerifier)
   const { setName, setLoggedIn, completeAuthSuccess } = useApp()
   const { show: showToast } = useToast()
   const [form, setForm] = useState({ name: '', residenceCity: '', residenceCountry: '', id: '' })
@@ -917,7 +905,7 @@ export function ProfileSetupScreen() {
       setName(fullName)
       setLoggedIn(true)
     }
-    nav(wantsQuincaillerie ? '/quincaillerie/register' : '/home')
+    nav(wantsSupplier ? '/supplier/register' : wantsVerifier ? '/verifier/register' : '/home')
   }
 
   return (

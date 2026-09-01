@@ -22,8 +22,8 @@ function useBreadcrumbTrail(): Crumb[] {
     const project = projects.find((p) => p.id === id)
     return [{ label: 'Home', path: '/home' }, { label: 'Projects', path: '/workspace/projects' }, { label: project?.title ?? 'Project' }]
   }
-  if (pathname.startsWith('/funder/create')) {
-    return [{ label: 'Home', path: '/home' }, { label: 'Projects', path: '/workspace/projects' }, { label: 'New project' }]
+  if (pathname.startsWith('/funder/post-job')) {
+    return [{ label: 'Home', path: '/home' }, { label: 'Projects', path: '/workspace/projects' }, { label: 'Post a tender' }]
   }
 
   if (pathname.startsWith('/workspace/jobs') || pathname.startsWith('/contractor/jobs')) {

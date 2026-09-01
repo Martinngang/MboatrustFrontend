@@ -17,8 +17,8 @@ interface BackendProject {
   createdAt: string
   milestones: BackendMilestone[]
   ownerId: { _id: string; fullName: string } | string
-  materialsManagedBy?: 'contractor' | 'quincaillerie'
-  preferredQuincaillerieId?: string | null
+  materialsManagedBy?: 'contractor' | 'supplier'
+  preferredSupplierId?: string | null
 }
 interface BackendMilestoneProposal { title: string; description: string; amount: number }
 interface BackendNegotiationRound {
@@ -96,7 +96,7 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     status: mapTenderStatus(doc.status),
     ownerId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
     materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
-    preferredQuincaillerieId: doc.preferredQuincaillerieId ?? null,
+    preferredSupplierId: doc.preferredSupplierId ?? null,
   }
 }
 
@@ -170,8 +170,8 @@ export interface CreateJobInput {
 
 // Every new tender starts contractor-managed (Project.materialsManagedBy's
 // schema default) — a materials supplier is assigned afterwards via
-// useAssignQuincaillerieMutation (api/projects.ts), once the funder has had
-// a chance to actually browse/compare real stores, not forced into the pick
+// useAssignSupplierMutation (api/projects.ts), once the funder has had a
+// chance to actually browse/compare real stores, not forced into the pick
 // at creation time.
 export function useCreateJobMutation() {
   const qc = useQueryClient()

@@ -11,9 +11,9 @@ interface ChecklistItem {
 
 const ITEMS_BY_ROLE: Record<string, ChecklistItem> = {
   funder: { id: 'explore', label: 'Browse fundable projects', path: '/workspace/projects' },
-  recipient: { id: 'explore', label: 'Check your project status', path: '/recipient/submission-status' },
   contractor: { id: 'explore', label: 'Browse open tenders', path: '/contractor/jobs' },
   seller: { id: 'explore', label: 'List your first property', path: '/land/create' },
+  supplier: { id: 'explore', label: 'Set up your inventory', path: '/supplier/inventory' },
 }
 
 /** Dismissible first-login progress checklist — Notion/ClickUp-style. KYC

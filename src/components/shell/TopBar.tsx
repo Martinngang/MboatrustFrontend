@@ -2,8 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useApp } from '../../context'
-import { useMaterials } from '../../materials'
-import { useMyRoleTypesQuery } from '../../api/session'
 import { C, FONT, NotificationBell, ThemeToggle, UserAvatar } from '../MobileLayout'
 import { ConnectivityBar } from '../ConnectivityBar'
 import { InstallButton } from '../InstallButton'
@@ -12,6 +10,7 @@ import { Breadcrumbs } from './Breadcrumbs'
 import { QUICK_CREATE_BY_ROLE } from './quickCreate'
 import { useShortcutsHelp } from './KeyboardShortcuts'
 import { useNotificationsDrawer } from '../NotificationsDrawer'
+import { SiteWeatherHeader } from '../SiteWeatherHeader'
 
 /** Top bar: breadcrumb trail, global search (opens the command palette),
  * role-aware quick-create, existing chrome (notifications/theme/connectivity/
@@ -27,19 +26,12 @@ import { useNotificationsDrawer } from '../NotificationsDrawer'
  * touch) — nothing else is removed. */
 export function TopBar() {
   const nav = useNavigate()
-  const { role, devUserId, setLoggedIn, setRole } = useApp()
-  const { myQuincaillerie } = useMaterials()
-  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
+  const { role, setLoggedIn, setRole } = useApp()
   const { show } = useCommandPalette()
   const { show: showShortcuts } = useShortcutsHelp()
   const { toggle: toggleNotifications } = useNotificationsDrawer()
   const [menuOpen, setMenuOpen] = useState(false)
-  // Same effectiveRole computation as Sidebar.tsx/MobileLayout.tsx/
-  // KeyboardShortcuts.tsx — a quincaillerie-only account has role===null,
-  // so without this the quick-create button silently showed funder's
-  // "New project" action instead.
-  const effectiveRole = role === null && (myQuincaillerie || roleTypes.includes('quincaillerie')) ? 'quincaillerie' : role ?? 'funder'
-  const quickCreate = QUICK_CREATE_BY_ROLE[effectiveRole]
+  const quickCreate = QUICK_CREATE_BY_ROLE[role ?? 'funder']
 
   const signOut = () => {
     setMenuOpen(false)
@@ -85,6 +77,8 @@ export function TopBar() {
         </button>
 
         <div className="ml-auto flex flex-shrink-0 items-center gap-2 lg:gap-3">
+          <SiteWeatherHeader className="hidden sm:flex" />
+
           {quickCreate && (
             <>
               <motion.button

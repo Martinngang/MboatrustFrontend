@@ -95,8 +95,8 @@ export function AdminSidebar() {
       style={{ borderColor: C.parchmentDark, background: C.glassBg }}
     >
       <div className={`flex items-center gap-3 pt-6 ${collapsed ? 'flex-col px-4' : 'px-5'}`}>
-        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: C.forest, color: C.white }}>
-          <AppIcon name="shield" size={18} strokeWidth={2} />
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+          <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-8 w-8 object-contain" />
         </div>
         {!collapsed && (
           <div className="min-w-0 flex-1">

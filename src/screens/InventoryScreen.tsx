@@ -26,7 +26,7 @@ const SORT_OPTIONS: { value: InventoryFilters['sortBy']; label: string }[] = [
 
 const PAGE_SIZE = 20
 
-/** The quincaillerie owner's full catalogue manager — search, category/
+/** The supplier owner's full catalogue manager — search, category/
  * status/low-stock filters, sort, bulk select, and every per-item action
  * (edit/duplicate/archive/restore/delete). Deliberately its own full-screen
  * route rather than a dashboard tab: a real professional catalogue can run
@@ -35,7 +35,7 @@ const PAGE_SIZE = 20
 export function InventoryScreen() {
   const nav = useNavigate()
   const { show: showToast } = useToast()
-  const { myQuincaillerie, isLoadingMyQuincaillerie } = useMaterials()
+  const { mySupplier, isLoadingMySupplier } = useMaterials()
 
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -60,7 +60,7 @@ export function InventoryScreen() {
     lowStockOnly: lowStockOnly || undefined,
     sortBy, sortDir, page, limit: PAGE_SIZE,
   }
-  const { data, isLoading, isFetching } = useMyInventoryQuery(filters, Boolean(myQuincaillerie))
+  const { data, isLoading, isFetching } = useMyInventoryQuery(filters, Boolean(mySupplier))
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -89,14 +89,14 @@ export function InventoryScreen() {
     })
   }
 
-  if (isLoadingMyQuincaillerie) return <AppShell noNav>{null}</AppShell>
+  if (isLoadingMySupplier) return <AppShell noNav>{null}</AppShell>
 
-  if (!myQuincaillerie) {
+  if (!mySupplier) {
     return (
       <AppShell>
         <Header title="Inventory" back />
         <div className="px-5 py-8">
-          <EmptyState icon="store" title="Register your quincaillerie first" description="You'll be able to manage a full product catalogue once your store is set up." illustration="tilt" action={<PillButton onClick={() => nav('/quincaillerie/register')}>Get started</PillButton>} />
+          <EmptyState icon="store" title="Register as a supplier first" description="You'll be able to manage a full product catalogue once your store is set up." illustration="tilt" action={<PillButton onClick={() => nav('/supplier/register')}>Get started</PillButton>} />
         </div>
       </AppShell>
     )
@@ -105,7 +105,7 @@ export function InventoryScreen() {
   return (
     <AppShell>
       <Header title="Inventory" subtitle={`${total} product${total === 1 ? '' : 's'}`} back action={
-        <button onClick={() => nav('/quincaillerie/inventory/new')} className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ background: C.forest }}>
+        <button onClick={() => nav('/supplier/inventory/new')} className="flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white" style={{ background: C.forest }}>
           <AppIcon name="plus" size={15} /> Add
         </button>
       } />
@@ -176,9 +176,9 @@ export function InventoryScreen() {
           <EmptyState
             icon="package"
             title={total === 0 && !debouncedSearch && category === 'All' && statusFilter === 'active' && !lowStockOnly ? 'No products yet' : 'No products match these filters'}
-            description={total === 0 ? "Add what you stock so funders, recipients, and contractors can order it against a milestone." : 'Try a different search, category, or filter combination.'}
+            description={total === 0 ? "Add what you stock so funders and contractors can order it against a milestone." : 'Try a different search, category, or filter combination.'}
             illustration="tilt"
-            action={total === 0 ? <PillButton onClick={() => nav('/quincaillerie/inventory/new')}>Add your first product</PillButton> : undefined}
+            action={total === 0 ? <PillButton onClick={() => nav('/supplier/inventory/new')}>Add your first product</PillButton> : undefined}
           />
         ) : (
           <StaggerList className="space-y-2">
@@ -189,7 +189,7 @@ export function InventoryScreen() {
                   selectable={selectMode}
                   selected={selectedIds.has(item.id)}
                   onToggleSelect={() => toggleSelect(item.id)}
-                  onOpen={selectMode ? undefined : () => nav(`/quincaillerie/inventory/${item.id}/edit`)}
+                  onOpen={selectMode ? undefined : () => nav(`/supplier/inventory/${item.id}/edit`)}
                   onDuplicate={selectMode ? undefined : () => duplicateMutation.mutate(item.id, {
                     onSuccess: () => showToast({ title: 'Product duplicated', tone: 'success' }),
                     onError: (err) => showToast({ title: 'Failed', description: apiErrorMessage(err), tone: 'error' }),

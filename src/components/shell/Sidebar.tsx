@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../../context'
-import { useMaterials } from '../../materials'
 import { useMyRoleTypesQuery } from '../../api/session'
 import { C, FONT, TAB_ROUTES, FUNDER_TABS, WORKSPACE_LINKS, ADMIN_LINKS } from '../MobileLayout'
 
@@ -10,10 +9,9 @@ const COLLAPSE_KEY = 'mboatrust-sidebar-collapsed'
 
 const ROLE_LABEL: Record<string, string> = {
   funder: 'Diaspora Funder',
-  recipient: 'Project Recipient',
   contractor: 'Local Contractor',
   seller: 'Land Seller',
-  quincaillerie: 'Quincaillerie',
+  supplier: 'Supplier',
 }
 
 /** Persistent collapsible sidebar — workspace switcher, primary nav (same
@@ -22,18 +20,11 @@ const ROLE_LABEL: Record<string, string> = {
  * the previous AppShell. */
 export function Sidebar() {
   const { role, name, devUserId } = useApp()
-  const { myQuincaillerie } = useMaterials()
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
   const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
-  // A quincaillerie-only account has role===null (it isn't a real Role —
-  // see Onboarding.tsx), so it needs its own lookup key rather than
-  // silently falling back to funder's tabs/label. myQuincaillerie (the
-  // profile document) alone misses an account whose role was granted
-  // directly with no profile ever submitted — roleTypes (the raw backend
-  // roles) catches that case too, same fix as Dashboard.tsx's HomeScreen.
-  const effectiveRole = role === null && (myQuincaillerie || roleTypes.includes('quincaillerie')) ? 'quincaillerie' : role ?? 'funder'
+  const effectiveRole = role ?? 'funder'
   const tabs = TAB_ROUTES[effectiveRole] ?? FUNDER_TABS
   const visibleAdminLinks = ADMIN_LINKS.filter((link) => roleTypes.includes(link.requiresRole))
   const springTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 380, damping: 32 }
@@ -61,11 +52,8 @@ export function Sidebar() {
     >
       {/* Workspace switcher — pinned, never scrolls */}
       <div className={`flex items-center gap-3 px-4 pt-6 lg:pt-8 ${collapsed ? 'flex-col px-4' : 'px-6'}`}>
-        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: C.emerald, boxShadow: `0 8px 20px ${C.glowForest}` }}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.gold} strokeWidth="1.6" />
-            <circle cx="11" cy="11" r="2.5" fill={C.gold} />
-          </svg>
+        <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}`, boxShadow: `0 8px 20px ${C.glowForest}` }}>
+          <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-9 w-9 object-contain" />
         </div>
         {!collapsed && (
           <button className="min-w-0 flex-1 text-left" title="Workspace switcher (single workspace for now)">

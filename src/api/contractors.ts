@@ -238,7 +238,7 @@ export interface UpsertContractorProfileInput {
 }
 
 /** Builds a plain JSON body when there's nothing to upload, or FormData
- * (JSON-encoding array/object fields, same convention as the quincaillerie
+ * (JSON-encoding array/object fields, same convention as the supplier
  * inventory and profile upserts) when new portfolio images are attached. */
 function toRequestBody(input: UpsertContractorProfileInput): FormData | Record<string, unknown> {
   const { newPortfolioImages, ...rest } = input

@@ -32,9 +32,9 @@ export interface BackendUser {
 // devController.js's DEMO_USERS comment), not a distinct primary identity.
 const BACKEND_TO_FRONTEND_ROLE: Record<string, NonNullable<Role> | undefined> = {
   funder: 'funder',
-  recipient: 'recipient',
   contractor: 'contractor',
   land_seller: 'seller',
+  supplier: 'supplier',
 }
 
 export function mapBackendRoles(roles: { roleType: string }[]): NonNullable<Role>[] {
@@ -64,7 +64,7 @@ export function useSessionQuery(devUserId?: string) {
 }
 
 /** True if the account carries the backend's 'admin' roleType — never part
- * of the frontend Role union (funder/recipient/contractor/seller), since
+ * of the frontend Role union (funder/contractor/seller/supplier), since
  * admin is a staff tier, not a primary consumer identity, and threading it
  * through every Role-keyed structure (TAB_ROUTES, QUICK_CREATE_BY_ROLE,
  * HomeScreen's role switch) would ripple everywhere for something that
@@ -79,7 +79,7 @@ export function isAdminUser(user: BackendUser | null): boolean {
  * straight to /home instead of re-running any part of onboarding:
  *   - no account resolved yet (token invalid/expired)   → 'role'  (start fresh)
  *   - carries the admin roleType                         → 'admin' (own
- *     dashboard, never the funder/recipient/... onboarding below —
+ *     dashboard, never the funder/contractor/... onboarding below —
  *     onboardingCompleted/picking a role is a consumer-account concept
  *     that doesn't apply to a staff account at all)
  *   - onboardingCompleted flag set                       → 'home'

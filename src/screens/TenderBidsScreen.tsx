@@ -13,7 +13,7 @@ import { useStartConversationMutation } from '../api/messaging'
 import { useBidsWithScoresQuery, useRecommendedContractorsQuery, type BidWithScore, type MatchScore } from '../api/matching'
 import { useContractorLeaderboardQuery } from '../api/contractors'
 import { useMaterials } from '../materials'
-import { useAssignQuincaillerieMutation } from '../api/projects'
+import { useAssignSupplierMutation } from '../api/projects'
 import {
   MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone,
 } from '../components/MilestoneScheduleEditor'
@@ -150,7 +150,7 @@ function ContractorSearchPanel({ onMessage, onView, actingOn }: {
   )
 }
 
-/** Lets the funder browse real, verified quincaillerie profiles (business
+/** Lets the funder browse real, verified supplier profiles (business
  * details, categories, rating, and a link into their full profile/live
  * inventory) and assign one as this tender's preferred materials supplier —
  * or unassign it — any time after the tender is posted. Deliberately a
@@ -158,22 +158,22 @@ function ContractorSearchPanel({ onMessage, onView, actingOn }: {
  * (location, pricing, what they actually stock) needs the same browse-then-
  * commit shape ContractorSearchPanel above already uses for contractors,
  * not a same-page picker filled in before any of that context exists. */
-function QuincaillerieAssignPanel({ job, projectId }: { job: JobPosting | undefined; projectId: string | undefined }) {
+function SupplierAssignPanel({ job, projectId }: { job: JobPosting | undefined; projectId: string | undefined }) {
   const nav = useNavigate()
   const { show: showToast } = useToast()
-  const { quincailleries } = useMaterials()
-  const assignMutation = useAssignQuincaillerieMutation()
+  const { suppliers } = useMaterials()
+  const assignMutation = useAssignSupplierMutation()
   const [browsing, setBrowsing] = useState(false)
-  const verified = quincailleries.filter((q) => q.verificationStatus === 'verified')
-  const assigned = job?.materialsManagedBy === 'quincaillerie' && job.preferredQuincaillerieId
-    ? quincailleries.find((q) => q.id === job.preferredQuincaillerieId)
+  const verified = suppliers.filter((s) => s.verificationStatus === 'verified')
+  const assigned = job?.materialsManagedBy === 'supplier' && job.preferredSupplierId
+    ? suppliers.find((s) => s.id === job.preferredSupplierId)
     : null
 
-  const assign = async (quincaillerieId: string | null) => {
+  const assign = async (supplierId: string | null) => {
     if (!projectId) return
     try {
-      await assignMutation.mutateAsync({ projectId, quincaillerieId })
-      showToast({ title: quincaillerieId ? 'Supplier assigned' : 'Supplier unassigned', tone: 'success' })
+      await assignMutation.mutateAsync({ projectId, supplierId })
+      showToast({ title: supplierId ? 'Supplier assigned' : 'Supplier unassigned', tone: 'success' })
       setBrowsing(false)
     } catch (err) {
       showToast({ title: 'Failed to update supplier', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -193,7 +193,7 @@ function QuincaillerieAssignPanel({ job, projectId }: { job: JobPosting | undefi
                 <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{assigned.businessName}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{assigned.address}, {assigned.region}</div>
               </div>
-              <button onClick={() => nav(`/quincaillerie/profile/${assigned.id}`)} className="flex-shrink-0 text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+              <button onClick={() => nav(`/supplier/profile/${assigned.id}`)} className="flex-shrink-0 text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
                 View profile →
               </button>
             </div>
@@ -216,36 +216,36 @@ function QuincaillerieAssignPanel({ job, projectId }: { job: JobPosting | undefi
           className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
           style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
         >
-          Find & assign a quincaillerie supplier →
+          Find & assign a supplier →
         </button>
       ) : verified.length === 0 ? (
         <EmptyState
           icon="store"
-          title="No verified quincailleries yet"
+          title="No verified suppliers yet"
           description="Once a store registers and is admin-verified, it'll show up here to compare and assign."
         />
       ) : (
         <StaggerList className="space-y-3">
-          {verified.map((q) => (
-            <StaggerItem key={q.id}>
+          {verified.map((s) => (
+            <StaggerItem key={s.id}>
               <Card>
                 <div className="p-4">
                   <div className="flex items-center gap-1.5">
-                    <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{q.businessName}</span>
+                    <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold truncate">{s.businessName}</span>
                     <AppIcon name="shieldCheck" size={13} style={{ color: C.forest }} />
                   </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{q.address}, {q.region}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{s.address}, {s.region}</div>
                   <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1">
-                    {q.registeredCategories.slice(0, 3).join(', ') || 'No categories listed'}
-                    {q.averageRating > 0 ? ` · ${q.averageRating.toFixed(1)}★` : ''}
+                    {s.registeredCategories.slice(0, 3).join(', ') || 'No categories listed'}
+                    {s.averageRating > 0 ? ` · ${s.averageRating.toFixed(1)}★` : ''}
                   </div>
                   <div className="mt-2 flex items-center gap-4">
-                    <button onClick={() => nav(`/quincaillerie/profile/${q.id}`)} className="text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+                    <button onClick={() => nav(`/supplier/profile/${s.id}`)} className="text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
                       View profile & inventory →
                     </button>
                     <button
                       disabled={assignMutation.isPending}
-                      onClick={() => assign(q.id)}
+                      onClick={() => assign(s.id)}
                       className="text-xs font-semibold disabled:opacity-50"
                       style={{ fontFamily: FONT.sans, color: C.forest }}
                     >
@@ -379,7 +379,7 @@ export function TenderBidsScreen() {
       </div>
 
       <div className="px-5 py-5">
-        <QuincaillerieAssignPanel job={job} projectId={jobId} />
+        <SupplierAssignPanel job={job} projectId={jobId} />
       </div>
 
       <div className="grid gap-6 px-5 py-5 lg:grid-cols-2">

@@ -8,8 +8,8 @@ import { AdminSidebar, AdminNavList } from './AdminSidebar'
 
 /** Chrome for the admin dashboard — deliberately its own thing, not a reuse
  * of AppShell with the role left null. AppShell's Sidebar/TopBar/BottomNav
- * are all keyed off the consumer `Role` union (funder/recipient/contractor/
- * seller) via TAB_ROUTES/QUICK_CREATE_BY_ROLE — an admin has no such role,
+ * are all keyed off the consumer `Role` union (funder/contractor/seller/
+ * supplier) via TAB_ROUTES/QUICK_CREATE_BY_ROLE — an admin has no such role,
  * so reusing it would silently default to funder-flavored navigation
  * (`TAB_ROUTES[role ?? 'funder']`), which is exactly the "why am I being
  * treated like a funder" problem this whole dashboard exists to fix.

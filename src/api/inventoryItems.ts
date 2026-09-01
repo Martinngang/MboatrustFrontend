@@ -3,12 +3,15 @@ import { api } from './client'
 
 export interface Specification { key: string; value: string }
 export interface Dimensions { length: number | null; width: number | null; height: number | null; unit: string; weightKg: number | null }
-export interface Supplier { name: string; contact: string }
+// Where this store itself sources the item from — an upstream vendor,
+// unrelated to the platform's own Supplier role/user (hence the distinct
+// name, to avoid confusion with SupplierProfileRecord elsewhere).
+export interface SourcedFrom { name: string; contact: string }
 export type InventoryItemStatus = 'active' | 'archived'
 
 export interface InventoryItemRecord {
   id: string
-  quincaillerieId: string
+  supplierId: string
   name: string
   sku: string
   category: string
@@ -20,7 +23,7 @@ export interface InventoryItemRecord {
   quantityAvailable: number
   minStockLevel: number
   brand: string
-  supplier: Supplier
+  sourcedFrom: SourcedFrom
   specifications: Specification[]
   dimensions: Dimensions
   projectSuitability: string[]
@@ -32,7 +35,7 @@ export interface InventoryItemRecord {
 
 interface BackendInventoryItem {
   _id: string
-  quincaillerieId: string
+  supplierId: string
   name: string
   sku: string
   category: string
@@ -44,7 +47,7 @@ interface BackendInventoryItem {
   quantityAvailable: number
   minStockLevel: number
   brand: string
-  supplier: Supplier
+  sourcedFrom: SourcedFrom
   specifications: Specification[]
   dimensions: Dimensions
   projectSuitability: string[]
@@ -57,7 +60,7 @@ interface BackendInventoryItem {
 function mapItem(doc: BackendInventoryItem): InventoryItemRecord {
   return {
     id: doc._id,
-    quincaillerieId: doc.quincaillerieId,
+    supplierId: doc.supplierId,
     name: doc.name,
     sku: doc.sku ?? '',
     category: doc.category,
@@ -69,7 +72,7 @@ function mapItem(doc: BackendInventoryItem): InventoryItemRecord {
     quantityAvailable: doc.quantityAvailable,
     minStockLevel: doc.minStockLevel,
     brand: doc.brand ?? '',
-    supplier: doc.supplier ?? { name: '', contact: '' },
+    sourcedFrom: doc.sourcedFrom ?? { name: '', contact: '' },
     specifications: doc.specifications ?? [],
     dimensions: doc.dimensions ?? { length: null, width: null, height: null, unit: 'cm', weightKg: null },
     projectSuitability: doc.projectSuitability ?? [],
@@ -91,7 +94,7 @@ export interface InventoryItemInput {
   quantityAvailable?: number
   minStockLevel?: number
   brand?: string
-  supplier?: Supplier
+  sourcedFrom?: SourcedFrom
   specifications?: Specification[]
   dimensions?: Partial<Dimensions>
   projectSuitability?: string[]
@@ -146,22 +149,22 @@ export function useMyInventoryQuery(filters: InventoryFilters, enabled = true) {
 }
 
 /** A specific store's active-only catalogue — for browsing when requesting
- * materials on a milestone, or viewing a public quincaillerie profile. */
-export function useQuincaillerieInventoryQuery(quincaillerieId: string | undefined, filters: InventoryFilters = {}) {
+ * materials on a milestone, or viewing a public supplier profile. */
+export function useSupplierInventoryQuery(supplierId: string | undefined, filters: InventoryFilters = {}) {
   return useQuery({
-    queryKey: ['inventoryItems', 'byQuincaillerie', quincaillerieId, filters],
+    queryKey: ['inventoryItems', 'bySupplier', supplierId, filters],
     queryFn: async (): Promise<InventoryItemRecord[]> => {
-      const { data } = await api.get<{ data: BackendInventoryItem[] }>(`/inventory-items/by-quincaillerie/${quincaillerieId}`, { params: filters })
+      const { data } = await api.get<{ data: BackendInventoryItem[] }>(`/inventory-items/by-supplier/${supplierId}`, { params: filters })
       return data.data.map(mapItem)
     },
-    enabled: Boolean(quincaillerieId),
+    enabled: Boolean(supplierId),
     staleTime: 10_000,
   })
 }
 
 /** Every active item platform-wide — feeds the Material Cost Estimator's
  * live-pricing comparison (cross-referenced client-side against the
- * quincaillerie directory for region/verification). */
+ * supplier directory for region/verification). */
 export function usePublicInventoryQuery() {
   return useQuery({
     queryKey: ['inventoryItems', 'public'],

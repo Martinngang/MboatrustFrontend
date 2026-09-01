@@ -54,7 +54,7 @@ export default defineConfig(({ mode }) => {
         srcDir: 'src',
         filename: 'sw.ts',
         manifestFilename: 'manifest.json',
-        includeAssets: ['favicon.svg'],
+        includeAssets: ['favicon.ico', 'icons/favicon-16.png', 'icons/favicon-32.png', 'icons/apple-touch-icon.png', 'brand/logo-64.png', 'brand/logo-128.png', 'brand/logo-256.png'],
         manifest: {
           name: 'Mboa Trust',
           short_name: 'Mboa Trust',

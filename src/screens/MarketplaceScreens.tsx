@@ -262,7 +262,7 @@ export function MaterialCostEstimatorScreen() {
         </div>
 
         <PillButton onClick={() => nav('/materials')} fullWidth>
-          Generate Quincaillerie Supply Order
+          Generate Supplier Supply Order
         </PillButton>
       </div>
     </AppShell>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useMyCertificationsQuery, useRemoveCertificationMutation } from '../api/certifications'
@@ -18,6 +18,11 @@ import { useJobsInfiniteQuery } from '../api/tenders'
 import {
   MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone,
 } from '../components/MilestoneScheduleEditor'
+import { useOfflineQueue } from '../offlineQueue'
+import { useReverseGeocodeQuery } from '../api/tools'
+import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
+import { MaterialOrderCard } from '../components/MaterialOrderCard'
+import { AIPhotoInspector } from '../components/AIPhotoInspector'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
 export function BrowseJobsScreen() {
@@ -633,7 +638,7 @@ export function ContractDetailScreen() {
   const underReview = milestones.find((m) => m.status === 'under_review')
   // Next milestone materials could still be requested for — same "request
   // materials instead of/alongside submitting proof yourself" entry point
-  // the recipient side already has (see RecipientScreens' MilestoneSubmitScreen).
+  // MilestoneSubmitScreen already has (above in this file).
   const nextPendingMilestone = milestones.find((m) => m.status === 'pending')
 
   return (
@@ -751,7 +756,6 @@ export function ContractDetailScreen() {
 
 // ── Earnings screen ────────────────────────────────────────────────────────────
 export function EarningsScreen() {
-  const nav = useNavigate()
   const { data: transactions = [], isLoading } = useTransactionsQuery()
   const earnings = transactions.filter((t) => t.type === 'release')
   const total = earnings.reduce((s, e) => s + e.amount, 0)
@@ -791,8 +795,6 @@ export function EarningsScreen() {
             </StaggerItem>
           ))}
         </StaggerList>
-
-        <PillButton onClick={() => nav('/recipient/withdrawal')} fullWidth>Withdraw to MoMo / Orange Money</PillButton>
       </div>
     </AppShell>
   )
@@ -930,6 +932,368 @@ export function ContractorProfileScreen() {
             </button>
           ))}
         </div>
+      </div>
+    </AppShell>
+  )
+}
+
+// ── Milestone submission ─────────────────────────────────────────────────────
+function filesToDataUrls(files: FileList): Promise<string[]> {
+  return Promise.all(
+    Array.from(files).map(
+      (file) =>
+        new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        }),
+    ),
+  )
+}
+
+/** The contractor's milestone-proof-submission flow for a tender they were
+ * awarded — always reached with a real project id (`/contractor/submit/:id`,
+ * see ContractDetailScreen's "Submit next milestone proof" button). */
+export function MilestoneSubmitScreen() {
+  const nav = useNavigate()
+  const { id } = useParams()
+  const { bids, submitMilestoneProof } = useApp()
+  const { data: project, isLoading } = useProjectQuery(id)
+  const milestone = project?.milestones.find((m) => m.status === 'pending') ?? project?.milestones.find((m) => m.status !== 'released') ?? project?.milestones[0]
+  const { isOnline, queue, enqueue, syncNow, isSyncing } = useOfflineQueue()
+  const { show: showToast } = useToast()
+  const myBidForThisProject = project ? bids.find((b) => b.jobId === project.id) : undefined
+  // Called unconditionally (before the not-found early return below) per the
+  // Rules of Hooks — the query itself no-ops via `enabled` until both ids resolve.
+  const { data: materialOrders = [] } = useMaterialOrdersForMilestoneQuery(project?.id, milestone?.id)
+  const [step, setStep] = useState<'capture' | 'submitted' | 'queued'>('capture')
+  const [submitting, setSubmitting] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [photos, setPhotos] = useState<string[]>([])
+  const [photoFiles, setPhotoFiles] = useState<File[]>([])
+  const [geo, setGeo] = useState<{ lat: number; lng: number; label: string } | null>(null)
+  const [geoStatus, setGeoStatus] = useState<'locating' | 'ok' | 'unavailable'>('locating')
+  // Resolves the raw fix to a real place name ("Bonabéri, Douala, Littoral
+  // Region") the moment it comes in — geo.label stays the raw-coordinate
+  // fallback for while this is loading or if it fails (offline, geocoder
+  // down), so there's always something to show either way.
+  const { data: placeName, isLoading: placeNameLoading } = useReverseGeocodeQuery(geo?.lat, geo?.lng)
+
+  // Real GPS — works fully offline, no network required to read device location.
+  useEffect(() => {
+    if (!('geolocation' in navigator)) {
+      setGeoStatus('unavailable')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        setGeo({ lat: latitude, lng: longitude, label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` })
+        setGeoStatus('ok')
+      },
+      () => setGeoStatus('unavailable'),
+      { enableHighAccuracy: true, timeout: 8000 },
+    )
+  }, [])
+
+  if (isLoading) return <AppShell noNav>{null}</AppShell>
+  if (!project || !milestone) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="camera" title="Project not found" description="This project isn't one of yours, or has no milestone to submit proof for." illustration="tilt" />
+        </div>
+      </AppShell>
+    )
+  }
+
+  // If this milestone already has an unsynced queue entry (e.g. captured offline,
+  // navigated away, came back before it synced), show its status instead of a blank form.
+  const existingQueued = queue.find((q) => q.projectId === project.id && q.milestoneId === milestone.id && q.status !== 'synced')
+  const materialOrder = materialOrders[0]
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const urls = await filesToDataUrls(files)
+    setPhotos((p) => [...p, ...urls])
+    setPhotoFiles((f) => [...f, ...Array.from(files)])
+  }
+
+  const submit = async () => {
+    if (isOnline) {
+      setSubmitting(true)
+      try {
+        await submitMilestoneProof(project.id, milestone.id, photoFiles, geo ? { lat: geo.lat, lng: geo.lng } : null, notes, placeName)
+        setStep('submitted')
+      } catch (err) {
+        showToast({ title: 'Submission failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
+    await enqueue({
+      projectId: project.id,
+      projectTitle: project.title,
+      milestoneId: milestone.id,
+      milestoneTitle: milestone.title,
+      photos,
+      notes,
+      geotag: geo,
+    })
+    setStep('queued')
+  }
+
+  if (step === 'submitted') {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <path d="M18 4V22M12 10L18 4L24 10" stroke="var(--status-info-text)" strokeWidth="2.5" strokeLinecap="round" />
+              <path d="M8 28H28" stroke="var(--status-info-text)" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Proof submitted</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-2 leading-relaxed">
+            Your milestone evidence is under review. An independent verifier will check the site and evidence within 72 hours.
+          </p>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            Once verified and approved by the funder, <strong style={{ color: C.ink }}>{fmt(milestone.amount)}</strong> will be released to your account.
+          </p>
+          <div className="w-full rounded-2xl border p-4 mb-6" style={{ borderColor: C.parchmentDark, background: C.parchment }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submission ID</div>
+            <div style={{ fontFamily: FONT.mono, color: C.ink }} className="text-sm">SUB-2025-{Math.floor(Math.random() * 90000 + 10000)}</div>
+          </div>
+          <PillButton
+            onClick={() => nav(myBidForThisProject ? `/contractor/contract/${myBidForThisProject.id}` : '/home')}
+            fullWidth
+          >
+            {myBidForThisProject ? 'Back to the job' : 'Return to dashboard'}
+          </PillButton>
+          {myBidForThisProject && (
+            <div className="mt-3 w-full">
+              <PillButton onClick={() => nav('/contractor/bids')} variant="ghost" fullWidth>
+                Back to My Bids
+              </PillButton>
+            </div>
+          )}
+        </div>
+      </AppShell>
+    )
+  }
+
+  if (step === 'queued' || existingQueued) {
+    const item = existingQueued
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-warning-bg)' }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <circle cx="18" cy="18" r="3" fill={C.amber} />
+              <circle cx="18" cy="18" r="11" stroke={C.amber} strokeWidth="2" strokeDasharray="4 4" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Saved on this device</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-2 leading-relaxed">
+            You're offline, so this evidence ({item?.photos.length ?? photos.length} photo{(item?.photos.length ?? photos.length) === 1 ? '' : 's'}, notes, and GPS location) is saved on this device.
+          </p>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-6">
+            It will upload automatically as soon as you're back online — nothing else to do.
+          </p>
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full px-3 py-1.5" style={{ background: 'var(--status-warning-bg)' }}>
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: C.amber }} />
+            <span style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[9px] uppercase tracking-wider">Pending sync</span>
+          </div>
+          {isOnline && (
+            <PillButton onClick={syncNow} fullWidth disabled={isSyncing}>{isSyncing ? 'Syncing…' : 'Try syncing now'}</PillButton>
+          )}
+          <div className="mt-3 w-full">
+            <PillButton onClick={() => nav('/home')} variant="ghost" fullWidth>Return to dashboard</PillButton>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  return (
+    <AppShell noNav>
+      <Header title="Submit Milestone Proof" subtitle={project.title} back />
+
+      <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
+        {/* Milestone card */}
+        <div className="rounded-2xl border-2 p-4" style={{ borderColor: C.forest, background: 'var(--status-success-bg)' }}>
+          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Submitting for</div>
+          <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} held in escrow</div>
+          {milestone.description && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-2 leading-relaxed">{milestone.description}</p>
+          )}
+        </div>
+
+        {/* Sent back for corrections — the funder's most recent reason,
+            shown prominently since this is exactly what needs fixing before
+            resubmitting. */}
+        {milestone.status === 'pending' && milestone.changeRequests.length > 0 && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.amber, background: 'var(--status-warning-bg)' }}>
+            <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Corrections requested</div>
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm italic">
+              "{milestone.changeRequests[milestone.changeRequests.length - 1].reason}"
+            </p>
+          </div>
+        )}
+
+        {/* Materials — an alternative (or addition) to photo proof: request
+            materials from a verified supplier instead of handling cash
+            yourself. Once they confirm, that becomes this milestone's
+            evidence and payment routes straight to them on approval. */}
+        {materialOrder ? (
+          <MaterialOrderCard order={materialOrder} compact />
+        ) : (
+          <button
+            onClick={() => nav(`/materials/request/${project.id}/${milestone.id}`)}
+            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
+            style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
+          >
+            Request materials from a verified store instead →
+          </button>
+        )}
+
+        {/* AI Photo Inspector */}
+        <div className="space-y-2">
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">
+            AI Photo Quality & Fraud Audit
+          </div>
+          <AIPhotoInspector
+            label="Upload Milestone Site Photo for AI Inspection"
+            onFileSelected={(file) => {
+              // Add to files queue
+              setPhotoFiles((f) => [...f, file])
+              // Convert to dataUrl for preview
+              filesToDataUrls(Object.assign([file], { item: () => file, length: 1 }) as unknown as FileList).then((urls) => {
+                setPhotos((p) => [...p, ...urls])
+              })
+            }}
+            onAnalysisComplete={(res) => {
+              if (res.verdict === 'fail') {
+                showToast({ title: 'AI Flagged Photo', description: res.summary, tone: 'error' })
+              }
+            }}
+          />
+        </div>
+
+        {/* Photo upload */}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Photo / video evidence gallery</div>
+          {photos.length > 0 ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {photos.map((src, i) => (
+                  <div key={i} className="relative rounded-xl overflow-hidden aspect-video">
+                    <img src={src} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      onClick={() => setPhotos((p) => p.filter((_, j) => j !== i))}
+                      className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+                      style={{ background: 'rgba(0,0,0,0.6)' }}
+                    >
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                        <path d="M1.5 1.5L6.5 6.5M6.5 1.5L1.5 6.5" stroke="white" strokeWidth="1.3" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <label
+                className="block w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium text-center cursor-pointer"
+                style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
+              >
+                + Add another photo
+                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
+              </label>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <label
+                className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer"
+                style={{ borderColor: C.parchmentDark, background: C.white }}
+              >
+                <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: C.parchment }}>
+                  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+                    <rect x="2" y="6" width="22" height="16" rx="2" stroke={C.inkSubtle} strokeWidth="1.4" />
+                    <circle cx="13" cy="14" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
+                    <path d="M8 6V4C8 3.4 8.4 3 9 3H17C17.6 3 18 3.4 18 4V6" stroke={C.inkSubtle} strokeWidth="1.3" />
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">Take photo or upload</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5 uppercase tracking-wider">Min. 2 photos required · works offline</div>
+                </div>
+                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Geotag display — real device GPS, no network required */}
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Auto-geotag</div>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-info-bg)' }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path d="M8 2C5.8 2 4 3.8 4 6C4 9.5 8 14 8 14C8 14 12 9.5 12 6C12 3.8 10.2 2 8 2Z" stroke="var(--status-info-text)" strokeWidth="1.3" />
+                <circle cx="8" cy="6" r="1.5" fill="var(--status-info-text)" />
+              </svg>
+            </div>
+            <div>
+              <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">
+                {geoStatus === 'locating' ? 'Locating…' : geoStatus === 'ok' ? 'GPS location attached' : 'Location unavailable'}
+              </div>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
+                {geoStatus === 'ok' && geo
+                  ? `${placeNameLoading ? 'Resolving place name…' : placeName ? `${placeName} (${geo.label})` : geo.label} · ${new Date().toLocaleDateString()}`
+                  : geoStatus === 'unavailable' ? 'Enable location access to attach GPS proof' : 'Waiting for a GPS fix…'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Notes for the funder</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={3}
+            placeholder="Describe what was completed, any challenges, or what happens next..."
+            className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }}
+          />
+        </div>
+
+        {/* What happens next */}
+        <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
+          <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-2">After submission</div>
+          <div className="space-y-2">
+            {['A local verifier reviews the evidence on-site (72h)', 'The funder receives your proof for approval', 'Funds are released once approved'].map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: C.amber, fontFamily: FONT.mono }}>
+                  <span className="text-[8px] font-bold" style={{ color: C.forestDark }}>{i + 1}</span>
+                </div>
+                <span style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs">{s}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
+        {!isOnline && photos.length > 0 && (
+          <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-center text-xs mb-3">You're offline — this will be saved on your device and sync automatically once you're back online.</p>
+        )}
+        <PillButton onClick={submit} fullWidth disabled={photos.length === 0 || submitting}>
+          {submitting ? 'Submitting…' : photos.length === 0 ? 'Add at least one photo' : isOnline ? 'Submit milestone proof' : 'Save for sync'}
+        </PillButton>
       </div>
     </AppShell>
   )

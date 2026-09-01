@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { fmt } from '../context'
 import { useMaterials, type MaterialOrderItem } from '../materials'
-import { useMyInventoryQuery, useQuincaillerieInventoryQuery } from '../api/inventoryItems'
+import { useMyInventoryQuery, useSupplierInventoryQuery } from '../api/inventoryItems'
 import { useProjectQuery } from '../api/projects'
 import {
-  useMaterialOrdersForMyQuincaillerieQuery, useConfirmMaterialOrderMutation, useRejectMaterialOrderMutation,
+  useMaterialOrdersForMySupplierQuery, useConfirmMaterialOrderMutation, useRejectMaterialOrderMutation,
   useCreateMaterialOrderMutation,
 } from '../api/materialOrders'
 import {
@@ -20,20 +20,19 @@ import { MaterialOrderCard } from '../components/MaterialOrderCard'
 import { InventoryItemCard } from '../components/InventoryItemCard'
 import { RegionSelect } from '../components/LocationSelect'
 import { getCameroonRegionName } from '../utils/locationData'
+import { CATEGORY_NAMES } from '../inventoryTaxonomy'
 import { AppIcon } from '../components/icons'
 import { useToast } from '../components/Toast'
-
-const CATEGORY_OPTIONS = ['Cement', 'Roofing', 'Plumbing', 'Electrical', 'Timber']
 
 function toPaymentProvider(m: 'momo' | 'om'): 'mtn_momo' | 'orange_money' {
   return m === 'momo' ? 'mtn_momo' : 'orange_money'
 }
 
-// ── Quincaillerie registration / onboarding ──────────────────────────────
-export function QuincaillerieRegistrationScreen() {
+// ── Supplier registration / onboarding ──────────────────────────────
+export function SupplierRegistrationScreen() {
   const nav = useNavigate()
   const { show: showToast } = useToast()
-  const { registerQuincaillerie } = useMaterials()
+  const { registerSupplier } = useMaterials()
   const [step, setStep] = useState<'business' | 'payout' | 'id'>('business')
   const [form, setForm] = useState({
     businessName: '', address: '', regionCode: '', categories: [] as string[], phone: '',
@@ -46,7 +45,7 @@ export function QuincaillerieRegistrationScreen() {
   const finish = async () => {
     setSubmitting(true)
     try {
-      await registerQuincaillerie({
+      await registerSupplier({
         businessName: form.businessName.trim(),
         address: form.address.trim(),
         region: form.regionCode ? getCameroonRegionName(form.regionCode) : '',
@@ -56,7 +55,7 @@ export function QuincaillerieRegistrationScreen() {
         payoutPhoneNumber: payoutPhoneNumber.trim(),
         docUploaded: !!docFile,
       })
-      nav('/quincaillerie/dashboard')
+      nav('/supplier/dashboard')
     } catch {
       showToast({ title: 'Registration failed', description: 'Please check your connection and try again.', tone: 'error' })
     } finally {
@@ -66,7 +65,7 @@ export function QuincaillerieRegistrationScreen() {
 
   return (
     <AppShell noNav>
-      <Header title="Register a Quincaillerie" back>
+      <Header title="Register as a Supplier" back>
         <StepIndicator steps={['Business', 'Payout', 'Verification']} current={step === 'business' ? 0 : step === 'payout' ? 1 : 2} />
       </Header>
 
@@ -74,14 +73,14 @@ export function QuincaillerieRegistrationScreen() {
         {step === 'business' && (
           <>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">
-              Register your hardware/building-materials store so funders can pay you directly for materials on a milestone, instead of releasing cash to the contractor.
+              Register your construction-materials business — quincaillerie, sand, blocks, stone, cement, steel, timber, roofing, plumbing/electrical supplies, or any other building-materials trade — so funders can pay you directly for materials on a milestone, instead of releasing cash to the contractor.
             </p>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Business name</label>
               <input
                 value={form.businessName}
                 onChange={(e) => setForm({ ...form, businessName: e.target.value })}
-                placeholder="e.g. Douala Quincaillerie Centrale"
+                placeholder="e.g. Douala Building Supplies Co."
                 className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
                 style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
               />
@@ -99,7 +98,7 @@ export function QuincaillerieRegistrationScreen() {
             <RegionSelect value={form.regionCode} onChange={(regionCode) => setForm({ ...form, regionCode })} label="Region" />
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">What do you stock?</label>
-              <ChipGroup options={CATEGORY_OPTIONS} value={form.categories} onChange={(v) => setForm({ ...form, categories: v as string[] })} multiple />
+              <ChipGroup options={CATEGORY_NAMES} value={form.categories} onChange={(v) => setForm({ ...form, categories: v as string[] })} multiple />
             </div>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Phone</label>
@@ -174,24 +173,24 @@ export function QuincaillerieRegistrationScreen() {
   )
 }
 
-// ── Quincaillerie dashboard ───────────────────────────────────────────────
-export function QuincaillerieDashboardScreen() {
+// ── Supplier dashboard ───────────────────────────────────────────────
+export function SupplierDashboardScreen() {
   const nav = useNavigate()
   const { show: showToast } = useToast()
-  const { myQuincaillerie, isLoadingMyQuincaillerie } = useMaterials()
+  const { mySupplier, isLoadingMySupplier } = useMaterials()
   const [tab, setTab] = useState<'inventory' | 'orders' | 'history'>('orders')
-  const { data: inventorySummary } = useMyInventoryQuery({ status: 'all', limit: 1 }, Boolean(myQuincaillerie))
-  const { data: lowStockSummary } = useMyInventoryQuery({ status: 'active', lowStockOnly: true, limit: 1 }, Boolean(myQuincaillerie))
-  const isVerified = myQuincaillerie?.verificationStatus === 'verified'
-  const { data: orders = [] } = useMaterialOrdersForMyQuincaillerieQuery('all', isVerified)
+  const { data: inventorySummary } = useMyInventoryQuery({ status: 'all', limit: 1 }, Boolean(mySupplier))
+  const { data: lowStockSummary } = useMyInventoryQuery({ status: 'active', lowStockOnly: true, limit: 1 }, Boolean(mySupplier))
+  const isVerified = mySupplier?.verificationStatus === 'verified'
+  const { data: orders = [] } = useMaterialOrdersForMySupplierQuery('all', isVerified)
   const confirmOrder = useConfirmMaterialOrderMutation()
   const rejectOrder = useRejectMaterialOrderMutation()
 
-  if (isLoadingMyQuincaillerie) return <AppShell noNav>{null}</AppShell>
+  if (isLoadingMySupplier) return <AppShell noNav>{null}</AppShell>
 
-  if (!myQuincaillerie || myQuincaillerie.verificationStatus !== 'verified') {
-    const isPending = myQuincaillerie?.verificationStatus === 'pending'
-    const isRejected = myQuincaillerie?.verificationStatus === 'rejected'
+  if (!mySupplier || mySupplier.verificationStatus !== 'verified') {
+    const isPending = mySupplier?.verificationStatus === 'pending'
+    const isRejected = mySupplier?.verificationStatus === 'rejected'
     return (
       <AppShell>
         <div className="flex flex-col items-center justify-center px-8 py-24 text-center">
@@ -202,7 +201,7 @@ export function QuincaillerieDashboardScreen() {
             <AppIcon name={isPending ? 'hourglass' : isRejected ? 'alert' : 'store'} size={30} strokeWidth={1.5} />
           </div>
           <div style={{ fontFamily: FONT.serif }} className="mb-2 text-lg font-bold">
-            {isPending ? 'Application under review' : isRejected ? "Registration wasn't approved" : 'Register your quincaillerie'}
+            {isPending ? 'Application under review' : isRejected ? "Registration wasn't approved" : 'Register as a supplier'}
           </div>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mb-6 max-w-sm text-sm">
             {isPending
@@ -211,7 +210,7 @@ export function QuincaillerieDashboardScreen() {
                 ? 'You can update your details and resubmit for review.'
                 : 'Register your store to start receiving material order requests tied to real milestones.'}
           </p>
-          {!isPending && <PillButton onClick={() => nav('/quincaillerie/register')}>{isRejected ? 'Resubmit registration' : 'Get started'}</PillButton>}
+          {!isPending && <PillButton onClick={() => nav('/supplier/register')}>{isRejected ? 'Resubmit registration' : 'Get started'}</PillButton>}
         </div>
       </AppShell>
     )
@@ -225,16 +224,16 @@ export function QuincaillerieDashboardScreen() {
     <AppShell>
       <DashboardShell>
         <DashboardHero
-          eyebrow="Quincaillerie"
-          title={myQuincaillerie.businessName}
+          eyebrow="Supplier"
+          title={mySupplier.businessName}
           background={`linear-gradient(135deg, ${C.moss} 0%, ${C.forest} 100%)`}
           stats={[
             { label: 'Pending orders', value: String(requested.length) },
-            { label: 'Completed', value: String(myQuincaillerie.completedOrderCount) },
-            { label: 'Rating', value: myQuincaillerie.averageRating > 0 ? myQuincaillerie.averageRating.toFixed(1) : '—' },
+            { label: 'Completed', value: String(mySupplier.completedOrderCount) },
+            { label: 'Rating', value: mySupplier.averageRating > 0 ? mySupplier.averageRating.toFixed(1) : '—' },
           ]}
           action={
-            <button onClick={() => nav(`/quincaillerie/profile/${myQuincaillerie.id}`)} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
+            <button onClick={() => nav(`/supplier/profile/${mySupplier.id}`)} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
               View public profile →
             </button>
           }
@@ -309,7 +308,7 @@ export function QuincaillerieDashboardScreen() {
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">Low stock</div>
                   </div>
                 </div>
-                <PillButton onClick={() => nav('/quincaillerie/inventory')}>Manage inventory →</PillButton>
+                <PillButton onClick={() => nav('/supplier/inventory')}>Manage inventory →</PillButton>
               </div>
             </Card>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="px-1 text-xs">
@@ -338,17 +337,16 @@ export function QuincaillerieDashboardScreen() {
   )
 }
 
-// ── Request materials (funder/recipient/contractor side) ─────────────────
+// ── Request materials (funder/contractor side) ─────────────────
 export function RequestMaterialsScreen() {
   const nav = useNavigate()
   const { projectId, milestoneId } = useParams()
   const { show: showToast } = useToast()
   // Pillar-agnostic single-project fetch (funding or tender) — this screen
-  // is reached from both a recipient's funding-project milestone submission
-  // and a contractor's active tender contract, which useApp().projects
-  // (funding-only) could never resolve for the latter.
+  // is reached from a contractor's active tender contract, which
+  // useApp().projects (funding-only) could never resolve.
   const { data: project, isLoading: projectLoading } = useProjectQuery(projectId)
-  const { quincailleries } = useMaterials()
+  const { suppliers } = useMaterials()
   const createOrder = useCreateMaterialOrderMutation()
 
   const milestone = project?.milestones.find((m) => m.id === milestoneId)
@@ -365,8 +363,8 @@ export function RequestMaterialsScreen() {
   // step entirely, rather than asking them to re-find a store that was
   // already decided on when the project was posted.
   useEffect(() => {
-    if (project?.materialsManagedBy === 'quincaillerie' && project.preferredQuincaillerieId && !selectedId) {
-      setSelectedId(project.preferredQuincaillerieId)
+    if (project?.materialsManagedBy === 'supplier' && project.preferredSupplierId && !selectedId) {
+      setSelectedId(project.preferredSupplierId)
     }
   }, [project, selectedId])
 
@@ -378,10 +376,10 @@ export function RequestMaterialsScreen() {
     setCustomForm({ name: '', quantity: '1', unitPrice: '' })
   }
 
-  const verified = quincailleries.filter((q) => q.verificationStatus === 'verified')
-  const filtered = category === 'All' ? verified : verified.filter((q) => q.registeredCategories.includes(category))
-  const selected = quincailleries.find((q) => q.id === selectedId) ?? null
-  const { data: selectedInventory = [] } = useQuincaillerieInventoryQuery(selected?.id)
+  const verified = suppliers.filter((s) => s.verificationStatus === 'verified')
+  const filtered = category === 'All' ? verified : verified.filter((s) => s.registeredCategories.includes(category))
+  const selected = suppliers.find((s) => s.id === selectedId) ?? null
+  const { data: selectedInventory = [] } = useSupplierInventoryQuery(selected?.id)
 
   const cartItems: MaterialOrderItem[] = [
     ...selectedInventory
@@ -395,7 +393,7 @@ export function RequestMaterialsScreen() {
     if (!selected || !project || !milestone || cartItems.length === 0) return
     try {
       await createOrder.mutateAsync({
-        projectId: project.id, milestoneId: milestone.id, quincaillerieId: selected.id,
+        projectId: project.id, milestoneId: milestone.id, supplierId: selected.id,
         items: cartItems.map(({ inventoryItemId, name: n, quantity, unitPrice }) => ({ inventoryItemId, name: n, quantity, unitPrice })),
       })
       setSubmitted(true)
@@ -443,26 +441,26 @@ export function RequestMaterialsScreen() {
         {!selected ? (
           <>
             <div className="overflow-x-auto pb-1">
-              <ChipGroup options={['All', ...CATEGORY_OPTIONS]} value={category} onChange={(v) => setCategory(v as string)} />
+              <ChipGroup options={['All', ...CATEGORY_NAMES]} value={category} onChange={(v) => setCategory(v as string)} />
             </div>
             {filtered.length === 0 ? (
-              <EmptyState icon="store" title="No verified quincailleries in this category yet" illustration="tilt" />
+              <EmptyState icon="store" title="No verified suppliers in this category yet" illustration="tilt" />
             ) : (
               <StaggerList className="space-y-2">
-                {filtered.map((q) => (
-                  <StaggerItem key={q.id}>
-                    <Card variant="interactive" onClick={() => setSelectedId(q.id)}>
+                {filtered.map((s) => (
+                  <StaggerItem key={s.id}>
+                    <Card variant="interactive" onClick={() => setSelectedId(s.id)}>
                       <div className="p-4 flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: C.forest }}>
                           <AppIcon name="store" size={18} style={{ color: '#fff' }} />
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{q.businessName}</div>
+                            <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold truncate">{s.businessName}</div>
                             <AppIcon name="shieldCheck" size={13} style={{ color: C.forest }} />
                           </div>
-                          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{q.address}, {q.region}</div>
-                          <Stars rating={q.averageRating} />
+                          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{s.address}, {s.region}</div>
+                          <Stars rating={s.averageRating} />
                         </div>
                       </div>
                     </Card>
@@ -575,17 +573,17 @@ export function RequestMaterialsScreen() {
   )
 }
 
-// ── Quincaillerie public profile ──────────────────────────────────────────
-export function QuincaillerieProfileScreen() {
+// ── Supplier public profile ──────────────────────────────────────
+export function SupplierProfileScreen() {
   const { id } = useParams()
-  const { quincailleries } = useMaterials()
-  const quincaillerie = quincailleries.find((q) => q.id === id)
-  const { data: inventory = [] } = useQuincaillerieInventoryQuery(quincaillerie?.id)
+  const { suppliers } = useMaterials()
+  const supplier = suppliers.find((s) => s.id === id)
+  const { data: inventory = [] } = useSupplierInventoryQuery(supplier?.id)
 
-  if (!quincaillerie) {
+  if (!supplier) {
     return (
       <AppShell>
-        <Header title="Quincaillerie" back />
+        <Header title="Supplier" back />
         <div className="px-5 py-8">
           <EmptyState icon="store" title="Not found" illustration="tilt" />
         </div>
@@ -595,17 +593,17 @@ export function QuincaillerieProfileScreen() {
 
   return (
     <AppShell>
-      <Header title={quincaillerie.businessName} back tone="dark" background={C.forest}>
+      <Header title={supplier.businessName} back tone="dark" background={C.forest}>
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full flex items-center justify-center text-white text-xl font-bold" style={{ background: 'rgba(255,255,255,0.15)', fontFamily: FONT.serif }}>
-            {quincaillerie.businessName[0]}
+            {supplier.businessName[0]}
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{quincaillerie.businessName}</div>
-              {quincaillerie.verificationStatus === 'verified' && <AppIcon name="shieldCheck" size={16} style={{ color: '#fff' }} />}
+              <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{supplier.businessName}</div>
+              {supplier.verificationStatus === 'verified' && <AppIcon name="shieldCheck" size={16} style={{ color: '#fff' }} />}
             </div>
-            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-wider mt-0.5">{quincaillerie.address}, {quincaillerie.region}</div>
+            <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] uppercase tracking-wider mt-0.5">{supplier.address}, {supplier.region}</div>
           </div>
         </div>
       </Header>
@@ -613,9 +611,9 @@ export function QuincaillerieProfileScreen() {
       <div className="px-5 py-5 space-y-4 sm:mx-auto sm:max-w-2xl">
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Rating', value: quincaillerie.averageRating > 0 ? quincaillerie.averageRating.toFixed(1) : '—' },
-            { label: 'Completed', value: String(quincaillerie.completedOrderCount) },
-            { label: 'Status', value: quincaillerie.verificationStatus === 'verified' ? 'Verified' : 'Pending' },
+            { label: 'Rating', value: supplier.averageRating > 0 ? supplier.averageRating.toFixed(1) : '—' },
+            { label: 'Completed', value: String(supplier.completedOrderCount) },
+            { label: 'Status', value: supplier.verificationStatus === 'verified' ? 'Verified' : 'Pending' },
           ].map(({ label, value }) => (
             <Card key={label}>
               <div className="p-3 text-center">
@@ -629,7 +627,7 @@ export function QuincaillerieProfileScreen() {
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Categories</p>
           <div className="flex flex-wrap gap-2">
-            {quincaillerie.registeredCategories.map((c) => (
+            {supplier.registeredCategories.map((c) => (
               <span key={c} className="rounded-full px-3 py-1 text-xs" style={{ background: C.parchment, color: C.inkMuted, fontFamily: FONT.sans }}>{c}</span>
             ))}
           </div>

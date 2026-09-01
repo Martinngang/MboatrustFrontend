@@ -1,7 +1,7 @@
 /** Default construction-materials catalogue taxonomy — shown as suggestions
  * throughout the inventory UI (category picker, subcategory picker), never
  * enforced server-side (InventoryItem.category/subcategory are free
- * strings, see the backend model) — a quincaillerie owner can always type
+ * strings, see the backend model) — a supplier owner can always type
  * something new instead, which is exactly the "extensible" requirement:
  * the default list exists to make browsing/picking fast, not to gate what
  * can be stocked. */

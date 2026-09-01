@@ -17,7 +17,7 @@ const ROWS: PrefRow[] = [
   { key: 'milestones', label: 'Milestone updates', sub: 'Submissions, approvals, releases', defaults: { push: true, email: true } },
   { key: 'bids', label: 'New bids & tenders', sub: 'Bids received, tenders matching your trade', defaults: { push: true, email: false } },
   { key: 'disputes', label: 'Disputes & flags', sub: 'Raised disputes, fraud flags, resolutions', defaults: { push: true, email: true } },
-  { key: 'messages', label: 'Messages', sub: 'New chat messages from recipients, contractors, sellers', defaults: { push: true, email: false } },
+  { key: 'messages', label: 'Messages', sub: 'New chat messages from contractors, sellers, suppliers', defaults: { push: true, email: false } },
   { key: 'land', label: 'Land verification', sub: 'Listing verified, offers received', defaults: { push: true, email: false } },
   { key: 'marketing', label: 'Platform tips & news', sub: 'Occasional product updates and tips', defaults: { push: false, email: false } },
 ]

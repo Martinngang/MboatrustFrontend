@@ -28,7 +28,7 @@ const inputClass = "w-full rounded-xl border-2 px-4 py-3 text-sm outline-none tr
 interface FormState {
   name: string; sku: string; category: string; subcategory: string; description: string
   unit: string; price: string; quantityAvailable: string; minStockLevel: string; brand: string
-  supplierName: string; supplierContact: string
+  sourcedFromName: string; sourcedFromContact: string
   specifications: Specification[]
   length: string; width: string; height: string; dimUnit: string; weightKg: string
   projectSuitability: string[]
@@ -38,7 +38,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   name: '', sku: '', category: '', subcategory: '', description: '',
   unit: '', price: '', quantityAvailable: '0', minStockLevel: '0', brand: '',
-  supplierName: '', supplierContact: '',
+  sourcedFromName: '', sourcedFromContact: '',
   specifications: [],
   length: '', width: '', height: '', dimUnit: 'cm', weightKg: '',
   projectSuitability: [],
@@ -47,7 +47,7 @@ const EMPTY_FORM: FormState = {
 
 /** Add/edit a single product. One rich form covers everything the redesign
  * asked for — identity (name/SKU/category/subcategory/description/brand),
- * media, pricing & stock, supplier, free-form specifications, dimensions,
+ * media, pricing & stock, sourced-from vendor, free-form specifications, dimensions,
  * and project suitability. Category/subcategory/unit are plain text inputs
  * with a <datalist> of suggestions — native HTML combobox behavior means
  * an owner can pick a suggestion *or* type something entirely new with no
@@ -78,7 +78,7 @@ export function InventoryItemFormScreen() {
       name: existing.name, sku: existing.sku, category: existing.category, subcategory: existing.subcategory,
       description: existing.description, unit: existing.unit, price: String(existing.price),
       quantityAvailable: String(existing.quantityAvailable), minStockLevel: String(existing.minStockLevel),
-      brand: existing.brand, supplierName: existing.supplier.name, supplierContact: existing.supplier.contact,
+      brand: existing.brand, sourcedFromName: existing.sourcedFrom.name, sourcedFromContact: existing.sourcedFrom.contact,
       specifications: existing.specifications,
       length: existing.dimensions.length != null ? String(existing.dimensions.length) : '',
       width: existing.dimensions.width != null ? String(existing.dimensions.width) : '',
@@ -114,7 +114,7 @@ export function InventoryItemFormScreen() {
     quantityAvailable: Number(form.quantityAvailable) || 0,
     minStockLevel: Number(form.minStockLevel) || 0,
     brand: form.brand.trim(),
-    supplier: { name: form.supplierName.trim(), contact: form.supplierContact.trim() },
+    sourcedFrom: { name: form.sourcedFromName.trim(), contact: form.sourcedFromContact.trim() },
     specifications: form.specifications.filter((s) => s.key.trim() && s.value.trim()),
     dimensions: {
       length: form.length ? Number(form.length) : null,
@@ -133,12 +133,12 @@ export function InventoryItemFormScreen() {
     const input = toInput()
     if (isEdit && id) {
       updateMutation.mutate({ id, input }, {
-        onSuccess: () => { showToast({ title: 'Product updated', tone: 'success' }); nav('/quincaillerie/inventory') },
+        onSuccess: () => { showToast({ title: 'Product updated', tone: 'success' }); nav('/supplier/inventory') },
         onError: (err) => showToast({ title: 'Failed to save', description: apiErrorMessage(err), tone: 'error' }),
       })
     } else {
       createMutation.mutate(input, {
-        onSuccess: () => { showToast({ title: 'Product added', tone: 'success' }); nav('/quincaillerie/inventory') },
+        onSuccess: () => { showToast({ title: 'Product added', tone: 'success' }); nav('/supplier/inventory') },
         onError: (err) => showToast({ title: 'Failed to save', description: apiErrorMessage(err), tone: 'error' }),
       })
     }
@@ -266,15 +266,15 @@ export function InventoryItemFormScreen() {
           )}
         </div></Card>
 
-        {/* Supplier */}
+        {/* Sourced from */}
         <Card><div className="space-y-3 p-4">
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Supplier (optional)</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Sourced from (optional)</div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Supplier name">
-              <input value={form.supplierName} onChange={(e) => set('supplierName', e.target.value)} className={inputClass} style={inputStyle} />
+            <Field label="Vendor name">
+              <input value={form.sourcedFromName} onChange={(e) => set('sourcedFromName', e.target.value)} className={inputClass} style={inputStyle} />
             </Field>
-            <Field label="Supplier contact">
-              <input value={form.supplierContact} onChange={(e) => set('supplierContact', e.target.value)} placeholder="Phone or email" className={inputClass} style={inputStyle} />
+            <Field label="Vendor contact">
+              <input value={form.sourcedFromContact} onChange={(e) => set('sourcedFromContact', e.target.value)} placeholder="Phone or email" className={inputClass} style={inputStyle} />
             </Field>
           </div>
         </div></Card>
@@ -326,7 +326,7 @@ export function InventoryItemFormScreen() {
           <div className="flex gap-2">
             <button
               onClick={() => duplicateMutation.mutate(existing.id, {
-                onSuccess: (dup) => { showToast({ title: 'Duplicated', tone: 'success' }); nav(`/quincaillerie/inventory/${dup.id}/edit`) },
+                onSuccess: (dup) => { showToast({ title: 'Duplicated', tone: 'success' }); nav(`/supplier/inventory/${dup.id}/edit`) },
               })}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold"
               style={{ borderColor: C.parchmentDark, color: C.ink, fontFamily: FONT.sans }}
@@ -354,7 +354,7 @@ export function InventoryItemFormScreen() {
         onConfirm={() => {
           if (!existing) return
           deleteMutation.mutate(existing.id, {
-            onSuccess: () => { showToast({ title: 'Product deleted', tone: 'success' }); nav('/quincaillerie/inventory') },
+            onSuccess: () => { showToast({ title: 'Product deleted', tone: 'success' }); nav('/supplier/inventory') },
             onError: (err) => showToast({ title: 'Failed', description: apiErrorMessage(err), tone: 'error' }),
           })
         }}

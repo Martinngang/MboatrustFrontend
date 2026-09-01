@@ -10,9 +10,9 @@ export interface AttentionItem {
 }
 
 /** Role-agnostic list widget — each Home screen supplies its own
- * role-appropriate items (pending milestone reviews for funders, next
- * milestone to submit for recipients, active bids for contractors, pending
- * offers for sellers) so the widget itself stays generic and reusable. */
+ * role-appropriate items (pending milestone reviews for funders, active
+ * bids for contractors, pending offers for sellers) so the widget itself
+ * stays generic and reusable. */
 export function NeedsAttentionWidget({ items }: { items: AttentionItem[] }) {
   if (items.length === 0) {
     return <EmptyState icon="celebrate" title="You're all caught up" description="Nothing needs your attention right now." illustration="float" />

@@ -99,7 +99,6 @@ function CommandPaletteOverlay({ open, onClose }: { open: boolean; onClose: () =
       title: c.name, subtitle: `${c.trade} · ${c.location}`,
       onSelect: () => goTo('/funder/contractors'),
     })),
-    { id: 'action-create-project', icon: 'plus', group: 'Actions', title: 'Create project', onSelect: () => goTo('/funder/create') },
     { id: 'action-post-job', icon: 'megaphone', group: 'Actions', title: 'Post a tender', onSelect: () => goTo('/funder/post-job') },
     { id: 'action-create-listing', icon: 'hardHat', group: 'Actions', title: 'Create land listing', onSelect: () => goTo('/land/create') },
     { id: 'action-home', icon: 'home', group: 'Actions', title: 'Go to Home', onSelect: () => goTo('/home') },

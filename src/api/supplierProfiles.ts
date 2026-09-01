@@ -6,9 +6,9 @@ import { api } from './client'
 // written against the old materials.tsx mock (which used this exact name
 // and 'verified' label) needed zero changes when this graduated off mock
 // data onto a real backend.
-export type QuincaillerieVerificationStatus = 'pending' | 'verified' | 'rejected'
+export type SupplierVerificationStatus = 'pending' | 'verified' | 'rejected'
 
-export interface QuincaillerieProfileRecord {
+export interface SupplierProfileRecord {
   id: string
   ownerId: string
   ownerName?: string
@@ -17,7 +17,7 @@ export interface QuincaillerieProfileRecord {
   address: string
   region: string
   registeredCategories: string[]
-  verificationStatus: QuincaillerieVerificationStatus
+  verificationStatus: SupplierVerificationStatus
   verificationDocUploaded: boolean
   averageRating: number
   completedOrderCount: number
@@ -26,7 +26,7 @@ export interface QuincaillerieProfileRecord {
   payoutPhoneNumber: string
 }
 
-interface BackendQuincaillerieProfile {
+interface BackendSupplierProfile {
   _id: string
   ownerId: { _id: string; fullName: string; email?: string } | string
   businessName: string
@@ -43,13 +43,13 @@ interface BackendQuincaillerieProfile {
   payoutPhoneNumber: string
 }
 
-const STATUS_MAP: Record<'pending' | 'approved' | 'rejected', QuincaillerieVerificationStatus> = {
+const STATUS_MAP: Record<'pending' | 'approved' | 'rejected', SupplierVerificationStatus> = {
   pending: 'pending',
   approved: 'verified',
   rejected: 'rejected',
 }
 
-function mapQuincaillerieProfile(doc: BackendQuincaillerieProfile): QuincaillerieProfileRecord {
+function mapSupplierProfile(doc: BackendSupplierProfile): SupplierProfileRecord {
   return {
     id: doc._id,
     ownerId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
@@ -69,26 +69,26 @@ function mapQuincaillerieProfile(doc: BackendQuincaillerieProfile): Quincailleri
   }
 }
 
-export function useMyQuincaillerieProfileQuery(enabled = true) {
+export function useMySupplierProfileQuery(enabled = true) {
   return useQuery({
-    queryKey: ['quincaillerieProfile', 'me'],
-    queryFn: async (): Promise<QuincaillerieProfileRecord | null> => {
-      const { data } = await api.get<{ data: BackendQuincaillerieProfile | null }>('/quincaillerie-profiles/me')
-      return data.data ? mapQuincaillerieProfile(data.data) : null
+    queryKey: ['supplierProfile', 'me'],
+    queryFn: async (): Promise<SupplierProfileRecord | null> => {
+      const { data } = await api.get<{ data: BackendSupplierProfile | null }>('/supplier-profiles/me')
+      return data.data ? mapSupplierProfile(data.data) : null
     },
     enabled,
     staleTime: 10_000,
   })
 }
 
-export function useUpsertQuincaillerieProfileMutation() {
+export function useUpsertSupplierProfileMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: {
       businessName: string; address: string; region: string; categories: string[]
       phone: string; paymentProvider: 'mtn_momo' | 'orange_money'; payoutPhoneNumber: string; docUploaded: boolean
     }) => {
-      const { data } = await api.post<{ data: BackendQuincaillerieProfile }>('/quincaillerie-profiles/me', {
+      const { data } = await api.post<{ data: BackendSupplierProfile }>('/supplier-profiles/me', {
         businessName: input.businessName,
         address: input.address,
         region: input.region,
@@ -98,47 +98,47 @@ export function useUpsertQuincaillerieProfileMutation() {
         payoutPhoneNumber: input.payoutPhoneNumber,
         verificationDocUploaded: input.docUploaded,
       })
-      return mapQuincaillerieProfile(data.data)
+      return mapSupplierProfile(data.data)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['quincaillerieProfile'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['supplierProfile'] }),
   })
 }
 
-/** Authenticated, approved-only directory — funders/recipients browse this
+/** Authenticated, approved-only directory — funders/contractors browse this
  * to pick a store when requesting a materials milestone. */
-export function useQuincaillerieDirectoryQuery() {
+export function useSupplierDirectoryQuery() {
   return useQuery({
-    queryKey: ['quincaillerieDirectory'],
-    queryFn: async (): Promise<QuincaillerieProfileRecord[]> => {
-      const { data } = await api.get<{ data: BackendQuincaillerieProfile[] }>('/quincaillerie-profiles/directory')
-      return data.data.map(mapQuincaillerieProfile)
+    queryKey: ['supplierDirectory'],
+    queryFn: async (): Promise<SupplierProfileRecord[]> => {
+      const { data } = await api.get<{ data: BackendSupplierProfile[] }>('/supplier-profiles/directory')
+      return data.data.map(mapSupplierProfile)
     },
     staleTime: 10_000,
   })
 }
 
 /** Admin review queue. */
-export function useQuincaillerieApplicationsQuery(applicationStatus?: 'pending' | 'approved' | 'rejected') {
+export function useSupplierApplicationsQuery(applicationStatus?: 'pending' | 'approved' | 'rejected') {
   return useQuery({
-    queryKey: ['quincaillerieApplications', applicationStatus],
-    queryFn: async (): Promise<QuincaillerieProfileRecord[]> => {
-      const { data } = await api.get<{ data: BackendQuincaillerieProfile[] }>('/quincaillerie-profiles', { params: { applicationStatus } })
-      return data.data.map(mapQuincaillerieProfile)
+    queryKey: ['supplierApplications', applicationStatus],
+    queryFn: async (): Promise<SupplierProfileRecord[]> => {
+      const { data } = await api.get<{ data: BackendSupplierProfile[] }>('/supplier-profiles', { params: { applicationStatus } })
+      return data.data.map(mapSupplierProfile)
     },
     staleTime: 10_000,
   })
 }
 
-export function useDecideQuincaillerieProfileMutation() {
+export function useDecideSupplierProfileMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ id, decision }: { id: string; decision: 'approve' | 'reject' }) => {
-      const { data } = await api.post<{ data: BackendQuincaillerieProfile }>(`/quincaillerie-profiles/${id}/${decision}`)
-      return mapQuincaillerieProfile(data.data)
+      const { data } = await api.post<{ data: BackendSupplierProfile }>(`/supplier-profiles/${id}/${decision}`)
+      return mapSupplierProfile(data.data)
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['quincaillerieApplications'] })
-      qc.invalidateQueries({ queryKey: ['quincaillerieDirectory'] })
+      qc.invalidateQueries({ queryKey: ['supplierApplications'] })
+      qc.invalidateQueries({ queryKey: ['supplierDirectory'] })
     },
   })
 }

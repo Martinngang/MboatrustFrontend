@@ -14,11 +14,8 @@ export const ONBOARDING_STEPS = [
 function BrandMark() {
   return (
     <div className="flex items-center gap-2.5">
-      <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: 'rgba(255,255,255,0.12)' }}>
-        <svg width="18" height="18" viewBox="0 0 22 22" fill="none">
-          <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.amber} strokeWidth="1.6" />
-          <circle cx="11" cy="11" r="2.5" fill={C.amber} />
-        </svg>
+      <div className="flex h-9 w-9 items-center justify-center rounded-xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+        <img src="/brand/logo-64.png" alt="Mboa Trust" className="h-7 w-7 object-contain" />
       </div>
       <span style={{ fontFamily: FONT.serif }} className="text-lg font-bold text-white">Mboa Trust</span>
     </div>

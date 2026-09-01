@@ -8,8 +8,8 @@ import { AppIcon } from './icons'
  * renders elsewhere (see MilestoneReviewScreen) — a receipt is this
  * milestone's evidence, not a bolted-on second UI. Shown wherever a
  * milestone with a linked material order is displayed: the funder's
- * review screen, the recipient's submission status, and the
- * quincaillerie's own order list. */
+ * review screen, the contractor's submission status, and the supplier's
+ * own order list. */
 export function MaterialOrderCard({ order, compact = false }: { order: MaterialOrder; compact?: boolean }) {
   const { payoutLabel } = resolveMilestonePayee(order)
   const isPaidToSupplier = order.status === 'confirmed' || order.status === 'out_for_delivery' || order.status === 'delivered'
@@ -20,7 +20,7 @@ export function MaterialOrderCard({ order, compact = false }: { order: MaterialO
         <div className="flex items-start justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             <span style={{ color: C.forest }}><AppIcon name="store" size={16} /></span>
-            <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{order.quincaillerieName}</div>
+            <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{order.supplierName}</div>
           </div>
           <StatusBadge status={order.status} />
         </div>

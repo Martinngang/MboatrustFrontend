@@ -13,13 +13,13 @@ export interface ChatMessage {
 export interface Conversation {
   id: string
   withName: string
-  withRole: 'recipient' | 'contractor' | 'seller' | 'funder'
+  withRole: 'contractor' | 'seller' | 'funder' | 'supplier'
   context: string
   avatarInitial: string
 }
 
 const SEED_CONVERSATIONS: Conversation[] = [
-  { id: 'c1', withName: 'Emmanuel Njang', withRole: 'recipient', context: 'Borehole — Bamenda North', avatarInitial: 'E' },
+  { id: 'c1', withName: 'Emmanuel Njang', withRole: 'contractor', context: 'Borehole — Bamenda North', avatarInitial: 'E' },
   { id: 'c2', withName: 'Fon Ayuk Construction', withRole: 'contractor', context: 'Water pump installation — Ngaoundéré', avatarInitial: 'F' },
   { id: 'c3', withName: 'Christophe Essama', withRole: 'seller', context: '800m² residential plot — Bastos', avatarInitial: 'C' },
 ]

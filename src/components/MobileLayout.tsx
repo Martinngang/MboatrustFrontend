@@ -1,8 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { useApp } from '../context'
-import { useMaterials } from '../materials'
-import { useMyRoleTypesQuery } from '../api/session'
 import { useTheme } from '../theme'
 import { Tilt3D } from './Tilt3D'
 import type { ReactNode, KeyboardEvent } from 'react'
@@ -244,16 +242,9 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
 export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths: string[] }[]> = {
   funder: [
     { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
-    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/create'] },
+    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/post-job'] },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
-    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
-  ],
-  recipient: [
-    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
-    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/recipient/projects', '/recipient/submit', '/recipient/submission-status', '/recipient/history'] },
-    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
-    { icon: <AppIcon name="wallet" size={20} />, label: 'Wallet', paths: ['/recipient/withdrawal'] },
     { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
   contractor: [
@@ -274,11 +265,8 @@ export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths:
     { icon: <AppIcon name="grid" size={20} />, label: 'My Listings', paths: ['/land/my-listings', '/land/create'] },
     { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
   ],
-  // Not a real Role (see Onboarding.tsx's RoleScreen) — a quincaillerie-only
-  // account has role===null, so this is looked up by a separate
-  // myQuincaillerie check in BottomNav/Sidebar rather than TAB_ROUTES[role].
-  quincaillerie: [
-    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/quincaillerie/dashboard'] },
+  supplier: [
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/supplier/dashboard'] },
     { icon: <AppIcon name="store" size={20} />, label: 'Materials', paths: ['/tools/material-estimator'] },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
@@ -310,21 +298,11 @@ export const ADMIN_LINKS: { label: string; path: string; requiresRole: 'verifier
 ]
 
 export function BottomNav() {
-  const { role, devUserId } = useApp()
-  const { myQuincaillerie } = useMaterials()
-  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
+  const { role } = useApp()
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
-  // A quincaillerie-only account has role===null (it isn't a real Role —
-  // see Onboarding.tsx), so it needs its own lookup key rather than
-  // TAB_ROUTES[role ?? 'funder'] silently handing it funder's tabs.
-  // myQuincaillerie (the profile document) alone misses an account whose
-  // role was granted directly with no profile ever submitted — roleTypes
-  // (the raw backend roles) catches that case too, same fix as
-  // Dashboard.tsx's HomeScreen and Sidebar.tsx.
-  const isQuincaillerie = myQuincaillerie || roleTypes.includes('quincaillerie')
-  const tabs = TAB_ROUTES[role === null && isQuincaillerie ? 'quincaillerie' : role ?? 'funder'] ?? FUNDER_TABS
+  const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
 
   return (
     // Literal position:fixed pinned to the viewport edge — the same

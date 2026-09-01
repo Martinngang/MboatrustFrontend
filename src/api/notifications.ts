@@ -105,7 +105,7 @@ function describe(n: BackendNotification): Described {
       return {
         icon: 'refresh', category: 'milestones', title: 'Corrections requested',
         body: typeof p.reason === 'string' ? `"${p.reason}"` : 'The funder asked for corrections before this milestone can be approved.',
-        path: p.projectId ? `/recipient/submit/${p.projectId}` : undefined,
+        path: p.projectId ? `/contractor/submit/${p.projectId}` : undefined,
       }
     case 'land_purchase_started':
       return {

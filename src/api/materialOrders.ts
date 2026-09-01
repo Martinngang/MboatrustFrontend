@@ -25,8 +25,8 @@ export interface MaterialOrderRecord {
   projectTitle: string
   milestoneId: string
   milestoneTitle: string
-  quincaillerieId: string
-  quincaillerieName: string
+  supplierId: string
+  supplierName: string
   requestedBy: string
   requestedByName: string
   items: MaterialOrderItem[]
@@ -50,7 +50,7 @@ interface BackendMaterialOrder {
   _id: string
   projectId: (BackendRef & { title: string; milestones: { _id: string; name: string }[] }) | null
   milestoneId: string
-  quincaillerieId: (BackendRef & { businessName: string }) | null
+  supplierId: (BackendRef & { businessName: string }) | null
   requestedBy: (BackendRef & { fullName: string }) | null
   items: MaterialOrderItem[]
   totalAmount: number
@@ -75,8 +75,8 @@ function mapOrder(doc: BackendMaterialOrder): MaterialOrderRecord {
     projectTitle: doc.projectId?.title ?? 'Project',
     milestoneId: doc.milestoneId,
     milestoneTitle: milestone?.name ?? '',
-    quincaillerieId: doc.quincaillerieId?._id ?? '',
-    quincaillerieName: doc.quincaillerieId?.businessName ?? 'Quincaillerie',
+    supplierId: doc.supplierId?._id ?? '',
+    supplierName: doc.supplierId?.businessName ?? 'Supplier',
     requestedBy: doc.requestedBy?._id ?? '',
     requestedByName: doc.requestedBy?.fullName ?? '',
     items: doc.items ?? [],
@@ -104,7 +104,7 @@ function mapOrder(doc: BackendMaterialOrder): MaterialOrderRecord {
 export interface RequestMaterialOrderInput {
   projectId: string
   milestoneId: string
-  quincaillerieId: string
+  supplierId: string
   items: Omit<MaterialOrderItem, 'subtotal'>[]
   deliveryAddress?: string
 }
@@ -137,12 +137,12 @@ export function useMyMaterialOrdersQuery(enabled = true) {
   })
 }
 
-/** Incoming orders for the caller's own quincaillerie — the store owner's dashboard queue. */
-export function useMaterialOrdersForMyQuincaillerieQuery(status?: MaterialOrderStatus | 'all', enabled = true) {
+/** Incoming orders for the caller's own supplier — the store owner's dashboard queue. */
+export function useMaterialOrdersForMySupplierQuery(status?: MaterialOrderStatus | 'all', enabled = true) {
   return useQuery({
-    queryKey: ['materialOrders', 'forQuincaillerie', status],
+    queryKey: ['materialOrders', 'forSupplier', status],
     queryFn: async (): Promise<MaterialOrderRecord[]> => {
-      const { data } = await api.get<{ data: BackendMaterialOrder[] }>('/material-orders/for-quincaillerie', {
+      const { data } = await api.get<{ data: BackendMaterialOrder[] }>('/material-orders/for-supplier', {
         params: status && status !== 'all' ? { status } : undefined,
       })
       return data.data.map(mapOrder)
@@ -153,7 +153,7 @@ export function useMaterialOrdersForMyQuincaillerieQuery(status?: MaterialOrderS
 }
 
 /** Every order tied to one milestone, visible to any real party of that
- * project or the fulfilling quincaillerie. */
+ * project or the fulfilling supplier. */
 export function useMaterialOrdersForMilestoneQuery(projectId: string | undefined, milestoneId: string | undefined) {
   return useQuery({
     queryKey: ['materialOrders', 'forMilestone', projectId, milestoneId],

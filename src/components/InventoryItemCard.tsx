@@ -10,7 +10,7 @@ function fmtXAF(n: number) {
 
 /** One product row in the inventory catalogue — used both by the owner's
  * management view (with select checkbox + action menu) and any read-only
- * browsing context (funder/recipient picking materials, public profile),
+ * browsing context (funder/contractor picking materials, public profile),
  * which just omits those two props. */
 export function InventoryItemCard({
   item, selectable = false, selected = false, onToggleSelect, onOpen, onDuplicate, onArchive, onRestore, onDelete, quantityControl,
@@ -24,7 +24,7 @@ export function InventoryItemCard({
   onArchive?: () => void
   onRestore?: () => void
   onDelete?: () => void
-  /** Funder/recipient ordering view swaps the action menu for a +/- quantity stepper. */
+  /** Funder/contractor ordering view swaps the action menu for a +/- quantity stepper. */
   quantityControl?: { quantity: number; onChange: (q: number) => void }
 }) {
   const [menuOpen, setMenuOpen] = useState(false)

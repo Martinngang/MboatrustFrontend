@@ -26,9 +26,9 @@ import { LanguageScreen, SignupScreen, OTPScreen, LoginScreen, RoleScreen, Profi
 import { HomeScreen } from './screens/Dashboard'
 // Funder
 import {
-  BrowseProjectsScreen, ProjectDetailScreen, CreateProjectScreen, MilestonesScreen, FundProjectScreen,
+  BrowseProjectsScreen, ProjectDetailScreen, FundProjectScreen,
   MilestoneReviewScreen, DisputeScreen, TransactionHistoryScreen, BidComparisonScreen,
-  RecipientProfileScreen, VideoVerificationScheduleScreen,
+  VideoVerificationScheduleScreen,
 } from './screens/FunderScreens'
 // Messaging
 import { ConversationListScreen, ChatDetailScreen } from './screens/MessagingScreens'
@@ -42,10 +42,8 @@ import { AddCertificationScreen, MaterialCostEstimatorScreen, AvailabilityCalend
 import { GroupSetupScreen, JoinGroupScreen, GroupMembersScreen, GroupDashboardScreen, ReferralScreen, PublicShowcaseScreen } from './screens/CommunityScreens'
 // Compliance
 import { KycExplainerScreen, KycVerifyScreen } from './screens/ComplianceScreens'
-// Recipient
-import { MilestoneSubmitScreen, WithdrawalScreen, ReputationScreen, RecipientProjectsScreen, SubmissionStatusScreen, RateRecipientScreen, ProjectHistoryScreen } from './screens/RecipientScreens'
 // Contractor
-import { BrowseJobsScreen, JobDetailScreen, SubmitBidScreen, MyBidsScreen, ContractDetailScreen, EarningsScreen, ContractorProfileScreen } from './screens/ContractorScreens'
+import { BrowseJobsScreen, JobDetailScreen, SubmitBidScreen, MyBidsScreen, ContractDetailScreen, EarningsScreen, ContractorProfileScreen, MilestoneSubmitScreen } from './screens/ContractorScreens'
 import { ContractorPortfolioScreen, EditContractorPortfolioScreen, ContractorLeaderboardScreen } from './screens/ContractorPortfolioScreens'
 // Land
 import { BrowseLandScreen, LandListingDetailScreen, CreateListingScreen, MyListingsScreen, ContactSellerScreen, PurchaseOfferScreen } from './screens/LandScreens'
@@ -60,8 +58,8 @@ import {
   DisputeResolutionScreen, AdminFraudAnalyticsScreen,
 } from './screens/AdditionalScreens'
 import {
-  QuincaillerieRegistrationScreen, QuincaillerieDashboardScreen, QuincaillerieProfileScreen, RequestMaterialsScreen,
-} from './screens/QuincaillerieScreens'
+  SupplierRegistrationScreen, SupplierDashboardScreen, SupplierProfileScreen, RequestMaterialsScreen,
+} from './screens/SupplierScreens'
 import { InventoryScreen } from './screens/InventoryScreen'
 import { InventoryItemFormScreen } from './screens/InventoryItemFormScreen'
 import { AdminOverviewScreen, AdminUsersScreen, AdminProjectsScreen, AdminVerificationsScreen, AdminLandScreen, AdminContractorsScreen, AdminCommunityScreen, AdminNotificationsScreen, AdminSettingsScreen, AdminAccountsScreen } from './screens/AdminScreens'
@@ -139,8 +137,8 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 // A signed-in visitor who lands on the marketing page or an auth screen
 // (bookmark, back-button, restored session on reload) belongs at their
 // dashboard, not back at square one — an admin's "dashboard" is /admin,
-// never the consumer /home (which assumes a funder/recipient/contractor/
-// seller role an admin account never has).
+// never the consumer /home (which assumes a funder/contractor/seller/
+// supplier role an admin account never has).
 function RedirectIfAuthed({ children }: { children: ReactNode }) {
   const { isLoggedIn, isAdmin } = useApp()
   if (!isLoggedIn) return <>{children}</>
@@ -208,7 +206,7 @@ export default function App() {
                           the outgoing tree can still fire after the new route
                           starts navigating — won the race and silently
                           overwrote finish()'s real destination
-                          (`/quincaillerie/register`) back to `/home`. Every
+                          (`/supplier/register`) back to `/home`. Every
                           other onboarding destination happened to also be
                           `/home`, which is exactly why this only ever showed up
                           for the one path that goes somewhere else. Removing
@@ -237,9 +235,6 @@ export default function App() {
                       {/* Funder */}
                       <Route path="/funder/browse" element={<P><BrowseProjectsScreen /></P>} />
                       <Route path="/funder/project/:id" element={<P><ProjectDetailScreen /></P>} />
-                      <Route path="/funder/recipient/:id?" element={<P><RecipientProfileScreen /></P>} />
-                      <Route path="/funder/create" element={<P><CreateProjectScreen /></P>} />
-                      <Route path="/funder/milestones" element={<P><MilestonesScreen /></P>} />
                       <Route path="/funder/fund" element={<P><FundProjectScreen /></P>} />
                       <Route path="/funder/review/:id?" element={<P><MilestoneReviewScreen /></P>} />
                       <Route path="/funder/dispute/:id/:milestoneId" element={<P><DisputeScreen /></P>} />
@@ -251,16 +246,7 @@ export default function App() {
                       <Route path="/negotiation/:bidId" element={<P><NegotiationScreen /></P>} />
                       <Route path="/funder/contract-summary/:bidId" element={<P><ContractSummaryScreen /></P>} />
                       <Route path="/funder/rate-contractor/:jobId" element={<P><RateContractorScreen /></P>} />
-                      <Route path="/funder/rate-recipient/:id" element={<P><RateRecipientScreen /></P>} />
-        
-                      {/* Recipient */}
-                      <Route path="/recipient/projects" element={<P><RecipientProjectsScreen /></P>} />
-                      <Route path="/recipient/submit/:id?" element={<P><MilestoneSubmitScreen /></P>} />
-                      <Route path="/recipient/submission-status" element={<P><SubmissionStatusScreen /></P>} />
-                      <Route path="/recipient/withdrawal" element={<P><WithdrawalScreen /></P>} />
-                      <Route path="/recipient/reputation" element={<P><ReputationScreen /></P>} />
-                      <Route path="/recipient/history" element={<P><ProjectHistoryScreen /></P>} />
-        
+
                       {/* Contractor */}
                       <Route path="/contractor/onboarding" element={<P><ContractorOnboardingScreen /></P>} />
                       <Route path="/contractor/profile" element={<P><ContractorProfileScreen /></P>} />
@@ -269,12 +255,9 @@ export default function App() {
                       <Route path="/contractor/bid/:id?" element={<RequireRole role="contractor"><SubmitBidScreen /></RequireRole>} />
                       <Route path="/contractor/bids" element={<P><MyBidsScreen /></P>} />
                       <Route path="/contractor/contract/:bidId" element={<P><ContractDetailScreen /></P>} />
-                      {/* Same screen as /recipient/submit — the capture/geotag/notes
-                          flow is identical regardless of whether the submitter owns
-                          the project or is its accepted contractor (see
-                          MilestoneSubmitScreen's own project-lookup fix); this route
-                          just gives a contractor a URL that isn't misleadingly
-                          "/recipient/...". */}
+                      {/* The capture/geotag/notes milestone-proof-submission flow for
+                          a tender the contractor was awarded — see ContractDetailScreen's
+                          "Submit next milestone proof" button. */}
                       <Route path="/contractor/submit/:id?" element={<P><MilestoneSubmitScreen /></P>} />
                       <Route path="/contractor/earnings" element={<P><EarningsScreen /></P>} />
                       <Route path="/contractor/portfolio/edit" element={<P><EditContractorPortfolioScreen /></P>} />
@@ -296,13 +279,13 @@ export default function App() {
                       <Route path="/verifier/report/:id?" element={<P><VerifierReportScreen /></P>} />
                       <Route path="/verifier/profile" element={<P><VerifierProfileScreen /></P>} />
 
-                      {/* Quincaillerie */}
-                      <Route path="/quincaillerie/register" element={<P><QuincaillerieRegistrationScreen /></P>} />
-                      <Route path="/quincaillerie/dashboard" element={<P><QuincaillerieDashboardScreen /></P>} />
-                      <Route path="/quincaillerie/profile/:id" element={<P><QuincaillerieProfileScreen /></P>} />
-                      <Route path="/quincaillerie/inventory" element={<P><InventoryScreen /></P>} />
-                      <Route path="/quincaillerie/inventory/new" element={<P><InventoryItemFormScreen /></P>} />
-                      <Route path="/quincaillerie/inventory/:id/edit" element={<P><InventoryItemFormScreen /></P>} />
+                      {/* Supplier */}
+                      <Route path="/supplier/register" element={<P><SupplierRegistrationScreen /></P>} />
+                      <Route path="/supplier/dashboard" element={<P><SupplierDashboardScreen /></P>} />
+                      <Route path="/supplier/profile/:id" element={<P><SupplierProfileScreen /></P>} />
+                      <Route path="/supplier/inventory" element={<P><InventoryScreen /></P>} />
+                      <Route path="/supplier/inventory/new" element={<P><InventoryItemFormScreen /></P>} />
+                      <Route path="/supplier/inventory/:id/edit" element={<P><InventoryItemFormScreen /></P>} />
                       <Route path="/materials/request/:projectId/:milestoneId" element={<P><RequestMaterialsScreen /></P>} />
 
                       {/* Co-signer */}

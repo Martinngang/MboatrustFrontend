@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
-import { fetchRatingSummary } from './reputation'
 import { getNextPageParam, type PageMeta } from './pagination'
 import type { Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
 
@@ -56,8 +55,8 @@ interface BackendProject {
   milestones: BackendMilestone[]
   requiresMultiSig: boolean
   coSignerId: { _id: string; fullName: string } | string | null
-  materialsManagedBy?: 'contractor' | 'quincaillerie'
-  preferredQuincaillerieId?: string | null
+  materialsManagedBy?: 'contractor' | 'supplier'
+  preferredSupplierId?: string | null
 }
 interface FundingSummary {
   raised: number
@@ -114,17 +113,15 @@ function mapMilestone(m: BackendMilestone): Milestone {
   }
 }
 
-function mapProject(doc: BackendProject, funding: FundingSummary | undefined, recipientRating: number): Project {
+function mapProject(doc: BackendProject, funding: FundingSummary | undefined): Project {
   return {
     id: doc._id,
     title: doc.title,
-    // Previously dropped entirely — every consumer of the mapped Project
-    // shape (ProjectDetailScreen, FundProjectScreen's post-funding routing)
-    // had no way to tell a tender apart from a funding request, which is
-    // exactly what let "Back to project" after funding a tender's escrow
-    // route into ProjectDetailScreen — a screen built entirely around
-    // funding-project concepts (recipient, co-signer, group contributors)
-    // that a tender doesn't have — instead of somewhere tender-appropriate.
+    // Every consumer of the mapped Project shape (ProjectDetailScreen,
+    // FundProjectScreen's post-funding routing) needs to tell a tender
+    // apart from a (retired) funding request, which is exactly what let
+    // "Back to project" after funding a tender's escrow route into
+    // ProjectDetailScreen incorrectly, before this was tracked.
     projectType: doc.projectType,
     category: doc.category || 'General',
     location: doc.locationName || '',
@@ -136,9 +133,8 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined, re
     totalAmount: doc.totalAmount,
     raised: funding?.raised ?? 0,
     status: mapProjectStatus(doc.status),
-    recipient: typeof doc.ownerId === 'object' ? doc.ownerId.fullName : 'Unknown',
-    recipientId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
-    recipientRating,
+    ownerId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
+    ownerName: typeof doc.ownerId === 'object' ? doc.ownerId.fullName : undefined,
     milestones: (doc.milestones || []).map(mapMilestone),
     image: doc.imageUrl || DEFAULT_IMAGE,
     description: doc.description || '',
@@ -149,7 +145,7 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined, re
     coSignerId: doc.coSignerId ? (typeof doc.coSignerId === 'object' ? doc.coSignerId._id : doc.coSignerId) : undefined,
     coSignerName: doc.coSignerId && typeof doc.coSignerId === 'object' ? doc.coSignerId.fullName : undefined,
     materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
-    preferredQuincaillerieId: doc.preferredQuincaillerieId ?? null,
+    preferredSupplierId: doc.preferredSupplierId ?? null,
   }
 }
 
@@ -158,20 +154,13 @@ async function fetchFundingSummary(id: string): Promise<FundingSummary> {
   return data.data
 }
 
-// A brand new owner with zero ratings yet shouldn't display as "0 stars" —
-// a neutral 4.5 is a reasonable prior until they earn real ratings.
-const NEW_OWNER_RATING = 4.5
-
 export function useProjectsQuery() {
   return useQuery({
     queryKey: ['projects'],
     queryFn: async (): Promise<Project[]> => {
       const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding' } })
-      const [fundings, ratings] = await Promise.all([
-        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
-        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
-      ])
-      return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
+      const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
+      return data.data.map((p, i) => mapProject(p, fundings[i]))
     },
     staleTime: 10_000,
   })
@@ -187,11 +176,8 @@ export function useProjectsInfiniteQuery(limit = 12) {
     queryKey: ['projects', 'infinite'],
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: Project[]; meta: PageMeta }> => {
       const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'funding', page: pageParam, limit } })
-      const [fundings, ratings] = await Promise.all([
-        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
-        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
-      ])
-      return { items: data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING)), meta: data.meta }
+      const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
+      return { items: data.data.map((p, i) => mapProject(p, fundings[i])), meta: data.meta }
     },
     initialPageParam: 1,
     getNextPageParam,
@@ -199,48 +185,42 @@ export function useProjectsInfiniteQuery(limit = 12) {
   })
 }
 
-/** Real "my projects" — the recipient/owner-scoped counterpart to
- * useProjectsQuery, which deliberately returns every funding project on the
- * whole platform (needed for Browse/Discover/Landing/global search) and
- * was being reused, unscoped, by screens explicitly titled "My Projects" —
- * the bug a brand-new recipient reported (seeing every other user's
- * projects the moment they signed up). The backend already supports
- * ?ownerId= on GET /projects; this was simply never being passed. Disabled
- * until a real ownerId is known so a screen can't render a false-empty
- * "no projects" state during the brief window before devUserId resolves. */
+/** Real "my projects" — the owner-scoped counterpart to useProjectsQuery,
+ * which deliberately returns every funding project on the whole platform
+ * (needed for Browse/Discover/Landing/global search) and was being reused,
+ * unscoped, by screens explicitly titled "My Projects" — the bug a
+ * brand-new owner reported (seeing every other user's projects the moment
+ * they signed up). The backend already supports ?ownerId= on GET /projects;
+ * this was simply never being passed. Disabled until a real ownerId is
+ * known so a screen can't render a false-empty "no projects" state during
+ * the brief window before devUserId resolves. */
 export function useMyProjectsQuery(ownerId: string | undefined) {
   return useQuery({
     queryKey: ['projects', 'mine', ownerId],
     queryFn: async (): Promise<Project[]> => {
       const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', ownerId } })
-      const [fundings, ratings] = await Promise.all([
-        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
-        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
-      ])
-      return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
+      const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
+      return data.data.map((p, i) => mapProject(p, fundings[i]))
     },
     enabled: !!ownerId,
     staleTime: 10_000,
   })
 }
 
-/** A funder never owns the project they fund (ownerId is the recipient) —
- * their relationship to a project is having actually paid into its escrow —
- * so "my projects" for a funder can only be resolved server-side by the
- * `funderId` filter on GET /projects (which looks at who funded, not who
- * owns). Without this, FunderHome had no correct way to ask for its own
- * dashboard data and fell back to the full public catalog — every funder's
- * "my total funded" and "my active projects" were actually everyone's. */
+/** A funder never owns the project they fund — their relationship to a
+ * project is having actually paid into its escrow — so "my projects" for a
+ * funder can only be resolved server-side by the `funderId` filter on GET
+ * /projects (which looks at who funded, not who owns). Without this,
+ * FunderHome had no correct way to ask for its own dashboard data and fell
+ * back to the full public catalog — every funder's "my total funded" and
+ * "my active projects" were actually everyone's. */
 export function useMyFundedProjectsQuery(funderId: string | undefined) {
   return useQuery({
     queryKey: ['projects', 'funded-by-me', funderId],
     queryFn: async (): Promise<Project[]> => {
       const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', funderId } })
-      const [fundings, ratings] = await Promise.all([
-        Promise.all(data.data.map((p) => fetchFundingSummary(p._id))),
-        Promise.all(data.data.map((p) => (typeof p.ownerId === 'object' ? fetchRatingSummary(p.ownerId._id) : Promise.resolve({ average: null, count: 0 })))),
-      ])
-      return data.data.map((p, i) => mapProject(p, fundings[i], ratings[i].average ?? NEW_OWNER_RATING))
+      const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
+      return data.data.map((p, i) => mapProject(p, fundings[i]))
     },
     enabled: !!funderId,
     staleTime: 10_000,
@@ -343,7 +323,7 @@ export function useProjectQuery(id: string | undefined) {
     queryKey: ['project', id],
     queryFn: async (): Promise<Project> => {
       const { data } = await api.get<{ data: BackendProject }>(`/projects/${id}`)
-      return mapProject(data.data, undefined, 0)
+      return mapProject(data.data, undefined)
     },
     enabled: Boolean(id),
     staleTime: 10_000,
@@ -363,31 +343,6 @@ export function useProjectFundingSummaryQuery(id: string | undefined) {
     queryFn: () => fetchFundingSummary(id!),
     enabled: Boolean(id),
     staleTime: 10_000,
-  })
-}
-
-function isHttpUrl(s: string | undefined): s is string {
-  return Boolean(s && /^https?:\/\//.test(s))
-}
-
-export function useCreateProjectMutation() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: async (p: Omit<Project, 'id'>): Promise<Project> => {
-      const { data } = await api.post<{ data: BackendProject }>('/projects', {
-        projectType: 'funding',
-        title: p.title,
-        description: p.description,
-        category: p.category,
-        locationName: p.location,
-        ...(p.coordinates ? { location: p.coordinates } : {}),
-        totalAmount: p.totalAmount,
-        ...(isHttpUrl(p.image) ? { imageUrl: p.image } : {}),
-        milestones: p.milestones.map((m, i) => ({ name: m.title, amount: m.amount, orderIndex: i, requiresCosigner: m.requiresCosigner, requiresVideo: m.requiresVideo })),
-      })
-      return mapProject(data.data, { raised: 0, released: 0, escrowBalance: 0 }, NEW_OWNER_RATING)
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
 }
 
@@ -435,22 +390,22 @@ export function useAddCoSignerMutation() {
   return useMutation({
     mutationFn: async ({ projectId, coSignerId }: { projectId: string; coSignerId: string }) => {
       const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/co-signer`, { coSignerId })
-      return mapProject(data.data, undefined, 0)
+      return mapProject(data.data, undefined)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
 }
 
-/** Assigns (or, with quincaillerieId: null, clears) the project's preferred
+/** Assigns (or, with supplierId: null, clears) the project's preferred
  * materials supplier — its own endpoint, legal at any project status (see
- * projectController.assignQuincaillerie), reached from a "browse and
- * compare real stores" screen rather than a picker on the creation form. */
-export function useAssignQuincaillerieMutation() {
+ * projectController.assignSupplier), reached from a "browse and compare
+ * real stores" screen rather than a picker on the creation form. */
+export function useAssignSupplierMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ projectId, quincaillerieId }: { projectId: string; quincaillerieId: string | null }) => {
-      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/assign-quincaillerie`, { quincaillerieId })
-      return mapProject(data.data, undefined, 0)
+    mutationFn: async ({ projectId, supplierId }: { projectId: string; supplierId: string | null }) => {
+      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/assign-supplier`, { supplierId })
+      return mapProject(data.data, undefined)
     },
     onSuccess: (_data, { projectId }) => {
       qc.invalidateQueries({ queryKey: ['project', projectId] })
@@ -491,8 +446,8 @@ export function useSubmitEvidenceMutation() {
       const { data } = await api.post(`/projects/${projectId}/milestones/${milestoneId}/evidence`, form)
       return data.data
     },
-    // Only invalidated the submitter's own "my projects" list — fine for a
-    // recipient submitting on their own project, but a contractor submits
+    // Only invalidated the submitter's own "my projects" list — fine for an
+    // owner submitting on their own project, but a contractor submits
     // proof on a project someone *else* owns, read via the singular
     // useProjectQuery(id) cache (see ContractDetailScreen), which this never
     // touched. Without this, returning to the contract screen after
@@ -516,7 +471,7 @@ export function useDecideApprovalMutation() {
       )
       // Only the milestone/approver state is needed by callers — funding
       // totals/rating aren't relevant to an approval decision's result.
-      return { project: mapProject(data.data.project, undefined, 0), releasedEscrow: data.data.releasedEscrow }
+      return { project: mapProject(data.data.project, undefined), releasedEscrow: data.data.releasedEscrow }
     },
     // Same gap useSubmitEvidenceMutation was fixed for above: a funder
     // approves/rejects from MilestoneReviewScreen (FunderScreens.tsx), which
@@ -534,14 +489,14 @@ export function useDecideApprovalMutation() {
 }
 
 /** Lighter-weight than a dispute — sends a submitted milestone back to
- * 'pending' with a reason so the contractor/recipient can resubmit, no
- * escalation, no money moves. See projectController.requestMilestoneChanges. */
+ * 'pending' with a reason so the contractor can resubmit, no escalation, no
+ * money moves. See projectController.requestMilestoneChanges. */
 export function useRequestMilestoneChangesMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ projectId, milestoneId, reason }: { projectId: string; milestoneId: string; reason: string }) => {
       const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/milestones/${milestoneId}/request-changes`, { reason })
-      return mapProject(data.data, undefined, 0)
+      return mapProject(data.data, undefined)
     },
     // Same singular-cache gap as useDecideApprovalMutation above.
     onSuccess: (_data, { projectId }) => {

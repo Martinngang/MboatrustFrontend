@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useParams, useLocation, Link } from 'react-router-dom'
-import { useApp, fmt, type Milestone, type Project } from '../context'
-import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, Stars, PillButton, Header, StepIndicator } from '../components/MobileLayout'
+import { useApp, fmt, type Project } from '../context'
+import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, Stars, PillButton, Header } from '../components/MobileLayout'
 import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTimeline'
 import { ApprovalStatusList } from '../components/ApprovalStatusList'
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
@@ -10,7 +10,6 @@ import { useTransactionsQuery, type Transaction } from '../api/transactions'
 import { useVideoSessionsQuery, useRequestVideoSessionMutation, useScheduleVideoSessionMutation } from '../api/videoVerification'
 import { useVerificationTasksQuery } from '../api/reputation'
 import { KycGateBanner, useKycGate } from '../components/KycGateBanner'
-import { useStartConversationMutation } from '../api/messaging'
 import type { Approver } from '../verification'
 import { useFeeCalculation } from '../feeConfig'
 import { ChipGroup } from '../components/Chip'
@@ -18,9 +17,8 @@ import { EmptyState } from '../components/EmptyState'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { Switch } from '../components/Switch'
-import { ConfirmDialog, Modal } from '../components/Modal'
+import { ConfirmDialog } from '../components/Modal'
 import { AppIcon } from '../components/icons'
-import { useTemplates } from '../templates'
 import { resolveMilestonePayee } from '../materials'
 import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
@@ -38,13 +36,9 @@ const ProjectLocationSection = lazy(() =>
 const LocationMapModal = lazy(() =>
   import('../components/ProjectMap').then((m) => ({ default: m.LocationMapModal }))
 )
-import { RegionTownSelect } from '../components/LocationSelect'
-import { getCameroonRegionName, getTownCoords } from '../utils/locationData'
 import { useContractorProfilesInfiniteQuery } from '../api/contractors'
 import { PaymentMethodSelector, type PaymentMethodId } from '../components/PaymentMethodSelector'
 import { StripeCheckout } from '../components/StripeCheckout'
-
-interface DraftMilestone { id: number; title: string; amount: string; description: string; requiresMultiApproval?: boolean; requiresVideo?: boolean }
 
 function buildProjectTimeline(p: Project): TimelineEvent[] {
   const events: TimelineEvent[] = [
@@ -57,15 +51,6 @@ function buildProjectTimeline(p: Project): TimelineEvent[] {
     else events.push({ id: `${m.id}-p`, label: `${m.title} — pending`, detail: fmt(m.amount), status: 'upcoming' })
   }
   return events
-}
-interface DraftProject {
-  title: string
-  category: string
-  description: string
-  location: string
-  coordinates?: { lat: number; lng: number } | null
-  totalAmount: number
-  milestones?: DraftMilestone[]
 }
 
 // ── Browse projects ────────────────────────────────────────────────────────────
@@ -89,8 +74,8 @@ export function BrowseProjectsScreen() {
         title="Discover Projects"
         back
         action={
-          <button onClick={() => nav('/funder/create')} style={{ fontFamily: FONT.sans, color: C.forest }} className="whitespace-nowrap text-sm font-semibold">
-            + New project
+          <button onClick={() => nav('/funder/post-job')} style={{ fontFamily: FONT.sans, color: C.forest }} className="whitespace-nowrap text-sm font-semibold">
+            + Post a tender
           </button>
         }
       >
@@ -151,15 +136,6 @@ export function BrowseProjectsScreen() {
                     {p.daysLeft > 0 ? `${p.daysLeft} days left` : 'Completed'}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 mt-3 pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
-                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                    {p.recipient[0]}
-                  </div>
-                  <div>
-                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">{p.recipient}</span>
-                    <Stars rating={p.recipientRating} />
-                  </div>
-                </div>
               </div>
                   </Card>
                 </StaggerItem>
@@ -189,8 +165,7 @@ export function BrowseProjectsScreen() {
 export function ProjectDetailScreen() {
   const nav = useNavigate()
   const { id } = useParams()
-  const { projects, devUserId } = useApp()
-  const { show: showToast } = useToast()
+  const { projects } = useApp()
   // id undefined (no specific project requested) falls back to projects[0]
   // as before. An id not in `projects` used to be treated as "not found"
   // outright — but `projects` (useProjectsQuery) only ever holds
@@ -203,10 +178,10 @@ export function ProjectDetailScreen() {
   const { data: directProject, isLoading: directProjectLoading } = useProjectQuery(!found && id ? id : undefined)
 
   // This screen is built entirely around funding-project concepts
-  // (recipient, co-signer, group contributors) a tender doesn't have — no
-  // amount of extra branching here makes "recipient" mean anything for a
-  // contractor-executed tender. Redirect to its real home (the tender's
-  // bids/contract) instead of rendering nonsense.
+  // (co-signer, group contributors) a tender doesn't have — no amount of
+  // extra branching here makes those mean anything for a contractor-
+  // executed tender. Redirect to its real home (the tender's bids/contract)
+  // instead of rendering nonsense.
   useEffect(() => {
     if (directProject?.projectType === 'tender') {
       nav(`/funder/tender/${directProject.id}/bids`, { replace: true })
@@ -227,17 +202,6 @@ export function ProjectDetailScreen() {
   }
   const p = found ?? directProject ?? projects[0]
   const pct = Math.round((p.raised / p.totalAmount) * 100)
-  const startConversation = useStartConversationMutation(devUserId)
-
-  const messageRecipient = async () => {
-    if (!p.recipientId || p.recipientId === devUserId) return
-    try {
-      const conversation = await startConversation.mutateAsync({ contextType: 'project', contextId: p.id, otherUserId: p.recipientId })
-      nav(conversation.draft ? `/messages/new_${p.recipientId}?contextType=project&contextId=${p.id}` : `/messages/${conversation.id}`)
-    } catch (err) {
-      showToast({ title: 'Failed to start conversation', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
-    }
-  }
 
   return (
     <AppShell noNav>
@@ -323,26 +287,6 @@ export function ProjectDetailScreen() {
           </div>
         </div>
 
-        {/* Recipient */}
-        <button onClick={() => nav(`/funder/recipient/${p.id}`)} className="w-full text-left rounded-2xl border p-4 transition-all hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">Project recipient</p>
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg" style={{ background: C.forest, fontFamily: FONT.serif }}>
-              {p.recipient[0]}
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT.sans }} className="font-semibold">{p.recipient}</div>
-              <Stars rating={p.recipientRating} />
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">View profile →</div>
-            </div>
-          </div>
-        </button>
-        {p.recipientId && p.recipientId !== devUserId && (
-          <PillButton onClick={messageRecipient} variant="ghost" fullWidth disabled={startConversation.isPending}>
-            {startConversation.isPending ? 'Starting…' : 'Message recipient'}
-          </PillButton>
-        )}
-
         {/* Activity */}
         <div>
           <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">Activity</p>
@@ -370,362 +314,8 @@ export function ProjectDetailScreen() {
             {p.status === 'open' ? 'Fund this project' : 'Add funds to escrow'}
           </PillButton>
         )}
-        {p.status === 'completed' && (
-          <PillButton onClick={() => nav(`/funder/rate-recipient/${p.id}`)} fullWidth>Rate this recipient</PillButton>
-        )}
         <PillButton onClick={() => nav(`/funder/co-signer/${p.id}`)} variant="secondary" fullWidth>Add a community co-signer</PillButton>
         <PillButton onClick={() => nav(`/funder/project/${p.id}/funding`)} variant="ghost" fullWidth>View group funding & contributors</PillButton>
-      </div>
-    </AppShell>
-  )
-}
-
-// ── Recipient profile view (funder-facing) ─────────────────────────────────────
-export function RecipientProfileScreen() {
-  const nav = useNavigate()
-  const { id } = useParams()
-  const { projects } = useApp()
-  const foundAnchor = projects.find((p) => p.id === id)
-  if (id && !foundAnchor) {
-    return (
-      <AppShell>
-        <Header title="Recipient" back />
-        <div className="px-5 py-5">
-          <EmptyState icon="user" title="Project not found" description="This project may have been removed, or the link is incorrect." />
-        </div>
-      </AppShell>
-    )
-  }
-  const anchor = foundAnchor ?? projects[0]
-  const recipientProjects = projects.filter((p) => p.recipient === anchor.recipient)
-  const totalReceived = recipientProjects.flatMap((p) => p.milestones).filter((m) => m.status === 'released').reduce((s, m) => s + m.amount, 0)
-
-  return (
-    <AppShell>
-      <Header title="Recipient Profile" back />
-      <div className="px-5 py-6 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="text-center">
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto mb-3" style={{ background: C.forest, fontFamily: FONT.serif }}>
-            {anchor.recipient[0]}
-          </div>
-          <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold">{anchor.recipient}</div>
-          <Stars rating={anchor.recipientRating} />
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-1">Verified recipient</div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Projects', value: String(recipientProjects.length) },
-            { label: 'Received', value: fmt(totalReceived) },
-            { label: 'Rating', value: anchor.recipientRating.toFixed(1) },
-          ].map(({ label, value }) => (
-            <Card key={label} variant="glass">
-              <div className="p-3 text-center">
-                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{label}</div>
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        <div>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Project history</p>
-          <StaggerList className="space-y-3">
-            {recipientProjects.map((p) => (
-              <StaggerItem key={p.id}>
-                <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
-                  <div className="p-4">
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{p.title}</div>
-                      <StatusBadge status={p.status} />
-                    </div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.location}</div>
-                  </div>
-                </Card>
-              </StaggerItem>
-            ))}
-          </StaggerList>
-        </div>
-
-        <PillButton onClick={() => nav(`/funder/rate-recipient/${anchor.id}`)} variant="secondary" fullWidth>Rate this recipient</PillButton>
-      </div>
-    </AppShell>
-  )
-}
-
-// ── Create project — step wizard ───────────────────────────────────────────────
-export function CreateProjectScreen() {
-  const nav = useNavigate()
-  const [step, setStep] = useState<'details' | 'review'>('details')
-  const [form, setForm] = useState({ title: '', category: '', description: '', region: '', town: '', totalAmount: '' })
-
-  const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
-  const location = form.region && form.town ? `${form.town}, ${getCameroonRegionName(form.region)}` : ''
-  const canContinue = form.title.trim() !== '' && form.category !== '' && form.region !== '' && form.town !== '' && Number(form.totalAmount) > 0
-
-  const proceed = () => {
-    if (step === 'details') {
-      if (!canContinue) return
-      setStep('review')
-      return
-    }
-    // City-center coordinates for whatever town was actually picked — real,
-    // free (already bundled in the country-state-city dataset this form's
-    // own RegionTownSelect already uses), and the only "location" precision
-    // this form ever collects in the first place, so there's no separate
-    // pick-a-point map control to build for this to be a genuine coordinate
-    // rather than nothing at all.
-    const coordinates = getTownCoords(form.region, form.town)
-    const draft: DraftProject = { title: form.title, category: form.category, description: form.description, location, coordinates, totalAmount: Number(form.totalAmount) }
-    nav('/funder/milestones', { state: { draft } })
-  }
-
-  return (
-    <AppShell noNav>
-      <Header title="New Project" back>
-        <StepIndicator steps={['Details', 'Milestones', 'Fund']} current={0} />
-      </Header>
-
-      <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
-        {step === 'details' && (
-          <>
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Project title</label>
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="e.g. Borehole — Bamenda North"
-                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-            </div>
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Category</label>
-              <ChipGroup options={categories} value={form.category} onChange={(v) => setForm({ ...form, category: v as string })} />
-            </div>
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Description</label>
-              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                rows={4} placeholder="Describe the project, who it serves, and why funding is needed..."
-                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none focus:border-[var(--color-forest)] transition-colors"
-                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-            </div>
-            <div>
-              <RegionTownSelect
-                regionValue={form.region}
-                townValue={form.town}
-                onRegionChange={(region) => setForm((f) => ({ ...f, region }))}
-                onTownChange={(town) => setForm((f) => ({ ...f, town }))}
-              />
-            </div>
-            <div>
-              <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Total amount needed (XAF)</label>
-              <input value={form.totalAmount} onChange={(e) => setForm({ ...form, totalAmount: e.target.value })}
-                type="number" placeholder="e.g. 3200000"
-                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-                style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
-            </div>
-            <Link to="/tools/material-estimator" className="flex items-center gap-2 text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L8.2 5.2H12.5L9 7.7L10.2 12L7 9.3L3.8 12L5 7.7L1.5 5.2H5.8L7 1Z" stroke={C.forest} strokeWidth="1.1" strokeLinejoin="round" /></svg>
-              Not sure on a budget? Check the material cost estimator →
-            </Link>
-          </>
-        )}
-
-        {step === 'review' && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Project summary</div>
-              {Object.entries({ Title: form.title || 'Not set', Category: form.category || 'Not set', Location: location || 'Not set', Amount: form.totalAmount ? fmt(Number(form.totalAmount)) : 'Not set' }).map(([k, v]) => (
-                <div key={k} className="flex justify-between py-2 border-b last:border-0" style={{ borderColor: C.parchmentDark }}>
-                  <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs uppercase tracking-wider">{k}</span>
-                  <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{v}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={proceed} fullWidth disabled={step === 'details' && !canContinue}>
-          {step === 'details' ? 'Continue' : 'Next: Define milestones'}
-        </PillButton>
-      </div>
-    </AppShell>
-  )
-}
-
-// ── Define milestones ──────────────────────────────────────────────────────────
-export function MilestonesScreen() {
-  const nav = useNavigate()
-  const location = useLocation()
-  const draft = (location.state as { draft?: DraftProject } | null)?.draft ?? {
-    title: 'Untitled project', category: '', description: '', location: '', totalAmount: 0,
-  }
-  const [milestones, setMilestones] = useState<DraftMilestone[]>([
-    { id: 1, title: 'Site survey & permits', amount: '', description: '' },
-  ])
-  const { templates, addTemplate } = useTemplates()
-  const { show: showToast } = useToast()
-  const [saveModalOpen, setSaveModalOpen] = useState(false)
-  const [templateName, setTemplateName] = useState('')
-
-  const addMilestone = () => {
-    setMilestones((ms) => [...ms, { id: Date.now(), title: '', amount: '', description: '' }])
-  }
-
-  const update = (id: number, field: string, val: string) => {
-    setMilestones((ms) => ms.map((m) => (m.id === id ? { ...m, [field]: val } : m)))
-  }
-
-  const toggleMultiApproval = (id: number) => {
-    setMilestones((ms) => ms.map((m) => (m.id === id ? { ...m, requiresMultiApproval: !m.requiresMultiApproval } : m)))
-  }
-
-  const toggleRequiresVideo = (id: number) => {
-    setMilestones((ms) => ms.map((m) => (m.id === id ? { ...m, requiresVideo: !m.requiresVideo } : m)))
-  }
-
-  const applyTemplate = (templateId: string) => {
-    const t = templates.find((x) => x.id === templateId)
-    if (!t) return
-    setMilestones(t.milestones.map((m, i) => ({ id: Date.now() + i, title: m.title, amount: String(m.amount), description: m.description })))
-    showToast({ title: 'Template applied', description: `${t.milestones.length} milestones filled in from "${t.name}"`, tone: 'success' })
-  }
-
-  const saveAsTemplate = () => {
-    const valid = milestones.filter((m) => m.title.trim() && Number(m.amount) > 0)
-    if (!templateName.trim() || valid.length === 0) return
-    addTemplate({
-      name: templateName.trim(),
-      category: draft.category || 'General',
-      milestones: valid.map((m) => ({ title: m.title, amount: Number(m.amount), description: m.description })),
-    })
-    showToast({ title: 'Template saved', description: `"${templateName.trim()}" is ready to reuse next time`, tone: 'success' })
-    setSaveModalOpen(false)
-    setTemplateName('')
-  }
-
-  const proceed = () => {
-    nav('/funder/fund', { state: { draft: { ...draft, milestones } } })
-  }
-
-  return (
-    <AppShell noNav>
-      <Header title="Define Milestones" subtitle={draft.title} back>
-        <StepIndicator steps={['Details', 'Milestones', 'Fund']} current={1} />
-      </Header>
-
-      <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
-        <div className="rounded-2xl border p-4" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
-          <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
-            Each milestone locks a portion of the escrow. Funds for each stage are released only when photo/video proof is submitted and independently verified.
-          </p>
-        </div>
-
-        {templates.length > 0 && (
-          <div>
-            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Start from a template</label>
-            <div className="flex flex-wrap gap-2">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => applyTemplate(t.id)}
-                  className="rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors"
-                  style={{ borderColor: C.parchmentDark, background: C.white, color: C.inkMuted, fontFamily: FONT.sans }}
-                >
-                  {t.name} · {t.milestones.length} steps
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {milestones.map((m, i) => (
-          <div key={m.id} className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: C.forest, fontFamily: FONT.mono }}>{i + 1}</div>
-              {milestones.length > 1 && (
-                <button onClick={() => setMilestones((ms) => ms.filter((x) => x.id !== m.id))} style={{ color: 'var(--status-error-text)', fontFamily: FONT.mono }} className="text-xs">Remove</button>
-              )}
-            </div>
-            {(['title', 'description', 'amount'] as const).map((field) => (
-              <div key={field} className="mb-3">
-                <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1">
-                  {field === 'amount' ? 'Amount (XAF)' : field}
-                </label>
-                <input
-                  value={m[field]}
-                  onChange={(e) => update(m.id, field, e.target.value)}
-                  placeholder={field === 'title' ? 'e.g. Foundation complete' : field === 'amount' ? 'e.g. 800000' : 'What proof is required?'}
-                  className="w-full border rounded-xl px-3 py-2.5 outline-none text-sm"
-                  style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
-                />
-              </div>
-            ))}
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!m.requiresMultiApproval}
-                onChange={() => toggleMultiApproval(m.id)}
-                className="w-4 h-4 rounded"
-                style={{ accentColor: C.forest }}
-              />
-              <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">Require multiple approvers before release</span>
-            </label>
-            <label className="flex items-center gap-2.5 cursor-pointer mt-2">
-              <input
-                type="checkbox"
-                checked={!!m.requiresVideo}
-                onChange={() => toggleRequiresVideo(m.id)}
-                className="w-4 h-4 rounded"
-                style={{ accentColor: C.forest }}
-              />
-              <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">Allow a live video verification call for this milestone</span>
-            </label>
-          </div>
-        ))}
-
-        <button
-          onClick={addMilestone}
-          className="w-full py-3.5 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 transition-all"
-          style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M8 4V12M4 8H12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-          Add another milestone
-        </button>
-
-        <button
-          onClick={() => setSaveModalOpen(true)}
-          disabled={!milestones.some((m) => m.title.trim() && Number(m.amount) > 0)}
-          className="w-full py-2.5 text-xs font-semibold disabled:opacity-40"
-          style={{ color: C.inkMuted, fontFamily: FONT.sans }}
-        >
-          Save this breakdown as a reusable template
-        </button>
-      </div>
-
-      <Modal open={saveModalOpen} onClose={() => setSaveModalOpen(false)} title="Save as template">
-        <div className="space-y-4">
-          <div>
-            <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Template name</label>
-            <input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              placeholder="e.g. Borehole / water point"
-              autoFocus
-              className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
-              style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
-            />
-          </div>
-          <PillButton onClick={saveAsTemplate} fullWidth disabled={!templateName.trim()}>Save template</PillButton>
-        </div>
-      </Modal>
-
-      <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={proceed} fullWidth disabled={!milestones.some((m) => m.title.trim() && Number(m.amount) > 0)}>
-          Save &amp; continue to payment
-        </PillButton>
       </div>
     </AppShell>
   )
@@ -743,11 +333,10 @@ const DIASPORA_METHOD_ORDER: PaymentMethodId[] = ['stripe', 'flutterwave', 'mtn_
 export function FundProjectScreen() {
   const nav = useNavigate()
   const location = useLocation()
-  const { projects, phone, residenceCountry, addProject, fundProject } = useApp()
+  const { projects, phone, residenceCountry, fundProject } = useApp()
   const fees = useFeeCalculation()
   const { show: showToast } = useToast()
-  const state = (location.state as { draft?: DraftProject; projectId?: string } | null) ?? {}
-  const draft = state.draft
+  const state = (location.state as { projectId?: string } | null) ?? {}
   // `projects` (useProjectsQuery) only ever holds projectType=funding
   // projects — a tender project reached here after a funder accepts a bid
   // (see ContractSummaryScreen's "Fund escrow" button) was never in that
@@ -767,7 +356,6 @@ export function FundProjectScreen() {
   const [method, setMethod] = useState<PaymentMethodId>(availableMethods[0])
   const [step, setStep] = useState<'select' | 'confirm' | 'stripe_card' | 'success'>('select')
   const [pin, setPin] = useState('')
-  const [createdId, setCreatedId] = useState<string | null>(null)
   const [foreignCurrency, setForeignCurrency] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [paidAmount, setPaidAmount] = useState<number | null>(null)
@@ -788,59 +376,19 @@ export function FundProjectScreen() {
   const [stripeEscrowId, setStripeEscrowId] = useState<string | undefined>(undefined)
   const refreshEscrowStatus = useRefreshEscrowStatusMutation()
 
-  const amount = draft
-    ? (draft.milestones && draft.milestones.length > 0
-        ? draft.milestones.reduce((s, m) => s + (Number(m.amount) || 0), 0)
-        : draft.totalAmount)
-    : existing
-      ? Math.max(0, existing.totalAmount - existing.raised)
-      : 1400000
-  const title = draft?.title ?? existing?.title ?? fallback.title
+  const amount = existing
+    ? Math.max(0, existing.totalAmount - existing.raised)
+    : 1400000
+  const title = existing?.title ?? fallback.title
   const { blocked: kycBlocked } = useKycGate(amount)
 
-  // Shared by both the stripe and non-stripe paths — creates the draft
-  // project (if this screen was reached from the project-creation wizard)
-  // exactly once, no matter which payment method ends up calling it.
+  // Reached only with an existing project id — funding a new project draft
+  // was a separate, now-retired creation flow (see the deleted
+  // CreateProjectScreen/MilestonesScreen); this always targets a
+  // previously-created project (e.g. a tender the funder just accepted a
+  // bid on, via ContractSummaryScreen's "Fund escrow" button).
   const resolveTargetProjectId = async (): Promise<string> => {
-    if (createdId) return createdId
-    let targetProjectId = existing?.id
-
-    if (draft) {
-      const milestones: Milestone[] = (draft.milestones ?? []).map((m) => ({
-        id: '',
-        title: m.title || 'Milestone',
-        description: m.description || '',
-        amount: Number(m.amount) || 0,
-        status: 'pending',
-        proof: false,
-        evidence: [],
-        requiresCosigner: !!m.requiresMultiApproval,
-        requiresVideo: !!m.requiresVideo,
-        approvers: [],
-        changeRequests: [],
-      }))
-      const created = await addProject({
-        title: draft.title,
-        projectType: 'funding',
-        category: draft.category || 'General',
-        location: draft.location,
-        coordinates: draft.coordinates ?? null,
-        totalAmount: draft.totalAmount || amount,
-        raised: 0,
-        status: 'active',
-        recipient: 'Awaiting recipient',
-        recipientRating: 0,
-        milestones,
-        image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
-        description: draft.description,
-        daysLeft: 90,
-        requiresMultiSig: false,
-      })
-      targetProjectId = created.id
-      setCreatedId(created.id)
-    }
-
-    return targetProjectId ?? fallback.id
+    return existing?.id ?? fallback.id
   }
 
   const handleNext = () => {
@@ -934,10 +482,10 @@ export function FundProjectScreen() {
   }
 
   if (step === 'success') {
-    const targetId = createdId ?? existing?.id ?? fallback.id
+    const targetId = existing?.id ?? fallback.id
     // A tender-turned-project has no ProjectDetailScreen equivalent — that
-    // screen is built entirely around funding-project concepts (recipient,
-    // co-signer, group contributors) a tender doesn't have. This was the
+    // screen is built entirely around funding-project concepts (co-signer,
+    // group contributors) a tender doesn't have. This was the
     // actual "Project not found" a funder hit right after successfully
     // funding an awarded tender's escrow: the button always pointed at
     // ProjectDetailScreen, which also only ever reads from the funding-only
@@ -956,7 +504,7 @@ export function FundProjectScreen() {
             {fmt(paidAmount ?? amount)} is now held in escrow for <strong>{title}</strong>.
           </p>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed mb-8">
-            Funds will be released to the recipient only when milestone proof is verified and you approve.
+            Funds will be released to the contractor only when milestone proof is verified and you approve.
           </p>
           <div className="rounded-2xl border p-4 w-full mb-8" style={{ borderColor: C.parchmentDark, background: C.parchment }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Transaction reference</div>
@@ -970,9 +518,7 @@ export function FundProjectScreen() {
 
   return (
     <AppShell noNav>
-      <Header title="Fund Project" subtitle={title} back>
-        {draft && <StepIndicator steps={['Details', 'Milestones', 'Fund']} current={2} />}
-      </Header>
+      <Header title="Fund Project" subtitle={title} back />
 
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         {/* Amount card */}
@@ -1054,7 +600,7 @@ export function FundProjectScreen() {
         <div className="rounded-xl border p-3" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Escrow protection</div>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
-            This payment goes into a secured escrow account — not to the recipient. Funds are only released once you approve verified milestone evidence.
+            This payment goes into a secured escrow account — not directly to the contractor. Funds are only released once you approve verified milestone evidence.
           </p>
         </div>
 
@@ -1108,7 +654,7 @@ export function MilestoneReviewScreen() {
 
   // Materials-routed milestone — when a supplier has confirmed a real order
   // for this milestone, approval is understood to pay them directly instead
-  // of the recipient (see materials.tsx's resolveMilestonePayee — display
+  // of the contractor (see materials.tsx's resolveMilestonePayee — display
   // only; the real Escrow release path has no payee-type concept wired in
   // yet, so this doesn't change where money actually moves).
   const { data: materialOrders = [] } = useMaterialOrdersForMilestoneQuery(project?.id, milestone?.id)
@@ -1142,7 +688,7 @@ export function MilestoneReviewScreen() {
   const requiresMultiSig = milestone.requiresCosigner || project.requiresMultiSig
   const requiredIdentities = requiresMultiSig
     ? [
-        { userId: project.recipientId, userName: project.recipient },
+        { userId: project.ownerId, userName: project.ownerName ?? 'Owner' },
         ...(project.coSignerId ? [{ userId: project.coSignerId, userName: project.coSignerName ?? 'Co-signer' }] : []),
       ]
     : []
@@ -1182,9 +728,9 @@ export function MilestoneReviewScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Milestone approved</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            {payeeType === 'quincaillerie'
+            {payeeType === 'supplier'
               ? `${fmt(milestone.amount)} has been released from escrow — ${payoutLabel.toLowerCase()}. The next milestone is now active.`
-              : `${fmt(milestone.amount)} has been released from escrow to ${project.recipient}. The next milestone is now active.`}
+              : `${fmt(milestone.amount)} has been released from escrow to the contractor. The next milestone is now active.`}
           </p>
           <PillButton onClick={() => nav(`/funder/project/${project.id}`)} fullWidth>View project</PillButton>
         </div>
@@ -1356,9 +902,9 @@ export function MilestoneReviewScreen() {
         )}
 
         {/* Materials — a linked order/receipt is this milestone's evidence,
-            same as a photo, when the recipient/contractor requested
-            materials from a verified quincaillerie instead of (or
-            alongside) submitting photo proof. */}
+            same as a photo, when the contractor requested materials from a
+            verified supplier instead of (or alongside) submitting photo
+            proof. */}
         <div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Materials</div>
           {materialOrder ? (
@@ -1391,10 +937,10 @@ export function MilestoneReviewScreen() {
           </div>
         )}
 
-        {/* Recipient notes — real text from the submission, when the recipient left any */}
+        {/* Submitter notes — real text from the submission, when they left any */}
         {milestone.evidence.some((e) => e.notes) && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Recipient notes</div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Submitter notes</div>
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm italic">
               "{milestone.evidence.find((e) => e.notes)?.notes}"
             </p>
@@ -1518,7 +1064,7 @@ export function VideoVerificationScheduleScreen() {
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
         <div className="rounded-xl border p-3" style={{ background: 'var(--status-info-bg)', borderColor: 'var(--status-info-text)' }}>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-xs leading-relaxed">
-            A live video call lets you walk the site with the recipient in real time — useful for high-value or complex milestones before releasing funds. Coordinate a time with them directly, then record it here along with a meeting link (Meet, Zoom, WhatsApp video, etc.).
+            A live video call lets you walk the site with the contractor in real time — useful for high-value or complex milestones before releasing funds. Coordinate a time with them directly, then record it here along with a meeting link (Meet, Zoom, WhatsApp video, etc.).
           </p>
         </div>
 
@@ -1655,8 +1201,8 @@ function DisputeForm({ projectId, milestoneId, onBack, onDone }: { projectId: st
 
 // ── Request corrections (embedded) ──────────────────────────────────────────
 /** Lighter-weight than DisputeForm above: no formal escalation, no issue-
- * type picker — just a reason the contractor/recipient sees, sent back to
- * 'pending' for resubmission. See projectController.requestMilestoneChanges. */
+ * type picker — just a reason the contractor sees, sent back to 'pending'
+ * for resubmission. See projectController.requestMilestoneChanges. */
 function RequestChangesForm({ projectId, milestoneId, onBack, onDone }: { projectId: string; milestoneId: string; onBack: () => void; onDone: () => void }) {
   const { requestMilestoneChanges } = useApp()
   const [reason, setReason] = useState('')
@@ -1738,10 +1284,10 @@ export function DisputeScreen() {
 // ── Transaction history ────────────────────────────────────────────────────────
 // From a funder's own perspective: 'fund' is money they sent into escrow
 // (an outflow), 'release'/'fee_deduction' is money that left escrow for the
-// recipient/contractor (also not theirs), 'refund' is money that came back.
+// contractor or supplier (also not theirs), 'refund' is money that came back.
 const TX_LABEL: Record<Transaction['type'], string> = {
   fund: 'Funds locked in escrow',
-  release: 'Milestone released to recipient',
+  release: 'Milestone released',
   refund: 'Refunded to you',
   fee_deduction: 'Platform fee',
 }

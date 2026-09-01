@@ -57,9 +57,9 @@ export function FeeConfigProvider({ children }: { children: ReactNode }) {
   // transactionFeeRate/landSuccessFeeRate/contractorSuccessFeeRate all sync
   // to the one real backend rate that actually gets charged on release —
   // feeService.calculateFee('milestone_release', ...) is the only fee
-  // applied when escrow pays out, whether the payee is a recipient
-  // (funding), a contractor (tender), or a land seller (land_purchase);
-  // there's no separate per-pillar rate despite each having its own
+  // applied when escrow pays out, whether the payee is a contractor
+  // (tender) or a land seller (land_purchase); there's no separate
+  // per-pillar rate despite each having its own
   // frontend field. fundingFeeRate syncs to the real project_funding rate
   // charged when a funder sends money in (see projectController.fundProject).
   // The remaining flat fees (verifierVisitFee, perBidFee, listingFee) have
@@ -155,7 +155,7 @@ export function useFeeCalculation() {
       calculateFee({
         amount, feeRate: config.transactionFeeRate, mode: 'deduct', amountLabel,
         feeLabel: `Platform fee (${pct(config.transactionFeeRate)})`,
-        resultLabel: 'Recipient receives',
+        resultLabel: 'Contractor receives',
       }),
 
     /** Funding pillar — sending money into escrow. Deducted the same way

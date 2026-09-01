@@ -54,11 +54,8 @@ export function InstallModal() {
               <path d="M1.5 1.5L10.5 10.5M10.5 1.5L1.5 10.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
           </button>
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: 'rgba(255,255,255,0.12)' }}>
-            <svg width="34" height="34" viewBox="0 0 22 22" fill="none">
-              <path d="M11 2L18 7V15L11 20L4 15V7L11 2Z" fill="none" stroke={C.amber} strokeWidth="1.6" strokeLinejoin="round" />
-              <circle cx="11" cy="11" r="2.5" fill={C.amber} />
-            </svg>
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl overflow-hidden" style={{ background: '#FFFFFF', border: `1px solid ${C.parchmentDark}` }}>
+            <img src="/brand/logo-128.png" alt="Mboa Trust" className="h-12 w-12 object-contain" />
           </div>
           <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="mb-1 text-[10px] uppercase tracking-[0.3em]">Install the app</div>
           <h2 style={{ fontFamily: FONT.serif, color: '#fff' }} className="text-2xl font-bold">Install Mboa Trust</h2>

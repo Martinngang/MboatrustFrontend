@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 import { useMyKycStatusQuery, type KycStatus } from '../api/kyc'
-import { useMyProjectsQuery } from '../api/projects'
 import { useMaterials } from '../materials'
 import { useMyRoleTypesQuery, useUploadAvatarMutation } from '../api/session'
 import { useTheme } from '../theme'
@@ -844,13 +843,13 @@ const SLIDES: { icon: IconName; title: string; body: string; color: string }[] =
   {
     icon: 'lock',
     title: 'Your money is always protected',
-    body: 'When you fund a project or hire a contractor, your money goes into a secure escrow account — not to the recipient. It stays there until work is independently verified.',
+    body: 'When you fund a project or hire a contractor, your money goes into a secure escrow account — not directly to the contractor. It stays there until work is independently verified.',
     color: C.forest,
   },
   {
     icon: 'camera',
     title: 'Proof before payment',
-    body: "Recipients and contractors submit photo, video, and GPS evidence for each milestone. Our on-ground verifiers check the evidence at the project site before anyone can approve a release.",
+    body: "Contractors submit photo, video, and GPS evidence for each milestone. Our on-ground verifiers check the evidence at the project site before anyone can approve a release.",
     color: C.steel,
   },
   {
@@ -975,13 +974,8 @@ export function HelpScreen() {
 export function ProfileScreen() {
   const nav = useNavigate()
   const { name, avatarUrl, setAvatarUrl, role, projects, jobs, landListings, contractors, devUserId, unreadNotifications } = useApp()
-  // Recipient's own project count/rating specifically — useApp().projects
-  // above is the platform-wide list (correct for other things this screen
-  // needs), which was being reused here too, so a brand-new recipient's
-  // profile showed every project on the platform as "theirs".
-  const { data: myProjects = [] } = useMyProjectsQuery(role === 'recipient' ? devUserId ?? undefined : undefined)
   const myContractorProfile = contractors.find((c) => c.id === devUserId)
-  const { myQuincaillerie } = useMaterials()
+  const { mySupplier } = useMaterials()
   const { open: openNotifications } = useNotificationsDrawer()
   const { show: showToast } = useToast()
   const uploadAvatarMutation = useUploadAvatarMutation()
@@ -1007,29 +1001,19 @@ export function ProfileScreen() {
   const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
   const isVerifier = roleTypes.includes('verifier')
   const isAdmin = roleTypes.includes('admin')
-  // myQuincaillerie (the QuincaillerieProfile document) can be missing even
-  // when the role is already on User.roles — e.g. an admin granted it
-  // directly via the role drawer rather than through register→approve.
-  // Same gap already fixed in Dashboard.tsx/Sidebar.tsx/MobileLayout.tsx.
-  const isQuincaillerie = Boolean(myQuincaillerie) || roleTypes.includes('quincaillerie')
+  const isSupplier = roleTypes.includes('supplier')
   const kycLabel: Record<KycStatus, string> = { unverified: 'Not verified', pending: 'Under review', verified: 'Verified', rejected: 'Rejected — action needed' }
   const roleLabel: Record<string, string> = {
     funder: 'Diaspora Funder',
-    recipient: 'Project Recipient',
     contractor: 'Local Contractor',
     seller: 'Land Seller',
-    quincaillerie: 'Quincaillerie',
+    supplier: 'Supplier',
   }
 
   const roleStats: Record<string, { label: string; value: string; icon: GlyphName }[]> = {
     funder: [
       { label: 'Projects funded', value: String(projects.length), icon: 'coin' },
       { label: 'Active', value: String(projects.filter((p) => p.status === 'active').length), icon: 'sparkles' },
-      { label: 'Since', value: '2024', icon: 'calendar' },
-    ],
-    recipient: [
-      { label: 'Projects', value: String(myProjects.length), icon: 'coin' },
-      { label: 'Rating', value: `${myProjects[0]?.recipientRating.toFixed(1) ?? '—'}`, icon: 'star' },
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
     contractor: [
@@ -1042,19 +1026,18 @@ export function ProfileScreen() {
       { label: 'Verified', value: String(landListings.filter((l) => l.verified).length), icon: 'shield' },
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
-    quincaillerie: [
-      { label: 'Completed', value: String(myQuincaillerie?.completedOrderCount ?? 0), icon: 'coin' },
-      { label: 'Rating', value: myQuincaillerie && myQuincaillerie.averageRating > 0 ? myQuincaillerie.averageRating.toFixed(1) : '—', icon: 'star' },
+    supplier: [
+      { label: 'Completed', value: String(mySupplier?.completedOrderCount ?? 0), icon: 'coin' },
+      { label: 'Rating', value: mySupplier && mySupplier.averageRating > 0 ? mySupplier.averageRating.toFixed(1) : '—', icon: 'star' },
       { label: 'Since', value: '2024', icon: 'calendar' },
     ],
   }
 
   const roleProfileLink: Record<string, { label: string; sub: string; path: string }> = {
     funder: { label: 'Transaction history', sub: 'Every deposit, release and refund', path: '/funder/transactions' },
-    recipient: { label: 'My reputation', sub: 'Ratings from funders you\'ve worked with', path: '/recipient/reputation' },
     contractor: { label: 'Contractor profile', sub: 'Certifications, availability & rate card', path: '/contractor/profile' },
     seller: { label: 'My listings', sub: 'Manage everything you have for sale', path: '/land/my-listings' },
-    quincaillerie: { label: 'Quincaillerie dashboard', sub: 'Manage inventory & material orders', path: '/quincaillerie/dashboard' },
+    supplier: { label: 'Supplier dashboard', sub: 'Manage inventory & material orders', path: '/supplier/dashboard' },
   }
 
   // One-tap access to the task each role opens this app for most often.
@@ -1064,12 +1047,6 @@ export function ProfileScreen() {
       { label: 'Messages', icon: 'chat', action: () => nav('/messages') },
       { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
       { label: 'Currency tool', icon: 'swap', action: () => nav('/tools/currency-converter') },
-    ],
-    recipient: [
-      { label: 'Submit proof', icon: 'shield', action: () => nav('/recipient/milestones') },
-      { label: 'Messages', icon: 'chat', action: () => nav('/messages') },
-      { label: 'Post a job', icon: 'coin', action: () => nav('/jobs/post') },
-      { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
     ],
     contractor: [
       { label: 'Browse jobs', icon: 'coin', action: () => nav('/jobs') },
@@ -1083,19 +1060,15 @@ export function ProfileScreen() {
       { label: 'My listings', icon: 'shield', action: () => nav('/land/my-listings') },
       { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
     ],
-    quincaillerie: [
-      { label: 'Dashboard', icon: 'store', action: () => nav('/quincaillerie/dashboard') },
+    supplier: [
+      { label: 'Dashboard', icon: 'store', action: () => nav('/supplier/dashboard') },
       { label: 'Messages', icon: 'chat', action: () => nav('/messages') },
-      { label: 'Public profile', icon: 'shield', action: () => nav(myQuincaillerie ? `/quincaillerie/profile/${myQuincaillerie.id}` : '/quincaillerie/dashboard') },
+      { label: 'Public profile', icon: 'shield', action: () => nav(mySupplier ? `/supplier/profile/${mySupplier.id}` : '/supplier/dashboard') },
       { label: 'Refer', icon: 'gift', action: () => nav('/referrals') },
     ],
   }
 
-  // Same effectiveRole computation as Sidebar.tsx/MobileLayout.tsx/TopBar.tsx
-  // — a quincaillerie-only account has role===null, so without this the
-  // whole profile screen (label, stats, profile link, quick actions) below
-  // silently showed a Diaspora Funder's content instead.
-  const key = role === null && isQuincaillerie ? 'quincaillerie' : role ?? 'funder'
+  const key = role ?? 'funder'
 
   // A quiet, deterministic trust figure — not a vanity metric, a rollup of
   // the two things a counterparty would actually want to know.
@@ -1257,7 +1230,7 @@ export function ProfileScreen() {
         <GroupedLinks
           title="Communication"
           items={[
-            { label: 'Messages', sub: 'Chat with recipients, contractors & sellers', action: () => nav('/messages'), icon: 'chat' },
+            { label: 'Messages', sub: 'Chat with contractors, sellers & suppliers', action: () => nav('/messages'), icon: 'chat' },
             { label: 'Notifications', sub: unreadNotifications > 0 ? `${unreadNotifications} unread` : 'You\'re all caught up', action: openNotifications, icon: 'bell', right: notifBadge },
             { label: 'Activity log', sub: 'Full audit trail across your account', action: () => nav('/activity'), icon: 'scroll' },
           ]}
@@ -1323,9 +1296,9 @@ export function ProfileScreen() {
             items={[
               { label: 'Register as verifier', sub: 'Set up a verifier profile', action: () => nav('/verifier/register'), icon: 'shield' },
               {
-                label: isQuincaillerie ? 'Quincaillerie dashboard' : 'Register a quincaillerie',
-                sub: isQuincaillerie ? 'Manage inventory & material orders' : 'List your hardware/materials store',
-                action: () => nav(isQuincaillerie ? '/quincaillerie/dashboard' : '/quincaillerie/register'),
+                label: isSupplier ? 'Supplier dashboard' : 'Register as a supplier',
+                sub: isSupplier ? 'Manage inventory & material orders' : 'List your construction-materials business',
+                action: () => nav(isSupplier ? '/supplier/dashboard' : '/supplier/register'),
                 icon: 'store',
               },
             ]}

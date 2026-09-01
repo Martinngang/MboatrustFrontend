@@ -1,6 +1,6 @@
 /**
  * PayoutSettingsScreen.tsx — User Payout Method Management Screen
- * Allows recipients, contractors, and land sellers to manage MoMo/OM withdrawal destinations.
+ * Allows contractors, land sellers, and suppliers to manage MoMo/OM withdrawal destinations.
  */
 import { useState } from 'react'
 import { AppShell, Header, PillButton } from '../components/MobileLayout'
