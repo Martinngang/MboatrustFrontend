@@ -13,7 +13,6 @@ import {
 import { useUserSearchQuery } from '../api/users'
 import { apiErrorMessage } from '../api/client'
 import { C, FONT, AppShell, Header, Card, PillButton, StatusBadge, ThemeToggle } from '../components/MobileLayout'
-import { BeforeAfterComparison } from '../components/BeforeAfterComparison'
 import { InstallButton } from '../components/InstallButton'
 import { EmptyState } from '../components/EmptyState'
 import { ChipGroup } from '../components/Chip'
@@ -491,13 +490,10 @@ interface ShowcaseProject {
   title: string
   category: string
   region: string
-  beforeImage: string
   afterImage: string
   fundedAmount: number
   completedDate: string
 }
-
-const SHOWCASE_FALLBACK_BEFORE = 'https://images.unsplash.com/photo-1594818379496-da1e345b0ded?w=500&h=340&fit=crop&auto=format'
 
 export function PublicShowcaseScreen() {
   const nav = useNavigate()
@@ -505,6 +501,10 @@ export function PublicShowcaseScreen() {
   const [category, setCategory] = useState('All')
   const [region, setRegion] = useState('All')
 
+  // There's no real "before" photo field on a Project — this used to paper
+  // over that with the same hardcoded stock photo for every single
+  // completed project's before/after slider. Just the one real photo now,
+  // same as MboaTrustAPP/screens/PublicShowcaseScreen.tsx.
   const realCompleted: ShowcaseProject[] = projects
     .filter((p) => p.status === 'completed')
     .map((p) => ({
@@ -512,7 +512,6 @@ export function PublicShowcaseScreen() {
       title: p.title,
       category: p.category,
       region: p.location.split(',').pop()?.trim() ?? p.location,
-      beforeImage: SHOWCASE_FALLBACK_BEFORE,
       afterImage: p.image,
       fundedAmount: p.raised,
       completedDate: 'Completed',
@@ -571,7 +570,7 @@ export function PublicShowcaseScreen() {
               <StaggerItem key={p.id}>
                 <Card variant="elevated" tilt>
                   <div className="p-3 pb-0">
-                    <BeforeAfterComparison beforeSrc={p.beforeImage} afterSrc={p.afterImage} />
+                    <img src={p.afterImage} alt={p.title} className="w-full h-48 object-cover rounded-xl" />
                   </div>
                   <div className="p-5">
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.region}</div>

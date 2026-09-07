@@ -36,6 +36,18 @@ export interface BackendAttachment {
   durationSeconds?: number
 }
 
+/** Real multipart upload to POST /messages/upload (messageController.uploadAttachment)
+ * — not messaging-specific despite the route name (no context/role restriction
+ * beyond being logged in), so any screen needing "upload a file, get back a
+ * real URL" can reuse it instead of inventing its own endpoint. Mirrors
+ * MboaTrustAPP/api/messagingUpload.ts's uploadChatAttachment. */
+export async function uploadAttachment(file: File): Promise<BackendAttachment> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<{ data: BackendAttachment }>('/messages/upload', form)
+  return data.data
+}
+
 export interface BackendReaction {
   userId: string
   emoji: string

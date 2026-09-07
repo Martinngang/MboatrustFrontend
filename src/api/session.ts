@@ -46,12 +46,30 @@ export function mapBackendRoles(roles: { roleType: string }[]): NonNullable<Role
  * token, network error, or genuinely not signed in) rather than throwing,
  * since every caller treats "couldn't resolve a session" the same way:
  * fall back to asking the person to sign in. */
+/** Thrown when /users/me couldn't be reached (offline, DNS, timeout) or the
+ * server itself errored — deliberately distinct from "the server answered,
+ * and this account doesn't exist there". The old `catch { return null }`
+ * collapsed both into null, and since resolveAuthDestination reads null as
+ * "brand new account", an unreachable backend routed a fully-onboarded user
+ * into role selection to redo onboarding. */
+export class SessionUnavailableError extends Error {
+  constructor(message = 'Could not reach Mboa Trust') {
+    super(message)
+    this.name = 'SessionUnavailableError'
+  }
+}
+
+/** Returns null ONLY when the backend positively answered that there's no
+ * account for this identity. Anything else throws SessionUnavailableError,
+ * so callers can tell "no account yet" apart from "we don't know". */
 export async function fetchBackendUser(): Promise<BackendUser | null> {
   try {
     const { data } = await api.get<{ success: true; data: BackendUser }>('/users/me')
     return data.data
-  } catch {
-    return null
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status
+    if (status === 401 || status === 403 || status === 404) return null
+    throw new SessionUnavailableError()
   }
 }
 
@@ -138,6 +156,18 @@ export function useUploadAvatarMutation() {
       form.append('file', file)
       const { data } = await api.post<{ success: true; data: BackendUser }>('/users/me/avatar', form)
       return data.data.avatarUrl
+    },
+  })
+}
+
+/** Mirrors MboaTrustAPP/api/session.ts's useUpdatePreferredLanguageMutation
+ * — `lang`/`setLang` were previously in-memory-only (useState in
+ * context.tsx), so a language change never survived a reload. */
+export function useUpdatePreferredLanguageMutation() {
+  return useMutation({
+    mutationFn: async (preferredLanguage: 'en' | 'fr'): Promise<BackendUser> => {
+      const { data } = await api.patch<{ data: BackendUser }>('/users/me', { preferredLanguage })
+      return data.data
     },
   })
 }

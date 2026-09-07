@@ -6,7 +6,7 @@ import { useMyInventoryQuery, useSupplierInventoryQuery } from '../api/inventory
 import { useProjectQuery } from '../api/projects'
 import {
   useMaterialOrdersForMySupplierQuery, useConfirmMaterialOrderMutation, useRejectMaterialOrderMutation,
-  useCreateMaterialOrderMutation,
+  useCreateMaterialOrderMutation, useMarkOrderOutForDeliveryMutation,
 } from '../api/materialOrders'
 import {
   C, FONT, AppShell, Card, PillButton, Header, StepIndicator,
@@ -185,6 +185,7 @@ export function SupplierDashboardScreen() {
   const { data: orders = [] } = useMaterialOrdersForMySupplierQuery('all', isVerified)
   const confirmOrder = useConfirmMaterialOrderMutation()
   const rejectOrder = useRejectMaterialOrderMutation()
+  const markOutForDelivery = useMarkOrderOutForDeliveryMutation()
 
   if (isLoadingMySupplier) return <AppShell noNav>{null}</AppShell>
 
@@ -217,7 +218,12 @@ export function SupplierDashboardScreen() {
   }
 
   const requested = orders.filter((o) => o.status === 'requested')
-  const history = orders.filter((o) => o.status !== 'requested')
+  // Confirmed orders had no way to progress past this status from the UI —
+  // useMarkOrderOutForDeliveryMutation existed but was never wired to a
+  // button, so every confirmed order sat here forever. Split out of
+  // `history` into its own actionable section instead.
+  const readyToShip = orders.filter((o) => o.status === 'confirmed')
+  const history = orders.filter((o) => o.status !== 'requested' && o.status !== 'confirmed')
   const earnings = orders.filter((o) => o.status === 'confirmed' || o.status === 'out_for_delivery' || o.status === 'delivered').reduce((s, o) => s + o.totalAmount, 0)
 
   return (
@@ -290,6 +296,34 @@ export function SupplierDashboardScreen() {
                   </div>
                 </div>
               ))
+            )}
+
+            {readyToShip.length > 0 && (
+              <>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="pt-2 text-[10px] uppercase tracking-widest">
+                  Ready to ship ({readyToShip.length})
+                </div>
+                {readyToShip.map((order) => (
+                  <div key={order.id}>
+                    <MaterialOrderCard order={order} />
+                    <button
+                      onClick={async () => {
+                        try {
+                          await markOutForDelivery.mutateAsync(order.id)
+                          showToast({ title: 'Order marked out for delivery', tone: 'success' })
+                        } catch {
+                          showToast({ title: 'Failed to update order', tone: 'error' })
+                        }
+                      }}
+                      disabled={markOutForDelivery.isPending}
+                      className="mt-2 w-full px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50"
+                      style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+                    >
+                      Mark out for delivery
+                    </button>
+                  </div>
+                ))}
+              </>
             )}
           </div>
         )}

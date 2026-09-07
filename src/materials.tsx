@@ -69,7 +69,7 @@ export function MaterialsProvider({ children }: { children: ReactNode }) {
   const { isLoggedIn } = useApp()
 
   const { data: mySupplier = null, isLoading: isLoadingMySupplier } = useMySupplierProfileQuery(isLoggedIn)
-  const { data: suppliers = [] } = useSupplierDirectoryQuery()
+  const { data: suppliers = [] } = useSupplierDirectoryQuery(isLoggedIn)
   const upsertMutation = useUpsertSupplierProfileMutation()
 
   const registerSupplier = useCallback<MaterialsState['registerSupplier']>(async (input) => {

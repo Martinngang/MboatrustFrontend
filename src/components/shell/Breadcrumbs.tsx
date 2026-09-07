@@ -8,7 +8,7 @@ interface Crumb { label: string; path?: string }
  * (Home, Projects list→detail, Tenders list→detail, Land list→detail,
  * Menu/Settings) — extend this table as more sections need it rather than
  * solving every one of the ~70 routes up front. */
-function useBreadcrumbTrail(): Crumb[] {
+export function useBreadcrumbTrail(): Crumb[] {
   const { pathname } = useLocation()
   const { id } = useParams()
   const { projects, jobs, landListings } = useApp()

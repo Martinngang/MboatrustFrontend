@@ -26,6 +26,7 @@ import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useProjectsInfiniteQuery, useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
 import { useRefreshEscrowStatusMutation } from '../api/escrow'
+import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
 // Leaflet (pulled in by ProjectMap.tsx) is ~170KB and would push the main
 // bundle past vite-plugin-pwa's 2 MiB precache limit if imported statically
 // here — code-split into its own chunk, loaded only when a location section
@@ -60,7 +61,7 @@ export function BrowseProjectsScreen() {
   const projects = data?.pages.flatMap((p) => p.items) ?? []
   const [filter, setFilter] = useState('All')
   const [query, setQuery] = useState('')
-  const categories = ['All', 'Water & Sanitation', 'Education', 'Healthcare']
+  const categories = ['All', ...PROJECT_CATEGORIES]
   const filtered = projects.filter((p) => {
     const matchesCategory = filter === 'All' || p.category === filter
     const q = query.trim().toLowerCase()
@@ -817,7 +818,9 @@ export function MilestoneReviewScreen() {
                 <div key={e.id} className="relative rounded-xl overflow-hidden aspect-video">
                   <img src={e.fileUrl} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
                   <div className="absolute bottom-0 left-0 right-0 px-2 py-1" style={{ background: 'rgba(0,0,0,0.6)' }}>
-                    <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[9px]">Photo {i + 1}</div>
+                    <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[9px]">
+                      Photo {i + 1}{e.submittedByName ? ` · Submitted by ${e.submittedByName}` : ''}
+                    </div>
                   </div>
                   {e.duplicateFlag && (
                     <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded" style={{ background: 'var(--status-error-bg)' }}>

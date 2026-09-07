@@ -105,9 +105,13 @@ export function useUpsertSupplierProfileMutation() {
 }
 
 /** Authenticated, approved-only directory — funders/contractors browse this
- * to pick a store when requesting a materials milestone. */
-export function useSupplierDirectoryQuery() {
+ * to pick a store when requesting a materials milestone. Gated on auth
+ * being ready (this hook runs from the app-wide MaterialsProvider, so
+ * without the gate it fires on every page load before the Firebase session
+ * restores, 401s, and leaves the directory permanently empty). */
+export function useSupplierDirectoryQuery(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ['supplierDirectory'],
     queryFn: async (): Promise<SupplierProfileRecord[]> => {
       const { data } = await api.get<{ data: BackendSupplierProfile[] }>('/supplier-profiles/directory')

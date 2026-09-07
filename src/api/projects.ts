@@ -23,6 +23,7 @@ interface BackendEvidence {
   locationMatch: boolean | null
   timestampRecent: boolean | null
   duplicateFlag: boolean
+  submittedBy?: { _id: string; fullName: string } | string
 }
 interface BackendChangeRequest {
   reason: string
@@ -94,6 +95,7 @@ function mapEvidence(e: BackendEvidence): MilestoneEvidence {
     locationMatch: e.locationMatch,
     timestampRecent: e.timestampRecent,
     duplicateFlag: e.duplicateFlag,
+    submittedByName: typeof e.submittedBy === 'object' ? e.submittedBy.fullName : null,
   }
 }
 

@@ -14,8 +14,15 @@ import { StaggerList, StaggerItem } from '../components/Stagger'
 import { AppIcon } from '../components/icons'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
+import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
 
-const TRADES = ['Civil & Masonry', 'Plumbing & Water', 'Electrical', 'Roofing', 'Carpentry', 'Painting', 'Excavation', 'Solar Installation']
+// Unified onto the same sector taxonomy a tender's own category uses (see
+// AdditionalScreens.tsx's PostJobScreen) — this used to be a separate
+// trade-skill list that could never match a tender's sector category in
+// contractorMatchingService's scoring (30 of 100 points), since the two
+// vocabularies never overlapped. Feeds both this screen's profile-edit
+// category picker and ContractorLeaderboardScreen's filter below.
+const TRADES = PROJECT_CATEGORIES
 const REGIONS = ['Centre', 'Littoral', 'North West', 'South West', 'West', 'Far North', 'North', 'Adamawa', 'East', 'South']
 
 function StatTile({ label, value }: { label: string; value: string }) {

@@ -12,7 +12,7 @@ import { EmptyState } from '../components/EmptyState'
 import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useRatingsQuery } from '../api/reputation'
 import { useTransactionsQuery } from '../api/transactions'
-import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
+import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation, useWithdrawableBalanceQuery, useWithdrawMutation } from '../api/contracts'
 import { useProjectQuery } from '../api/projects'
 import { useJobsInfiniteQuery } from '../api/tenders'
 import {
@@ -23,19 +23,28 @@ import { useReverseGeocodeQuery } from '../api/tools'
 import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
 import { AIPhotoInspector } from '../components/AIPhotoInspector'
+import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
 export function BrowseJobsScreen() {
   const nav = useNavigate()
-  const { bids } = useApp()
+  const { bids, devUserId } = useApp()
   const appliedJobIds = new Set(bids.map((b) => b.jobId))
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useJobsInfiniteQuery()
+  // Per-tender bid counts need a real auth header — see useJobsQuery's
+  // comment. Without this gate the counts fire before the session restores
+  // and every tender on this screen renders "0 bids".
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useJobsInfiniteQuery(10, 'open', Boolean(devUserId))
   const jobs = data?.pages.flatMap((p) => p.items) ?? []
   const [filter, setFilter] = useState('All')
   const [sortDesc, setSortDesc] = useState(true)
-  const categories = ['All', 'Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure']
-  const filtered = (filter === 'All' ? jobs : jobs.filter((j) => j.category === filter))
-    .slice()
+  const [search, setSearch] = useState('')
+  const categories = ['All', ...PROJECT_CATEGORIES]
+  const filtered = jobs
+    .filter((j) => filter === 'All' || j.category === filter)
+    .filter((j) => {
+      const q = search.trim().toLowerCase()
+      return !q || j.title.toLowerCase().includes(q) || j.location.toLowerCase().includes(q)
+    })
     .sort((a, b) => sortDesc ? b.budget - a.budget : a.budget - b.budget)
 
   return (
@@ -55,7 +64,13 @@ export function BrowseJobsScreen() {
             <circle cx="6" cy="6" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
             <line x1="9" y1="9" x2="12" y2="12" stroke={C.inkSubtle} strokeWidth="1.3" strokeLinecap="round" />
           </svg>
-          <input placeholder="Search jobs, location..." className="flex-1 bg-transparent outline-none text-sm" style={{ fontFamily: FONT.sans, color: C.ink }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search jobs, location..."
+            className="flex-1 bg-transparent outline-none text-sm"
+            style={{ fontFamily: FONT.sans, color: C.ink }}
+          />
           <button onClick={() => setSortDesc((d) => !d)} className="px-2.5 py-1 rounded-lg text-xs font-semibold whitespace-nowrap" style={{ background: C.parchment, color: C.inkMuted, fontFamily: FONT.mono }}>
             Budget {sortDesc ? '↓' : '↑'}
           </button>
@@ -175,11 +190,15 @@ export function JobDetailScreen() {
   // supported platform-wide) — the restriction is specifically "never bid
   // on your own tender," not "funders can never see the bid UI at all".
   const isOwnTender = Boolean(devUserId) && job.ownerId === devUserId
-  const milestoneItems = [
-    { title: 'Site preparation & equipment delivery', amount: Math.round(job.budget * 0.25) },
-    { title: 'Primary installation work', amount: Math.round(job.budget * 0.45) },
-    { title: 'Testing, commissioning & handover', amount: Math.round(job.budget * 0.30) },
-  ].slice(0, job.milestones)
+  // Prefer the funder's real proposed payment schedule; only fall back to an
+  // estimated even split for the rare literal without one (e.g. mock data).
+  const milestoneItems = job.milestoneSchedule?.length
+    ? job.milestoneSchedule
+    : [
+        { title: 'Site preparation & equipment delivery', amount: Math.round(job.budget * 0.25) },
+        { title: 'Primary installation work', amount: Math.round(job.budget * 0.45) },
+        { title: 'Testing, commissioning & handover', amount: Math.round(job.budget * 0.30) },
+      ].slice(0, job.milestones)
 
   return (
     <AppShell noNav>
@@ -748,7 +767,9 @@ export function ContractDetailScreen() {
           </button>
         )}
 
-        <PillButton onClick={() => nav(`/contractor/submit/${project.id}`)} fullWidth>Submit next milestone proof</PillButton>
+        {contract?.status === 'active' && (
+          <PillButton onClick={() => nav(`/contractor/submit/${project.id}`)} fullWidth>Submit next milestone proof</PillButton>
+        )}
       </div>
     </AppShell>
   )
@@ -756,9 +777,33 @@ export function ContractDetailScreen() {
 
 // ── Earnings screen ────────────────────────────────────────────────────────────
 export function EarningsScreen() {
+  const { show: showToast } = useToast()
   const { data: transactions = [], isLoading } = useTransactionsQuery()
   const earnings = transactions.filter((t) => t.type === 'release')
   const total = earnings.reduce((s, e) => s + e.amount, 0)
+
+  // Ported from MboaTrustAPP's EarningsWithdrawScreen — a single available
+  // total across every release escrow not yet claimed, and a single "mark
+  // as withdrawn" action (escrowController.getWithdrawable/.withdraw). The
+  // money already moved to the contractor's payout method automatically at
+  // milestone-release time; this only records that they've claimed/seen it.
+  // No amount picker, no payment-method choice, no transfer fee — none of
+  // that exists on the real backend.
+  const { data: balance, isLoading: balanceLoading } = useWithdrawableBalanceQuery()
+  const withdrawMutation = useWithdrawMutation()
+
+  const handleWithdraw = async () => {
+    try {
+      const result = await withdrawMutation.mutateAsync()
+      showToast({
+        title: 'Marked as withdrawn',
+        description: `${fmt(result.amount)} across ${result.count} ${result.count === 1 ? 'escrow' : 'escrows'} confirmed received.`,
+        tone: 'success',
+      })
+    } catch (err) {
+      showToast({ title: 'Error', description: apiErrorMessage(err, 'Could not process. Please try again.'), tone: 'error' })
+    }
+  }
 
   return (
     <AppShell>
@@ -771,6 +816,24 @@ export function EarningsScreen() {
       </Header>
 
       <div className="px-5 py-4 space-y-3 sm:mx-auto sm:max-w-2xl">
+        {/* Withdrawable Balance */}
+        {!balanceLoading && (balance?.available || 0) > 0 && (
+          <Card>
+            <div className="p-4 space-y-3">
+              <div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Available to confirm</div>
+                <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-2xl font-bold mt-1">{fmt(balance?.available || 0)}</div>
+              </div>
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">
+                This amount has already been sent to your payout method when each milestone released. Confirm receipt once you've seen it land.
+              </p>
+              <PillButton onClick={handleWithdraw} fullWidth disabled={withdrawMutation.isPending}>
+                {withdrawMutation.isPending ? 'Working…' : `Confirm receipt of ${fmt(balance?.available || 0)}`}
+              </PillButton>
+            </div>
+          </Card>
+        )}
+
         {!isLoading && earnings.length === 0 && (
           <EmptyState icon="wallet" title="No earnings yet" description="Payments for completed milestones will show up here." />
         )}

@@ -120,3 +120,71 @@ export function useAdminRemoveContractMutation() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['contracts'] }),
   })
 }
+
+export interface WithdrawableEscrow {
+  id: string
+  projectTitle: string
+  netAmount: number
+  currency: string
+  createdAt: string
+}
+
+export interface WithdrawableBalance {
+  available: number
+  currency: string
+  escrows: WithdrawableEscrow[]
+}
+
+interface BackendWithdrawableEscrow {
+  _id: string
+  netAmount: number
+  currency: string
+  createdAt: string
+  projectId?: { _id: string; title: string } | string | null
+}
+
+/** Real shape from GET /escrows/withdrawable (escrowController.getWithdrawable)
+ * — a single `available` total plus the underlying escrow records. Ported
+ * from MboaTrustAPP/api/contracts.ts, which already had this; web's
+ * EarningsScreen only showed read-only transaction history with no
+ * withdrawable-balance concept at all. */
+export function useWithdrawableBalanceQuery() {
+  return useQuery({
+    queryKey: ['escrows', 'withdrawable'],
+    queryFn: async (): Promise<WithdrawableBalance> => {
+      const { data } = await api.get<{ data: { available: number; currency: string; escrows: BackendWithdrawableEscrow[] } }>('/escrows/withdrawable')
+      return {
+        available: data.data.available,
+        currency: data.data.currency,
+        escrows: data.data.escrows.map((e) => ({
+          id: e._id,
+          projectTitle: typeof e.projectId === 'object' && e.projectId ? e.projectId.title : 'Project',
+          netAmount: e.netAmount,
+          currency: e.currency,
+          createdAt: e.createdAt,
+        })),
+      }
+    },
+    staleTime: 15_000,
+  })
+}
+
+/** Marks every currently-available escrow as withdrawn — money already
+ * moved to the contractor's payout method automatically at milestone-release
+ * time; this never re-disburses or takes a fee, it only records the claim.
+ * No amount choice, no payment-method selection — the real endpoint takes no
+ * body at all. */
+export function useWithdrawMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{ data: { amount: number; currency: string; count: number; withdrawnAt: string } }>('/escrows/withdraw', {})
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['escrows', 'withdrawable'] })
+      qc.invalidateQueries({ queryKey: ['notifications'] })
+      qc.invalidateQueries({ queryKey: ['transactions'] })
+    },
+  })
+}

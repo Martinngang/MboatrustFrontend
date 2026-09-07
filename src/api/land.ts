@@ -154,7 +154,15 @@ export function useUpdateVerificationStatusMutation() {
       const rating = await fetchRatingSummary(sellerId)
       return mapListing(data.data, rating.average ?? NEW_SELLER_RATING)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['landListings'] })
+      // Admin's own AdminLandScreen reads a separate query key
+      // ('adminLandListings', see useAdminLandListingsQuery below) — without
+      // this, a successful Verify/Flag action left the admin table showing
+      // the stale pre-mutation status until the next real page load, even
+      // though the backend had already updated it correctly.
+      qc.invalidateQueries({ queryKey: ['adminLandListings'] })
+    },
   })
 }
 

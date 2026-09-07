@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { resolveCurrentUserId, clearDevUserId } from './api/devAuth'
 import { firebaseConfigured } from './firebase'
 import { onFirebaseAuthChange, firebaseSignOut } from './api/firebaseAuth'
-import { fetchBackendUser, mapBackendRoles, resolveAuthDestination } from './api/session'
+import { fetchBackendUser, mapBackendRoles, resolveAuthDestination, type BackendUser } from './api/session'
 import type { StatusTone } from './components/tokens'
 import type { IconName } from './components/icons'
 import {
@@ -38,6 +38,7 @@ export interface MilestoneEvidence {
   locationMatch: boolean | null
   timestampRecent: boolean | null
   duplicateFlag: boolean
+  submittedByName: string | null
 }
 
 export interface MilestoneChangeRequest {
@@ -116,6 +117,10 @@ export interface JobPosting {
   deadline: string
   bids: number
   milestones: number
+  /** The funder's real per-milestone payment schedule, when known (real
+   * tenders via mapJob) — JobDetailScreen falls back to an estimated split
+   * off `milestones`/`budget` when this isn't available. */
+  milestoneSchedule?: { title: string; amount: number }[]
   posted: string
   description: string
   status: string
@@ -344,13 +349,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!firebaseConfigured) return
     const unsubscribe = onFirebaseAuthChange(async (fbUser) => {
       if (fbUser) {
-        const backendUser = await fetchBackendUser()
+        // fetchBackendUser now throws when the backend is unreachable
+        // (rather than returning null, which is reserved for "no account").
+        // Swallow it here: this listener's job is only to restore an
+        // already-complete session, and leaving state untouched keeps the
+        // user where they are instead of appearing signed out. The
+        // interactive paths (completeAuthSuccess) surface the error.
+        let backendUser: BackendUser | null
+        try {
+          backendUser = await fetchBackendUser()
+        } catch {
+          return
+        }
         const dest = backendUser ? resolveAuthDestination(backendUser) : null
         if (backendUser && (dest === 'home' || dest === 'admin')) {
           const mappedRoles = mapBackendRoles(backendUser.roles)
           setName(backendUser.fullName)
           setAvatarUrl(backendUser.avatarUrl)
           setResidenceCountry(backendUser.residenceCountry || '')
+          if (backendUser.preferredLanguage) setLang(backendUser.preferredLanguage)
           setIsAdmin(dest === 'admin')
           setRoles(mappedRoles)
           // mappedRoles[0] is `undefined`, not `null`, when a user somehow
@@ -379,6 +396,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setName(backendUser.fullName)
         setAvatarUrl(backendUser.avatarUrl)
         setResidenceCountry(backendUser.residenceCountry || '')
+        if (backendUser.preferredLanguage) setLang(backendUser.preferredLanguage)
         if (mappedRoles.length > 0) {
           setRoles(mappedRoles)
           setRole(mappedRoles[0])
@@ -392,6 +410,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setName(backendUser!.fullName)
       setAvatarUrl(backendUser!.avatarUrl)
       setResidenceCountry(backendUser!.residenceCountry || '')
+      if (backendUser!.preferredLanguage) setLang(backendUser!.preferredLanguage)
       setIsAdmin(true)
       setLoggedIn(true)
       return 'admin'
@@ -400,6 +419,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setName(backendUser!.fullName)
     setAvatarUrl(backendUser!.avatarUrl)
     setResidenceCountry(backendUser!.residenceCountry || '')
+    if (backendUser!.preferredLanguage) setLang(backendUser!.preferredLanguage)
     setRoles(mappedRoles)
     // Same normalization as the session-restore effect above — mappedRoles[0]
     // is `undefined` (not `null`) when empty.
@@ -495,10 +515,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const disputeMilestoneMutation = useDisputeMilestoneMutation()
   const requestMilestoneChangesMutation = useRequestMilestoneChangesMutation()
 
-  const jobsQuery = useJobsQuery()
+  // devUserId is the resolved current-user id (real Firebase session or
+  // dev-bypass alike, see resolveCurrentUserId) — so it doubles as "an auth
+  // header will now be attached", which is exactly what these two
+  // auth-requiring queries need to wait for.
+  const authReady = Boolean(devUserId)
+  const jobsQuery = useJobsQuery(authReady)
   const jobs = jobsQuery.data ?? (jobsQuery.isLoading ? MOCK_JOBS : [])
   const createJobMutation = useCreateJobMutation()
-  const bidsQuery = useBidsQuery(devUserId ? { contractorId: devUserId } : {})
+  const bidsQuery = useBidsQuery(devUserId ? { contractorId: devUserId } : {}, authReady)
   const bids = devUserId ? (bidsQuery.data ?? []) : []
   const createBidMutation = useCreateBidMutation()
   const counterBidMutation = useCounterBidMutation()

@@ -35,6 +35,7 @@ const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   open: { tone: 'success', label: 'Open' },
   awarded: { tone: 'info', label: 'Awarded' },
   closed: { tone: 'neutral', label: 'Closed' },
+  resolved: { tone: 'success', label: 'Resolved' },
   // Material order statuses (see api/materialOrders.ts) — 'rejected' above already covers that one.
   requested: { tone: 'warning', label: 'Requested' },
   confirmed: { tone: 'info', label: 'Confirmed' },

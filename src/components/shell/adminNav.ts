@@ -69,6 +69,12 @@ export const ADMIN_NAV: AdminNavSection[] = [
     ],
   },
   {
+    section: 'Support & Feedback',
+    items: [
+      { key: 'support', label: 'Support & Feedback', icon: 'lifeBuoy', path: '/admin/support' },
+    ],
+  },
+  {
     section: 'Platform',
     items: [
       { key: 'settings', label: 'Settings', icon: 'settings', path: '/admin/settings' },

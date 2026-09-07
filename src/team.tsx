@@ -8,15 +8,17 @@ import {
   claimTeamMemberships,
   type TeamRole,
   type TeamMemberRecord,
+  type TeamPermission,
 } from './api/teamMembers'
 
-export type { TeamRole }
+export type { TeamRole, TeamPermission }
 export type TeamMember = TeamMemberRecord
 
 interface TeamState {
   members: TeamMember[]
-  inviteMember: (m: { name: string; email: string; role: TeamRole }) => void
+  inviteMember: (m: { name: string; email: string; role: TeamRole; permissions?: TeamPermission[] }) => void
   updateMemberRole: (id: string, role: TeamRole) => void
+  updateMemberPermissions: (id: string, permissions: TeamPermission[]) => void
   removeMember: (id: string) => void
 }
 
@@ -48,20 +50,23 @@ export function TeamProvider({ children }: { children: ReactNode }) {
     }
   }, [isLoggedIn])
 
-  const inviteMember = (m: { name: string; email: string; role: TeamRole }) => {
+  const inviteMember = (m: { name: string; email: string; role: TeamRole; permissions?: TeamPermission[] }) => {
     if (m.role === 'owner') return // owner is auto-created, never invited
-    invite.mutate({ email: m.email, name: m.name, role: m.role })
+    invite.mutate({ email: m.email, name: m.name, role: m.role, permissions: m.permissions })
   }
   const updateMemberRole = (id: string, role: TeamRole) => {
     if (role === 'owner') return
     updateRole.mutate({ id, role })
+  }
+  const updateMemberPermissions = (id: string, permissions: TeamPermission[]) => {
+    updateRole.mutate({ id, permissions })
   }
   const removeMember = (id: string) => {
     remove.mutate(id)
   }
 
   return (
-    <TeamContext.Provider value={{ members, inviteMember, updateMemberRole, removeMember }}>
+    <TeamContext.Provider value={{ members, inviteMember, updateMemberRole, updateMemberPermissions, removeMember }}>
       {children}
     </TeamContext.Provider>
   )

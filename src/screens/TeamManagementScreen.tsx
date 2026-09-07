@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { useTeam, type TeamRole } from '../team'
+import { useTeam, type TeamRole, type TeamPermission } from '../team'
+import { useTeamActivityQuery } from '../api/teamMembers'
+import { useApp } from '../context'
 import { C, FONT, AppShell, Header, Card, PillButton } from '../components/MobileLayout'
 import { StaggerList, StaggerItem } from '../components/Stagger'
 import { Modal, ConfirmDialog } from '../components/Modal'
@@ -12,22 +14,58 @@ const ROLE_META: Record<TeamRole, { label: string; description: string }> = {
 }
 const ROLE_ORDER: TeamRole[] = ['owner', 'approver', 'viewer']
 
-/** For diaspora-group/association accounts sharing one Mboa Trust account:
- * who on the team can fund, approve milestones, or just view. */
+// Only meaningful for a contractor's own team — a delegate with this
+// permission can create/submit/update milestone evidence on the
+// contractor's behalf (see projectController.assertProjectParty's delegate
+// check). Nothing else the contractor can do is ever granted by this.
+const DELEGATE_PERMISSION: TeamPermission = 'submit_milestones'
+
+function activityLabel(action: string, detail: Record<string, unknown>): string {
+  switch (action) {
+    case 'member.invited':
+      return `Invited ${detail.email || 'a member'}`
+    case 'member.permissionsChanged':
+      return `Updated permissions${detail.permissions && Array.isArray(detail.permissions) && detail.permissions.length > 0 ? ' (can submit milestones)' : ' (no delegated permissions)'}`
+    case 'member.removed':
+      return `Removed ${detail.email || 'a member'}`
+    case 'milestone.submittedOnBehalf':
+      return `Submitted milestone evidence${detail.milestoneName ? ` for "${detail.milestoneName}"` : ''} on your behalf`
+    default:
+      return action.replace(/[._]/g, ' ')
+  }
+}
+
+/** For diaspora-group/association accounts sharing one Mboa Trust account,
+ * and for a contractor delegating milestone-evidence submission to a
+ * trusted team member — who's on the team, what they can do, and a durable
+ * history of every invite/permission-change/removal/on-behalf submission. */
 export function TeamManagementScreen() {
-  const { members, inviteMember, updateMemberRole, removeMember } = useTeam()
+  const { members, inviteMember, updateMemberRole, updateMemberPermissions, removeMember } = useTeam()
+  const { role } = useApp()
+  const isContractor = role === 'contractor'
+  const { data: activity = [] } = useTeamActivityQuery(isContractor)
   const { show: showToast } = useToast()
   const [inviteOpen, setInviteOpen] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ name: '', email: '', role: 'viewer' as TeamRole })
+  const [form, setForm] = useState({ name: '', email: '', role: 'viewer' as TeamRole, canSubmitMilestones: false })
   const removeTarget = members.find((m) => m.id === removingId)
 
   const submitInvite = () => {
     if (!form.name.trim() || !form.email.trim()) return
-    inviteMember({ name: form.name.trim(), email: form.email.trim(), role: form.role })
+    inviteMember({
+      name: form.name.trim(),
+      email: form.email.trim(),
+      role: form.role,
+      permissions: form.canSubmitMilestones ? [DELEGATE_PERMISSION] : [],
+    })
     showToast({ title: 'Member added', description: `${form.name.trim()} added as ${ROLE_META[form.role].label}. No email is sent yet — let them know directly.`, tone: 'success' })
     setInviteOpen(false)
-    setForm({ name: '', email: '', role: 'viewer' })
+    setForm({ name: '', email: '', role: 'viewer', canSubmitMilestones: false })
+  }
+
+  const toggleDelegatePermission = (memberId: string, permissions: TeamPermission[]) => {
+    const has = permissions.includes(DELEGATE_PERMISSION)
+    updateMemberPermissions(memberId, has ? permissions.filter((p) => p !== DELEGATE_PERMISSION) : [...permissions, DELEGATE_PERMISSION])
   }
 
   return (
@@ -73,6 +111,17 @@ export function TeamManagementScreen() {
                     <button onClick={() => setRemovingId(m.id)} style={{ color: 'var(--status-error-text)' }} className="flex-shrink-0 text-xs font-semibold">Remove</button>
                   )}
                 </div>
+                {isContractor && m.role !== 'owner' && m.status === 'active' && (
+                  <label className="flex items-center gap-2 px-4 pb-3 -mt-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={m.permissions.includes(DELEGATE_PERMISSION)}
+                      onChange={() => toggleDelegatePermission(m.id, m.permissions)}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">Can submit milestones on my behalf</span>
+                  </label>
+                )}
               </Card>
             </StaggerItem>
           ))}
@@ -87,6 +136,24 @@ export function TeamManagementScreen() {
             </div>
           ))}
         </div>
+
+        {isContractor && (
+          <div className="mt-6 space-y-2">
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Activity history</div>
+            {activity.length === 0 ? (
+              <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No team activity yet.</p>
+            ) : (
+              activity.map((row) => (
+                <div key={row.id} className="rounded-xl border px-3 py-2.5" style={{ borderColor: C.parchmentDark }}>
+                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs">{activityLabel(row.action, row.detail)}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
+                    {row.actorName} · {new Date(row.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite a team member">
@@ -127,6 +194,17 @@ export function TeamManagementScreen() {
               ))}
             </div>
           </div>
+          {isContractor && (
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={form.canSubmitMilestones}
+                onChange={(e) => setForm({ ...form, canSubmitMilestones: e.target.checked })}
+                className="h-4 w-4"
+              />
+              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm">Can submit milestones on my behalf</span>
+            </label>
+          )}
           <PillButton onClick={submitInvite} fullWidth disabled={!form.name.trim() || !form.email.trim()}>Send invitation</PillButton>
         </div>
       </Modal>

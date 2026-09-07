@@ -72,6 +72,7 @@ import {
   ADMIN_NOTIFICATION_TARGET_ROLES, type AdminNotificationTargetRole, type AdminNotificationHistoryRow,
 } from '../api/adminNotifications'
 import { useFeeConfigQuery, useUpsertFeeConfigMutation, useRemoveFeeConfigMutation, type FeeConfigRow } from '../api/feeConfig'
+import { useSmtpSettingsQuery, useUpdateSmtpSettingsMutation, useSendTestEmailMutation } from '../api/adminSmtpSettings'
 import {
   useAdminAccountsQuery, useSetAdminPermissionsMutation,
   ADMIN_PERMISSION_KEYS, type AdminPermissionKey, type AdminAccountRow,
@@ -2353,6 +2354,214 @@ function FeeConfigRowEditor({ row, onSave, onDelete, saving }: { row: FeeConfigR
   )
 }
 
+// ── SMTP settings ─────────────────────────────────────────────────────────────
+// Field-level form state, separate from the query's own SmtpSettings shape —
+// `password` here is always empty on load (the real value never round-trips
+// from the server, see api/adminSmtpSettings.ts), so it needs its own blank
+// starting point rather than being derived from the fetched settings object.
+interface SmtpFormState {
+  host: string
+  port: string
+  secure: boolean
+  username: string
+  password: string
+  fromEmail: string
+  fromName: string
+  enabled: boolean
+}
+
+const BLANK_SMTP_FORM: SmtpFormState = { host: '', port: '587', secure: false, username: '', password: '', fromEmail: '', fromName: '', enabled: false }
+
+function inputClass() {
+  return 'w-full rounded-lg border px-3 py-2 text-sm'
+}
+
+function SmtpSettingsSection() {
+  const { show: showToast } = useToast()
+  const { data: settings, isLoading } = useSmtpSettingsQuery()
+  const updateMutation = useUpdateSmtpSettingsMutation()
+  const testMutation = useSendTestEmailMutation()
+
+  const [form, setForm] = useState<SmtpFormState>(BLANK_SMTP_FORM)
+  const [hydrated, setHydrated] = useState(false)
+  const [testTo, setTestTo] = useState('')
+  const [testResult, setTestResult] = useState<{ success: boolean; error: string | null } | null>(null)
+
+  // Loads fetched settings into the form exactly once — a query refetch
+  // after Save must not clobber whatever the admin is mid-typing, and must
+  // never re-populate the password field (it's never sent back).
+  if (settings && !hydrated) {
+    setForm({
+      host: settings.host, port: String(settings.port), secure: settings.secure, username: settings.username,
+      password: '', fromEmail: settings.fromEmail, fromName: settings.fromName, enabled: settings.enabled,
+    })
+    setHydrated(true)
+  }
+
+  function field<K extends keyof SmtpFormState>(key: K, value: SmtpFormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function handleSave() {
+    const port = Number(form.port)
+    if (!form.host.trim() || !form.username.trim() || !form.fromEmail.trim() || !Number.isInteger(port) || port < 1 || port > 65535) {
+      showToast({ title: 'Fill in host, port, username, and a valid sender email', tone: 'error' })
+      return
+    }
+    updateMutation.mutate(
+      {
+        host: form.host.trim(), port, secure: form.secure, username: form.username.trim(),
+        password: form.password.trim() || undefined, fromEmail: form.fromEmail.trim(), fromName: form.fromName.trim(), enabled: form.enabled,
+      },
+      {
+        onSuccess: () => { showToast({ title: 'SMTP settings saved', tone: 'success' }); field('password', '') },
+        onError: (err) => showToast({ title: apiErrorMessage(err), tone: 'error' }),
+      }
+    )
+  }
+
+  function handleSendTest() {
+    if (!testTo.trim()) {
+      showToast({ title: 'Enter an address to send the test email to', tone: 'error' })
+      return
+    }
+    setTestResult(null)
+    const port = Number(form.port)
+    testMutation.mutate(
+      {
+        to: testTo.trim(),
+        // Sends whatever's currently in the form (including unsaved edits)
+        // — omitting blank fields so an untouched password falls back to
+        // whatever's already saved server-side rather than testing with an
+        // empty one (see smtpSettingsService.getConfigForTest).
+        host: form.host.trim() || undefined,
+        port: Number.isInteger(port) ? port : undefined,
+        secure: form.secure,
+        username: form.username.trim() || undefined,
+        password: form.password.trim() || undefined,
+        fromEmail: form.fromEmail.trim() || undefined,
+        fromName: form.fromName.trim() || undefined,
+      },
+      {
+        onSuccess: (result) => {
+          setTestResult(result)
+          showToast(result.success ? { title: 'Test email sent — check the inbox', tone: 'success' } : { title: 'Test email failed', tone: 'error' })
+        },
+        onError: (err) => showToast({ title: apiErrorMessage(err), tone: 'error' }),
+      }
+    )
+  }
+
+  return (
+    <>
+      <div className="mb-2 flex items-center justify-between">
+        <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Email delivery (SMTP)</div>
+        {settings && (
+          <div className="flex items-center gap-2">
+            {settings.source === 'env' && (
+              <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Showing .env default — not yet saved here</span>
+            )}
+            <StatusBadge status={settings.enabled ? 'active' : 'closed'} />
+          </div>
+        )}
+      </div>
+      <Card className="mb-6 p-5">
+        {isLoading ? (
+          <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-4 text-center text-sm">Loading…</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Host
+                <input value={form.host} onChange={(e) => field('host', e.target.value)} placeholder="smtp.example.com"
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Port
+                <input value={form.port} onChange={(e) => field('port', e.target.value)} inputMode="numeric" placeholder="587"
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Username
+                <input value={form.username} onChange={(e) => field('username', e.target.value)} placeholder="notifications@mboatrust.com"
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Password{settings?.hasPassword && <span style={{ color: C.inkSubtle }}> (saved — leave blank to keep it)</span>}
+                <input value={form.password} onChange={(e) => field('password', e.target.value)} type="password"
+                  placeholder={settings?.hasPassword ? '••••••••' : ''}
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Sender email
+                <input value={form.fromEmail} onChange={(e) => field('fromEmail', e.target.value)} placeholder="notifications@mboatrust.com"
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+              <label className="text-xs" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                Sender name
+                <input value={form.fromName} onChange={(e) => field('fromName', e.target.value)} placeholder="Mboa Trust"
+                  className={inputClass()} style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-5 border-t pt-4" style={{ borderColor: C.parchmentDark }}>
+              <label className="flex items-center gap-2 text-sm" style={{ fontFamily: FONT.sans, color: C.ink }}>
+                <input type="checkbox" checked={form.secure} onChange={(e) => field('secure', e.target.checked)} />
+                Use TLS/SSL (typically port 465)
+              </label>
+              <label className="flex items-center gap-2 text-sm" style={{ fontFamily: FONT.sans, color: C.ink }}>
+                <input type="checkbox" checked={form.enabled} onChange={(e) => field('enabled', e.target.checked)} />
+                Email sending enabled
+              </label>
+              <button
+                onClick={handleSave}
+                disabled={updateMutation.isPending}
+                className="ml-auto rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-40"
+                style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+              >
+                {updateMutation.isPending ? 'Saving…' : 'Save SMTP settings'}
+              </button>
+            </div>
+
+            {settings?.updatedAt && (
+              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">
+                Last saved {new Date(settings.updatedAt).toLocaleString()}
+                {typeof settings.updatedBy === 'object' && settings.updatedBy?.fullName ? ` by ${settings.updatedBy.fullName}` : ''}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 border-t pt-4" style={{ borderColor: C.parchmentDark }}>
+              <input
+                value={testTo}
+                onChange={(e) => setTestTo(e.target.value)}
+                placeholder="Send a test email to…"
+                className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white, minWidth: 220 }}
+              />
+              <button
+                onClick={handleSendTest}
+                disabled={testMutation.isPending}
+                className="rounded-lg px-4 py-2 text-xs font-semibold disabled:opacity-40"
+                style={{ background: C.ink, color: '#fff', fontFamily: FONT.sans }}
+              >
+                {testMutation.isPending ? 'Sending…' : 'Send test email'}
+              </button>
+            </div>
+            {testResult && (
+              <p
+                style={{ fontFamily: FONT.sans, color: testResult.success ? 'var(--status-success-text)' : 'var(--status-error-text)' }}
+                className="text-xs"
+              >
+                {testResult.success ? 'Test email sent successfully.' : `Failed: ${testResult.error}`}
+              </p>
+            )}
+          </div>
+        )}
+      </Card>
+    </>
+  )
+}
+
 export function AdminSettingsScreen() {
   const { show: showToast } = useToast()
   const { data: feeConfigs, isLoading: feeLoading } = useFeeConfigQuery()
@@ -2444,6 +2653,8 @@ export function AdminSettingsScreen() {
           </div>
         )}
       </Card>
+
+      <SmtpSettingsSection />
 
       <ConfirmDialog
         open={!!feeDeleteTarget}

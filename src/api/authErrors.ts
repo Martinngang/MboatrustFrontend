@@ -43,6 +43,12 @@ export function firebaseErrorCode(err: unknown): string | null {
 }
 
 export function friendlyAuthError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
+  // Sign-in itself succeeded but our own backend couldn't be reached (see
+  // api/session.ts's SessionUnavailableError) — matched by name rather than
+  // instanceof to avoid importing session.ts here just for a type.
+  if ((err as { name?: string })?.name === 'SessionUnavailableError') {
+    return 'Signed in, but we couldn’t reach Mboa Trust. Check your connection and try again.'
+  }
   const code = firebaseErrorCode(err)
   if (code && MESSAGES[code]) return MESSAGES[code]
   // Anything without a recognized `auth/*` code — a raw IndexedDB/network

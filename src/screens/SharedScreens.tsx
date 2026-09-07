@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../context'
 import { useMyKycStatusQuery, type KycStatus } from '../api/kyc'
 import { useMaterials } from '../materials'
-import { useMyRoleTypesQuery, useUploadAvatarMutation } from '../api/session'
+import { useMyRoleTypesQuery, useUploadAvatarMutation, useUpdatePreferredLanguageMutation } from '../api/session'
 import { useTheme } from '../theme'
 import { C, FONT, AppShell, Card, Header, PillButton, StatusBadge, MomoOmPicker } from '../components/MobileLayout'
 import { useMySubscriptionsQuery, useCreateSubscriptionMutation, useCancelSubscriptionMutation, PLAN_PRICES, type PlanType } from '../api/subscriptions'
@@ -17,6 +17,7 @@ import { api, apiErrorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { PasswordField, TextField, InlineAlert, Spinner } from '../components/AuthControls'
 import { useNotificationsDrawer } from '../components/NotificationsDrawer'
+import { useFeedbackModal } from '../components/FeedbackModal'
 import { AppIcon, GoogleGlyph, type IconName } from '../components/icons'
 import { useSetDeviceTokenMutation, requestPushToken, isPushAvailable } from '../api/push'
 
@@ -402,7 +403,19 @@ function ClusterHeading({ label, description }: { label: string; description: st
 // features) lives in the Menu hub (ProfileScreen) instead of here.
 export function SettingsScreen() {
   const nav = useNavigate()
-  const { lang, logout, name, avatarUrl } = useApp()
+  const { lang, setLang, logout, name, avatarUrl } = useApp()
+  const { open: openFeedback } = useFeedbackModal()
+  const updateLanguage = useUpdatePreferredLanguageMutation()
+  // Switches immediately (setLang) and persists in the background — mirrors
+  // MboaTrustAPP/screens/SettingsScreen.tsx's changeLanguage. Previously this
+  // row navigated to the onboarding LanguageScreen, whose picker always
+  // redirects to /signup afterward (correct for onboarding, wrong for an
+  // already-logged-in Settings visitor), and `lang` itself was never
+  // persisted anywhere — lost on every reload.
+  const changeLanguage = (l: 'en' | 'fr') => {
+    setLang(l)
+    updateLanguage.mutate(l)
+  }
   const { data: kycStatus = 'unverified' } = useMyKycStatusQuery()
   const kycLabel: Record<KycStatus, string> = { unverified: 'Not verified', pending: 'Under review', verified: 'Verified', rejected: 'Rejected — action needed' }
   const { theme, toggleTheme } = useTheme()
@@ -485,9 +498,8 @@ export function SettingsScreen() {
     },
   ]
   const accountItems = [
-    { label: 'Language', sub: lang === 'en' ? 'English' : 'Français', action: () => nav('/language'), icon: 'globe' as GlyphName },
-    { label: 'Linked MoMo account', sub: '+237 677 234 891 · MTN', action: () => {}, icon: 'wallet' as GlyphName },
-    { label: 'Linked Orange Money', sub: 'Not connected', action: () => {}, icon: 'wallet' as GlyphName },
+    { label: 'Language', sub: lang === 'en' ? 'English' : 'Français', action: () => changeLanguage(lang === 'en' ? 'fr' : 'en'), icon: 'globe' as GlyphName },
+    { label: 'Mobile money payout methods', sub: 'Manage your linked MoMo / Orange Money accounts', action: () => nav('/account/payout-settings'), icon: 'wallet' as GlyphName },
     { label: 'Switch role', sub: 'Change your primary role', action: () => nav('/role'), icon: 'swap' as GlyphName },
   ]
   const securityItems = [
@@ -519,8 +531,10 @@ export function SettingsScreen() {
     { label: 'Terms of service', action: () => {}, icon: 'fileText' as GlyphName },
   ]
   const supportItems = [
-    { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help'), icon: 'lifebuoy' as GlyphName },
-    { label: 'Contact support', sub: 'support@mboatrust.cm', action: () => {}, icon: 'headset' as GlyphName },
+    { label: 'Help Center', sub: 'Search FAQs & guides', action: () => nav('/shared/help-center'), icon: 'lifebuoy' as GlyphName },
+    { label: 'My support requests', sub: "Track what you've reported", action: () => nav('/shared/support-requests'), icon: 'chat' as GlyphName },
+    { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help'), icon: 'monitor' as GlyphName },
+    { label: 'Contact support', sub: 'Report a problem, or reach a real person', action: () => openFeedback('contact_support'), icon: 'headset' as GlyphName },
   ]
 
   // Scroll-spy: highlights the cluster currently in view so the sidebar
@@ -1282,6 +1296,9 @@ export function ProfileScreen() {
               { label: 'Project templates', sub: 'Reusable milestone breakdowns', action: () => nav('/funder/templates'), icon: 'fileText' as GlyphName },
               { label: 'Team & permissions', sub: 'Who can fund, approve, or view', action: () => nav('/workspace/team'), icon: 'shield' as GlyphName },
             ] : []),
+            ...(key === 'contractor' ? [
+              { label: 'Team & permissions', sub: 'Delegate milestone submissions to your team', action: () => nav('/workspace/team'), icon: 'shield' as GlyphName },
+            ] : []),
             ...(key === 'contractor' || key === 'funder' ? [
               { label: 'Manage subscription', sub: key === 'contractor' ? 'Pro Contractor plan — waived per-bid fees' : 'Power Funder plan for diaspora groups', action: () => nav('/account/subscription'), icon: 'sparkles' as GlyphName },
             ] : []),
@@ -1318,6 +1335,7 @@ export function ProfileScreen() {
                   { label: 'Admin panel', sub: 'Platform overview & management', action: () => nav('/admin'), icon: 'sliders' as GlyphName },
                   { label: 'Dispute resolution', sub: 'Manage open disputes', action: () => nav('/admin/disputes'), icon: 'scroll' as GlyphName },
                   { label: 'Fraud & dispute analytics', sub: 'Flagged patterns across the platform', action: () => nav('/admin/fraud-analytics'), icon: 'shield' as GlyphName },
+                  { label: 'Support & Feedback', sub: 'Manage tickets & FAQs', action: () => nav('/admin/support'), icon: 'chat' as GlyphName },
                 ] : []),
               ]}
             />
@@ -1328,7 +1346,9 @@ export function ProfileScreen() {
           title="Preferences & support"
           items={[
             { label: 'Settings', sub: 'Appearance, security, linked accounts', action: () => nav('/shared/settings'), icon: 'sliders' },
-            { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help'), icon: 'lifebuoy' },
+            { label: 'Help Center', sub: 'Search FAQs & guides', action: () => nav('/shared/help-center'), icon: 'lifebuoy' },
+            { label: 'My support requests', sub: "Track what you've reported", action: () => nav('/shared/support-requests'), icon: 'chat' },
+            { label: 'How Mboa Trust works', sub: 'Walkthrough & FAQ', action: () => nav('/shared/help'), icon: 'monitor' },
           ]}
         />
       </div>
@@ -1343,12 +1363,18 @@ const PLAN_META: Record<PlanType, { name: string; forRole: string; benefit: stri
 }
 
 export function SubscriptionScreen() {
-  const { role, phone } = useApp()
+  const { role, phone: contextPhone } = useApp()
   const { show: showToast } = useToast()
   const { data: subscriptions = [], isLoading } = useMySubscriptionsQuery()
   const createSubscription = useCreateSubscriptionMutation()
   const cancelSubscription = useCancelSubscriptionMutation()
   const [method, setMethod] = useState<'momo' | 'om'>('momo')
+  // `phone` from context is only ever set during phone-signup — most
+  // accounts (anyone who signed up by email) have it empty, and this used
+  // to silently substitute a hardcoded fake number in that case, submitting
+  // fabricated payment data. Mirrors MboaTrustAPP/screens/SubscriptionScreen.tsx,
+  // which requires and validates a real number instead.
+  const [phone, setPhone] = useState(contextPhone || '')
 
   const planType: PlanType = role === 'contractor' ? 'pro_contractor' : 'power_funder'
   const meta = PLAN_META[planType]
@@ -1356,11 +1382,15 @@ export function SubscriptionScreen() {
   const price = PLAN_PRICES[planType]
 
   const subscribe = async () => {
+    if (!phone.trim()) {
+      showToast({ title: 'Phone number required', description: 'Enter the mobile money number to charge.', tone: 'error' })
+      return
+    }
     try {
       await createSubscription.mutateAsync({
         planType,
         paymentProvider: method === 'om' ? 'orange_money' : 'mtn_momo',
-        payerPhoneNumber: phone || '+237677234891',
+        payerPhoneNumber: phone.trim(),
       })
       showToast({ title: `${meta.name} activated`, tone: 'success' })
     } catch (err) {
@@ -1419,7 +1449,18 @@ export function SubscriptionScreen() {
                   <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-2">Payment method</label>
                   <MomoOmPicker method={method} onChange={setMethod} />
                 </div>
-                <PillButton onClick={subscribe} fullWidth disabled={createSubscription.isPending}>
+                <div>
+                  <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Phone number</label>
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="677123456"
+                    className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm"
+                    style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+                  />
+                </div>
+                <PillButton onClick={subscribe} fullWidth disabled={createSubscription.isPending || !phone.trim()}>
                   {createSubscription.isPending ? 'Subscribing…' : `Subscribe — ${price.toLocaleString('en-US')} XAF/month`}
                 </PillButton>
               </div>

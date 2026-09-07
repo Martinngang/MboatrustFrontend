@@ -7,7 +7,7 @@ import {
   AlertTriangle, Archive, ArrowLeftRight, ArrowUpDown, Award, BarChart3, Bell, BellRing, Boxes, Briefcase, Building2, Calendar, Camera,
   Check, CheckCircle2, ChevronDown, CircleDot, Clock, Compass, Copy, CreditCard, FileEdit, FileText, Filter,
   Flag, FolderOpen, Globe, Handshake, HardHat, Hourglass, IdCard, Image, Info, Languages,
-  Layers, LayoutGrid, List, Lock, LockOpen, Mail, MapPin, Megaphone, MessageCircle, MoreVertical, Monitor, Music,
+  Layers, LayoutGrid, LifeBuoy, List, Lock, LockOpen, Mail, MapPin, Megaphone, MessageCircle, MoreVertical, Monitor, Music,
   Package, PartyPopper, Pencil, Phone, Plus, Puzzle, Receipt, Repeat, Rocket, Scale, ScanFace,
   Search, Settings, Shield, ShieldCheck, Sparkles, Star, Store, ThumbsUp, Trash2, Trophy,
   Users, User, Video, Wallet, Wifi, Wrench, X, Zap, Menu, Home,
@@ -69,6 +69,7 @@ export const ICONS = {
   megaphone: Megaphone,
   mail: Mail,
   phone: Phone,
+  lifeBuoy: LifeBuoy,
 
   // Docs / org
   folder: FolderOpen,

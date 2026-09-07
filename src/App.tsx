@@ -17,6 +17,7 @@ import { ToastProvider } from './components/Toast'
 import { CommandPaletteProvider } from './components/shell/CommandPalette'
 import { KeyboardShortcutsProvider } from './components/shell/KeyboardShortcuts'
 import { NotificationsDrawerProvider } from './components/NotificationsDrawer'
+import { FeedbackModalProvider } from './components/FeedbackModal'
 
 // Landing
 import { LandingScreen } from './screens/Landing'
@@ -55,8 +56,9 @@ import { PayoutSettingsScreen } from './screens/PayoutSettingsScreen'
 import {
   ContractorOnboardingScreen, PostJobScreen, ContractSummaryScreen, RateContractorScreen, LandScheduleVisitScreen,
   VerifierRegistrationScreen, VerifierDashboard, VerifierTaskDetailScreen, VerifierReportScreen, VerifierProfileScreen,
-  DisputeResolutionScreen, AdminFraudAnalyticsScreen,
+  DisputeResolutionScreen, AdminFraudAnalyticsScreen, SupportAdminScreen,
 } from './screens/AdditionalScreens'
+import { HelpCenterScreen, MySupportRequestsScreen } from './screens/SupportScreens'
 import {
   SupplierRegistrationScreen, SupplierDashboardScreen, SupplierProfileScreen, RequestMaterialsScreen,
 } from './screens/SupplierScreens'
@@ -83,12 +85,14 @@ function WebFrame({ children }: { children: ReactNode }) {
     <div className="min-h-screen w-full" style={{ background: C.cream, color: C.ink }}>
       <ToastProvider>
         <NotificationsDrawerProvider>
-          <CommandPaletteProvider>
-            <KeyboardShortcutsProvider>
-              {children}
-              <InstallModal />
-            </KeyboardShortcutsProvider>
-          </CommandPaletteProvider>
+          <FeedbackModalProvider>
+            <CommandPaletteProvider>
+              <KeyboardShortcutsProvider>
+                {children}
+                <InstallModal />
+              </KeyboardShortcutsProvider>
+            </CommandPaletteProvider>
+          </FeedbackModalProvider>
         </NotificationsDrawerProvider>
       </ToastProvider>
     </div>
@@ -328,6 +332,7 @@ export default function App() {
                       <Route path="/admin/community" element={<RequireAdmin><AdminCommunityScreen /></RequireAdmin>} />
                       <Route path="/admin/verifications" element={<RequireAdmin><AdminVerificationsScreen /></RequireAdmin>} />
                       <Route path="/admin/notifications" element={<RequireAdmin><AdminNotificationsScreen /></RequireAdmin>} />
+                      <Route path="/admin/support" element={<RequireAdmin><SupportAdminScreen /></RequireAdmin>} />
                       <Route path="/admin/settings" element={<RequireAdmin><AdminSettingsScreen /></RequireAdmin>} />
                       <Route path="/admin/accounts" element={<RequireAdmin><AdminAccountsScreen /></RequireAdmin>} />
                       <Route path="/admin/disputes" element={<RequireAdmin><DisputeResolutionScreen /></RequireAdmin>} />
@@ -340,6 +345,8 @@ export default function App() {
                       <Route path="/shared/settings" element={<P><SettingsScreen /></P>} />
                       <Route path="/shared/settings/delete-account" element={<P><DeleteAccountScreen /></P>} />
                       <Route path="/shared/help" element={<P><HelpScreen /></P>} />
+                      <Route path="/shared/help-center" element={<P><HelpCenterScreen /></P>} />
+                      <Route path="/shared/support-requests" element={<P><MySupportRequestsScreen /></P>} />
                       <Route path="/account/subscription" element={<P><SubscriptionScreen /></P>} />
                       <Route path="/shared/profile" element={<P><ProfileScreen /></P>} />
         

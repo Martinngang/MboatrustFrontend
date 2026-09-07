@@ -64,17 +64,23 @@ function formatPosted(createdAt: string): string {
   return `${days} days ago`
 }
 
-// Swallows failures instead of letting them propagate — this runs inside a
-// Promise.all in useJobsQuery below, and an unrelated transient failure on
-// any single project's count (e.g. a request that raced ahead of the
-// dev-bypass identity resolving on first load) used to reject the whole
-// batch, permanently emptying `jobs` for the rest of the session since
-// nothing ever re-triggers that fetch afterward. A wrong count temporarily
-// showing 0 is a much smaller problem than the entire job list disappearing.
+// Uses the dedicated aggregate endpoint rather than GET /bids?projectId=...
+// GET /bids is party-scoped server-side (bidController.scopeToParty) because
+// it returns the bids themselves, so its `meta.total` only ever counted bids
+// the *caller* was party to — meaning a contractor browsing someone else's
+// tender always got 0, which is exactly the audience the count is for.
+// /bids/count returns a single integer and no bid contents, so it isn't
+// scoped that way.
+//
+// Still swallows failures rather than letting them propagate: this runs
+// inside a Promise.all below, and one transient failure used to reject the
+// whole batch and permanently empty `jobs` for the session. Note the
+// tradeoff — a failed count is currently indistinguishable from a genuine
+// zero.
 async function fetchBidCount(projectId: string): Promise<number> {
   try {
-    const { data } = await api.get<{ meta: { total: number } }>('/bids', { params: { projectId, limit: 1 } })
-    return data.meta.total
+    const { data } = await api.get<{ data: { count: number } }>('/bids/count', { params: { projectId } })
+    return data.data.count
   } catch {
     return 0
   }
@@ -91,6 +97,11 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     deadline: formatDeadline(doc.deadline),
     bids: bidCount,
     milestones: doc.milestones?.length || 1,
+    // The funder's real proposed payment schedule — JobDetailScreen used to
+    // fabricate a generic 25/45/30% split instead of showing this, which
+    // could show a contractor numbers that don't match what they'd actually
+    // be paid at each stage.
+    milestoneSchedule: (doc.milestones || []).map((m) => ({ title: m.name, amount: m.amount })),
     posted: formatPosted(doc.createdAt),
     description: doc.description || '',
     status: mapTenderStatus(doc.status),
@@ -100,12 +111,22 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
   }
 }
 
-export function useJobsQuery() {
+/** `authReady` is whether an auth header will actually be attached to
+ * outgoing requests yet (see api/client.ts's interceptor). The tender list
+ * itself is public, but the per-tender bid count is not — firing those
+ * counts before the Firebase session is restored guarantees a 401 per
+ * tender, and fetchBidCount swallows it as `0`, so every tender silently
+ * renders "0 bids" on first load with nothing ever re-fetching them.
+ * Including it in the queryKey means the counts are re-fetched for real the
+ * moment auth lands, instead of being cached wrong for the session. */
+export function useJobsQuery(authReady = true) {
   return useQuery({
-    queryKey: ['jobs'],
+    queryKey: ['jobs', authReady],
     queryFn: async (): Promise<JobPosting[]> => {
       const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'tender' } })
-      const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+      const counts = authReady
+        ? await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+        : data.data.map(() => 0)
       return data.data.map((p, i) => mapJob(p, counts[i]))
     },
     staleTime: 10_000,
@@ -120,12 +141,15 @@ export function useJobsQuery() {
  * browsing for work to bid on should never see an already-awarded or
  * closed tender mixed into the results — those aren't "eligible tenders"
  * any more, even though they're still projectType 'tender'. */
-export function useJobsInfiniteQuery(limit = 10, status: string | undefined = 'open') {
+export function useJobsInfiniteQuery(limit = 10, status: string | undefined = 'open', authReady = true) {
   return useInfiniteQuery({
-    queryKey: ['jobs', 'infinite', status],
+    queryKey: ['jobs', 'infinite', status, authReady],
     queryFn: async ({ pageParam }: { pageParam: number }): Promise<{ items: JobPosting[]; meta: PageMeta }> => {
       const { data } = await api.get<{ data: BackendProject[]; meta: PageMeta }>('/projects', { params: { projectType: 'tender', status, page: pageParam, limit } })
-      const counts = await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+      // Same auth gate as useJobsQuery above — see its comment.
+      const counts = authReady
+        ? await Promise.all(data.data.map((p) => fetchBidCount(p._id)))
+        : data.data.map(() => 0)
       return { items: data.data.map((p, i) => mapJob(p, counts[i])), meta: data.meta }
     },
     initialPageParam: 1,
@@ -258,9 +282,14 @@ function mapBid(doc: BackendBid, jobTitle: string): Bid {
   }
 }
 
-/** Bids the current user placed (as contractor) or received (as tender owner, via projectId). */
-export function useBidsQuery(filter: { projectId?: string; contractorId?: string } = {}) {
+/** Bids the current user placed (as contractor) or received (as tender
+ * owner, via projectId). GET /bids requires auth, so `enabled` must be
+ * false until an auth header will actually be attached — otherwise this
+ * 401s on mount and React Query caches that failure with nothing to
+ * re-trigger it once the session restores. */
+export function useBidsQuery(filter: { projectId?: string; contractorId?: string } = {}, enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ['bids', filter],
     queryFn: async (): Promise<Bid[]> => {
       const { data } = await api.get<{ data: BackendBid[] }>('/bids', { params: filter })

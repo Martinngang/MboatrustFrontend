@@ -23,6 +23,7 @@ import { useAllCertificationsQuery, useDecideCertificationMutation } from '../ap
 import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } from '../api/verifierProfiles'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
 import { useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { uploadAttachment } from '../api/messaging'
 import { useEscrowQuery, useRefreshEscrowStatusMutation } from '../api/escrow'
 // Code-split: Leaflet (pulled in by ProjectMap.tsx) would otherwise inflate
 // the main bundle past vite-plugin-pwa's 2 MiB precache limit — loaded only
@@ -38,6 +39,14 @@ import { EmptyState } from '../components/EmptyState'
 import { RegionSelect, RegionTownSelect } from '../components/LocationSelect'
 import { getCameroonRegionName, getTownCoords } from '../utils/locationData'
 import { MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone } from '../components/MilestoneScheduleEditor'
+import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
+import {
+  SUPPORT_CATEGORIES, SUPPORT_CATEGORY_LABELS, SUPPORT_TYPE_LABELS,
+  useSupportTicketsQuery, useAddSupportTicketResponseMutation, useUpdateSupportTicketStatusMutation,
+  useAssignSupportTicketMutation,
+  useHelpArticlesQuery, useCreateHelpArticleMutation, useUpdateHelpArticleMutation, useDeleteHelpArticleMutation,
+  type SupportTicket, type SupportTicketStatus, type HelpArticle, type SupportCategory,
+} from '../api/support'
 
 function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
   return {
@@ -67,7 +76,12 @@ export function ContractorOnboardingScreen() {
   const [portfolioCount, setPortfolioCount] = useState(0)
   const [submitting, setSubmitting] = useState(false)
 
-  const TRADES = ['Civil & Masonry', 'Plumbing & Water', 'Electrical', 'Roofing', 'Carpentry', 'Painting', 'Excavation', 'Solar Installation']
+  // Unified onto the same sector taxonomy a tender's own category uses
+  // (PostJobScreen below, PROJECT_CATEGORIES) — this used to be a separate
+  // trade-skill list ('Civil & Masonry', 'Plumbing & Water'...) that could
+  // never match a tender's sector category in contractorMatchingService's
+  // scoring (30 of 100 points), since the two vocabularies never overlapped.
+  const TRADES = PROJECT_CATEGORIES
   const STEP_ORDER = ['verify', 'skills', 'portfolio'] as const
 
   const toggleSkill = (s: string) => {
@@ -232,7 +246,7 @@ export function PostJobScreen() {
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
-  const categories = ['Water & Sanitation', 'Education', 'Healthcare', 'Infrastructure', 'Agriculture', 'Housing']
+  const categories = PROJECT_CATEGORIES
 
   const budgetNumber = Number(form.budget) || 0
   // Previously hardcoded to the literal string 'Cameroon' with no field to
@@ -297,7 +311,7 @@ export function PostJobScreen() {
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Job title</label>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+          <input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
             placeholder="e.g. Water pump installation — Ngaoundéré"
             className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
             style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
@@ -305,12 +319,12 @@ export function PostJobScreen() {
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Category</label>
-          <ChipGroup options={categories} value={form.category} onChange={(v) => setForm({ ...form, category: v as string })} />
+          <ChipGroup options={categories} value={form.category} onChange={(v) => setForm((f) => ({ ...f, category: v as string }))} />
         </div>
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Description</label>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+          <textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             rows={4} placeholder="Describe the work needed, requirements, and any specific instructions..."
             className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none focus:border-[var(--color-forest)] transition-colors"
             style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
@@ -320,22 +334,22 @@ export function PostJobScreen() {
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Where is the work?</label>
           <RegionTownSelect
             regionValue={form.region} townValue={form.town}
-            onRegionChange={(v) => setForm({ ...form, region: v })}
-            onTownChange={(v) => setForm({ ...form, town: v })}
+            onRegionChange={(v) => setForm((f) => ({ ...f, region: v }))}
+            onTownChange={(v) => setForm((f) => ({ ...f, town: v }))}
           />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Budget (XAF)</label>
-            <input type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })}
+            <input type="number" value={form.budget} onChange={(e) => setForm((f) => ({ ...f, budget: e.target.value }))}
               placeholder="e.g. 1200000"
               className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
               style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
           </div>
           <div>
             <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Deadline</label>
-            <input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })}
+            <input type="date" value={form.deadline} onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))}
               className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
               style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }} />
           </div>
@@ -533,7 +547,7 @@ export function ContractSummaryScreen() {
           ) : remainingToFund > 0 ? (
             <>
               <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm font-semibold mb-1">
-                {fmt(project.raised)} of {fmt(contract.totalAmount)} funded
+                {fmt(fundingSummary?.raised ?? 0)} of {fmt(contract.totalAmount)} funded
               </p>
               <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
                 Work can't start until this is in escrow. Fund the remaining {fmt(remainingToFund)} to release the contractor to begin.
@@ -902,18 +916,18 @@ export function VerifierRegistrationScreen() {
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">What do you verify?</label>
               <input
                 value={form.specialty}
-                onChange={(e) => setForm({ ...form, specialty: e.target.value })}
+                onChange={(e) => setForm((f) => ({ ...f, specialty: e.target.value }))}
                 placeholder="e.g. Water & Sanitation, Electrical"
                 className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)] transition-colors"
                 style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
               />
             </div>
-            <RegionSelect value={form.regionCode} onChange={(regionCode) => setForm({ ...form, regionCode })} label="Region you cover" />
+            <RegionSelect value={form.regionCode} onChange={(regionCode) => setForm((f) => ({ ...f, regionCode }))} label="Region you cover" />
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Relevant experience (optional)</label>
               <textarea
                 value={form.bio}
-                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
                 rows={3}
                 placeholder="e.g. 5 years as a site engineer, familiar with borehole and roofing inspections"
                 className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm resize-none"
@@ -1182,11 +1196,6 @@ export function VerifierTaskDetailScreen() {
 }
 
 // ── Verifier report submission ────────────────────────────────────────────────
-const VERIFIER_SAMPLE_PHOTOS = [
-  'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&h=200&fit=crop&auto=format',
-  'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=300&h=200&fit=crop&auto=format',
-]
-
 export function VerifierReportScreen() {
   const nav = useNavigate()
   const { id } = useParams()
@@ -1198,14 +1207,28 @@ export function VerifierReportScreen() {
   const submitMutation = useSubmitVerificationReportMutation()
 
   const [photos, setPhotos] = useState<string[]>([])
+  const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [notes, setNotes] = useState('')
   const [decision, setDecision] = useState<'match' | 'mismatch' | null>(null)
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  const addPhoto = () => {
-    const next = VERIFIER_SAMPLE_PHOTOS[photos.length % VERIFIER_SAMPLE_PHOTOS.length]
-    setPhotos((p) => (p.includes(next) ? [...p, `${next}&v=${p.length}`] : [...p, next]))
+  // A sworn on-site inspection report can't be backed by stock photos — this
+  // used to cycle through 2 hardcoded Unsplash URLs, letting a verifier sign
+  // and submit a "site inspection" without ever visiting anything. Real
+  // upload now, same POST /messages/upload endpoint mobile's equivalent
+  // screen already used for this.
+  const addPhoto = async (file: File | undefined) => {
+    if (!file) return
+    setUploadingPhoto(true)
+    try {
+      const uploaded = await uploadAttachment(file)
+      setPhotos((p) => [...p, uploaded.url])
+    } catch (err) {
+      showToast({ title: 'Upload failed', description: apiErrorMessage(err, 'Could not upload photo.'), tone: 'error' })
+    } finally {
+      setUploadingPhoto(false)
+    }
   }
 
   const submit = async () => {
@@ -1271,12 +1294,13 @@ export function VerifierReportScreen() {
                   </div>
                 ))}
               </div>
-              <button onClick={addPhoto} className="w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium" style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}>
-                + Add another photo
-              </button>
+              <label className="w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium text-center cursor-pointer block" style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans, opacity: uploadingPhoto ? 0.6 : 1 }}>
+                {uploadingPhoto ? 'Uploading…' : '+ Add another photo'}
+                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={uploadingPhoto} onChange={(e) => { addPhoto(e.target.files?.[0]); e.target.value = '' }} />
+              </label>
             </div>
           ) : (
-            <button onClick={addPhoto} className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all active:scale-95" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <label className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer" style={{ borderColor: C.parchmentDark, background: C.white, opacity: uploadingPhoto ? 0.6 : 1 }}>
               <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: C.parchment }}>
                 <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
                   <rect x="2" y="6" width="22" height="16" rx="2" stroke={C.inkSubtle} strokeWidth="1.4" />
@@ -1285,10 +1309,11 @@ export function VerifierReportScreen() {
                 </svg>
               </div>
               <div className="text-center">
-                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">Take photo on site</div>
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{uploadingPhoto ? 'Uploading…' : 'Take photo on site'}</div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5 uppercase tracking-wider">Min. 1 photo required</div>
               </div>
-            </button>
+              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={uploadingPhoto} onChange={(e) => { addPhoto(e.target.files?.[0]); e.target.value = '' }} />
+            </label>
           )}
         </div>
 
@@ -2272,6 +2297,412 @@ export function AdminFraudAnalyticsScreen() {
           </div>
         )}
       </div>
+    </AdminShell>
+  )
+}
+
+// ── Admin: Support & Feedback ────────────────────────────────────────────
+const TICKET_STATUS_OPTIONS = ['All', 'open', 'in_progress', 'resolved', 'closed']
+const TICKET_TYPE_OPTIONS = ['All', 'bug_report', 'feedback', 'question', 'contact_support']
+const TICKET_CATEGORY_FILTER_OPTIONS = ['All', ...SUPPORT_CATEGORIES]
+const TICKET_PRIORITY_OPTIONS = ['All', 'urgent', 'high', 'normal', 'low']
+// 'me' and 'unassigned' are backend pseudo-values (see supportTicketController's
+// getAll) — the unassigned queue is the one that actually needs watching.
+const TICKET_QUEUE_OPTIONS = ['All', 'unassigned', 'me']
+
+function AdminTicketDrawer({ ticket }: { ticket: SupportTicket | undefined }) {
+  const { show: showToast } = useToast()
+  const { devUserId } = useApp()
+  const [reply, setReply] = useState('')
+  const [confirmingStatus, setConfirmingStatus] = useState<SupportTicketStatus | null>(null)
+  const respondMutation = useAddSupportTicketResponseMutation()
+  const statusMutation = useUpdateSupportTicketStatusMutation()
+  const assignMutation = useAssignSupportTicketMutation()
+
+  if (!ticket) return null
+
+  const submitReply = async () => {
+    if (!reply.trim()) return
+    try {
+      await respondMutation.mutateAsync({ ticketId: ticket.id, message: reply.trim() })
+      setReply('')
+    } catch (err) {
+      showToast({ title: 'Could not send reply', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  const changeStatus = async (status: SupportTicketStatus) => {
+    try {
+      await statusMutation.mutateAsync({ ticketId: ticket.id, status })
+      showToast({ title: `Marked ${status.replace('_', ' ')}`, tone: 'success' })
+    } catch (err) {
+      showToast({ title: 'Could not update status', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  return (
+    <>
+      <div className="space-y-4 text-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={ticket.status} />
+          <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">
+            {SUPPORT_TYPE_LABELS[ticket.type]} · {SUPPORT_CATEGORY_LABELS[ticket.category]} · {ticket.priority}
+          </span>
+        </div>
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">From</div>
+          <p style={{ fontFamily: FONT.sans, color: C.ink }}>{ticket.submittedByName}{ticket.submittedByEmail ? ` · ${ticket.submittedByEmail}` : ''}</p>
+        </div>
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">Owner</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p style={{ fontFamily: FONT.sans, color: ticket.assignedToName ? C.ink : C.inkSubtle }}>
+              {ticket.assignedToName ?? 'Unassigned'}
+            </p>
+            {ticket.assignedToId === devUserId ? (
+              <button
+                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: null })}
+                disabled={assignMutation.isPending}
+                className="rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
+                style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.inkMuted }}
+              >
+                Release
+              </button>
+            ) : (
+              <button
+                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: devUserId ?? null })}
+                disabled={assignMutation.isPending || !devUserId}
+                className="rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
+                style={{ borderColor: C.forest, fontFamily: FONT.sans, color: C.forest }}
+              >
+                {ticket.assignedToName ? 'Take over' : 'Assign to me'}
+              </button>
+            )}
+          </div>
+        </div>
+        {ticket.context?.screenLabel && (
+          <div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">Reported from</div>
+            <p style={{ fontFamily: FONT.sans, color: C.ink }}>
+              {ticket.context.screenLabel} ({ticket.context.platform}){ticket.context.feature ? ` · ${ticket.context.feature}` : ''}
+            </p>
+            {ticket.context.screen && (
+              <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-0.5 text-[10px]">{ticket.context.screen}</p>
+            )}
+          </div>
+        )}
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[10px] uppercase tracking-widest">Description</div>
+          <p style={{ fontFamily: FONT.sans, color: C.ink }}>{ticket.description}</p>
+        </div>
+        {ticket.attachments.length > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            {ticket.attachments.map((att, i) => (
+              <a key={i} href={att.url} target="_blank" rel="noreferrer" className="block aspect-square overflow-hidden rounded-lg border" style={{ borderColor: C.parchmentDark }}>
+                {att.type === 'image' ? <img src={att.url} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs" style={{ color: C.inkSubtle }}>File</div>}
+              </a>
+            ))}
+          </div>
+        )}
+        <div className="space-y-3">
+          {ticket.responses.map((r) => (
+            <div key={r.id} className="rounded-xl border p-3" style={{ borderColor: C.parchmentDark, background: r.isAdmin ? 'var(--status-info-bg)' : C.parchment }}>
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-1 text-[9px] uppercase tracking-widest">{r.isAdmin ? 'Support (you)' : r.authorName}</div>
+              <p style={{ fontFamily: FONT.sans, color: C.ink }}>{r.message}</p>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder="Write a reply…"
+            className="flex-1 rounded-xl border px-3 py-2 text-sm"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }}
+          />
+          <PillButton variant="primary" onClick={submitReply} disabled={respondMutation.isPending || !reply.trim()}>Send</PillButton>
+        </div>
+        <div className="flex flex-wrap gap-2 border-t pt-3" style={{ borderColor: C.parchmentDark }}>
+          {(['in_progress', 'resolved', 'closed'] as SupportTicketStatus[]).filter((s) => s !== ticket.status).map((s) => (
+            <button
+              key={s}
+              onClick={() => setConfirmingStatus(s)}
+              className="rounded-lg border px-2.5 py-1 text-xs font-semibold"
+              style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.inkMuted }}
+            >
+              Mark {s.replace('_', ' ')}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ConfirmDialog
+        open={!!confirmingStatus}
+        onCancel={() => setConfirmingStatus(null)}
+        onConfirm={() => { if (confirmingStatus) changeStatus(confirmingStatus); setConfirmingStatus(null) }}
+        title={`Mark this ticket as ${confirmingStatus?.replace('_', ' ')}?`}
+        confirmLabel="Confirm"
+      />
+    </>
+  )
+}
+
+function AdminHelpArticlesTab() {
+  const { show: showToast } = useToast()
+  const { data: articles = [], isLoading } = useHelpArticlesQuery({})
+  const createMutation = useCreateHelpArticleMutation()
+  const updateMutation = useUpdateHelpArticleMutation()
+  const deleteMutation = useDeleteHelpArticleMutation()
+
+  const [editing, setEditing] = useState<HelpArticle | 'new' | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
+  const [category, setCategory] = useState<SupportCategory>('other')
+  const [tagsText, setTagsText] = useState('')
+  const [isPublished, setIsPublished] = useState(true)
+
+  const openEditor = (article: HelpArticle | 'new') => {
+    setEditing(article)
+    if (article === 'new') {
+      setQuestion(''); setAnswer(''); setCategory('other'); setTagsText(''); setIsPublished(true)
+    } else {
+      setQuestion(article.question); setAnswer(article.answer); setCategory(article.category)
+      setTagsText(article.tags.join(', ')); setIsPublished(article.isPublished)
+    }
+  }
+
+  const save = async () => {
+    if (!question.trim() || !answer.trim()) {
+      showToast({ title: 'Question and answer are required', tone: 'error' })
+      return
+    }
+    const input = {
+      question: question.trim(),
+      answer: answer.trim(),
+      category,
+      tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
+      isPublished,
+    }
+    try {
+      if (editing === 'new') await createMutation.mutateAsync(input)
+      else if (editing) await updateMutation.mutateAsync({ id: editing.id, input })
+      showToast({ title: 'Saved', tone: 'success' })
+      setEditing(null)
+    } catch (err) {
+      showToast({ title: 'Could not save', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  const remove = async (id: string) => {
+    try {
+      await deleteMutation.mutateAsync(id)
+      showToast({ title: 'Article removed', tone: 'success' })
+    } catch (err) {
+      showToast({ title: 'Could not remove', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+    }
+  }
+
+  const columns: DataTableColumn<HelpArticle>[] = [
+    { key: 'question', header: 'Question', sortValue: (a) => a.question, render: (a) => <span className="font-medium">{a.question}</span> },
+    { key: 'category', header: 'Category', render: (a) => <span style={{ color: C.inkMuted }}>{SUPPORT_CATEGORY_LABELS[a.category]}</span> },
+    { key: 'published', header: 'Published', render: (a) => a.isPublished ? <StatusBadge status="active" /> : <StatusBadge status="archived" /> },
+  ]
+
+  return (
+    <div>
+      <div className="mb-4 flex justify-end">
+        <button
+          onClick={() => openEditor('new')}
+          className="flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold"
+          style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+        >
+          <AppIcon name="plus" size={13} /> New article
+        </button>
+      </div>
+      {isLoading ? (
+        <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={articles}
+          getRowId={(a) => a.id}
+          onRowClick={(a) => openEditor(a)}
+          rowActions={(a) => (
+            <button
+              onClick={() => setDeletingId(a.id)}
+              className="rounded-lg px-2.5 py-1 text-xs font-semibold"
+              style={{ background: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
+            >
+              Delete
+            </button>
+          )}
+          emptyState={<EmptyState icon="clipboard" title="No help articles yet" description="Create the first FAQ entry for the Help Center." />}
+        />
+      )}
+
+      <Modal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        title={editing === 'new' ? 'New help article' : 'Edit help article'}
+        size="md"
+        footer={
+          <>
+            <PillButton variant="secondary" onClick={() => setEditing(null)}>Cancel</PillButton>
+            <PillButton variant="primary" onClick={save}>Save</PillButton>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Question" className="w-full rounded-xl border px-3.5 py-2 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+          <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Answer" rows={5} className="w-full resize-none rounded-xl border px-3.5 py-2.5 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+          <ChipGroup options={SUPPORT_CATEGORIES.map((c) => SUPPORT_CATEGORY_LABELS[c])} value={SUPPORT_CATEGORY_LABELS[category]} onChange={(label) => {
+            const found = SUPPORT_CATEGORIES.find((c) => SUPPORT_CATEGORY_LABELS[c] === label)
+            if (found) setCategory(found)
+          }} />
+          <input value={tagsText} onChange={(e) => setTagsText(e.target.value)} placeholder="Tags, comma separated" className="w-full rounded-xl border px-3.5 py-2 text-sm" style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
+          <label className="flex items-center gap-2 text-sm" style={{ fontFamily: FONT.sans, color: C.ink }}>
+            <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} style={{ accentColor: C.forest }} />
+            Published (visible in the Help Center)
+          </label>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!deletingId}
+        onCancel={() => setDeletingId(null)}
+        onConfirm={() => { if (deletingId) remove(deletingId); setDeletingId(null) }}
+        title="Delete this help article?"
+        description="It will no longer appear in the Help Center. This can't be undone."
+        confirmLabel="Delete"
+        danger
+      />
+    </div>
+  )
+}
+
+export function SupportAdminScreen() {
+  const [tab, setTab] = useState<'requests' | 'articles'>('requests')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [typeFilter, setTypeFilter] = useState('All')
+  const [categoryFilter, setCategoryFilter] = useState('All')
+  const [priorityFilter, setPriorityFilter] = useState('All')
+  const [queueFilter, setQueueFilter] = useState('All')
+  const [search, setSearch] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const { data: tickets = [], isLoading } = useSupportTicketsQuery({
+    status: statusFilter === 'All' ? undefined : statusFilter,
+    type: typeFilter === 'All' ? undefined : typeFilter,
+    category: categoryFilter === 'All' ? undefined : categoryFilter,
+    priority: priorityFilter === 'All' ? undefined : priorityFilter,
+    assignedTo: queueFilter === 'All' ? undefined : queueFilter,
+    search: search.trim() || undefined,
+  })
+  const selected = tickets.find((t) => t.id === selectedId)
+
+  const columns: DataTableColumn<SupportTicket>[] = [
+    { key: 'subject', header: 'Subject', sortValue: (t) => t.subject, render: (t) => <span className="font-medium">{t.subject}</span> },
+    { key: 'type', header: 'Type', render: (t) => <span style={{ color: C.inkMuted }}>{SUPPORT_TYPE_LABELS[t.type]}</span> },
+    { key: 'category', header: 'Category', render: (t) => <span style={{ color: C.inkMuted }}>{SUPPORT_CATEGORY_LABELS[t.category]}</span> },
+    { key: 'from', header: 'From', render: (t) => <span style={{ color: C.inkMuted }}>{t.submittedByName}</span> },
+    { key: 'priority', header: 'Priority', render: (t) => <span style={{ color: C.inkMuted, textTransform: 'capitalize' }}>{t.priority}</span> },
+    {
+      key: 'assignee',
+      header: 'Owner',
+      sortValue: (t) => t.assignedToName ?? '',
+      render: (t) => (
+        <span style={{ color: t.assignedToName ? C.inkMuted : C.inkSubtle, fontFamily: t.assignedToName ? FONT.sans : FONT.mono }} className={t.assignedToName ? '' : 'text-[10px] uppercase tracking-wider'}>
+          {t.assignedToName ?? 'Unassigned'}
+        </span>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (t) => <StatusBadge status={t.status} /> },
+    { key: 'created', header: 'Submitted', sortValue: (t) => t.createdAt, render: (t) => <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>{new Date(t.createdAt).toLocaleDateString()}</span> },
+  ]
+
+  return (
+    <AdminShell>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Trust & safety</div>
+          <h1 style={{ fontFamily: FONT.serif, color: C.ink }} className="mt-1 text-2xl font-bold">Support & Feedback</h1>
+        </div>
+        {tab === 'requests' && (
+          <button
+            onClick={() => downloadCsv('mboatrust-support-tickets', tickets, [
+              { header: 'Subject', value: (t) => t.subject },
+              { header: 'Type', value: (t) => t.type },
+              { header: 'Category', value: (t) => t.category },
+              { header: 'From', value: (t) => t.submittedByName },
+              { header: 'Priority', value: (t) => t.priority },
+              { header: 'Owner', value: (t) => t.assignedToName ?? 'Unassigned' },
+              { header: 'Reported from', value: (t) => t.context?.screen ?? '' },
+              { header: 'Feature', value: (t) => t.context?.feature ?? '' },
+              { header: 'Status', value: (t) => t.status },
+              { header: 'Submitted', value: (t) => t.createdAt },
+            ])}
+            className="flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition-colors hover:bg-[var(--color-parchment)]"
+            style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink }}
+          >
+            <AppIcon name="folder" size={13} /> Export CSV
+          </button>
+        )}
+      </div>
+
+      <div className="mb-4">
+        <Tabs
+          tabs={[{ id: 'requests', label: 'Support requests' }, { id: 'articles', label: 'Help articles' }]}
+          value={tab}
+          onChange={(v) => setTab(v as 'requests' | 'articles')}
+        />
+      </div>
+
+      {tab === 'requests' ? (
+        <>
+          <div className="mb-4">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search subject or description…"
+              className="w-full rounded-xl border px-3.5 py-2 text-sm sm:max-w-xs"
+              style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, background: C.white, color: C.ink }}
+            />
+          </div>
+          <div className="mb-2">
+            <ChipGroup options={TICKET_STATUS_OPTIONS} value={statusFilter} onChange={(v) => setStatusFilter(v as string)} />
+          </div>
+          <div className="mb-2">
+            <ChipGroup options={TICKET_TYPE_OPTIONS} value={typeFilter} onChange={(v) => setTypeFilter(v as string)} />
+          </div>
+          <div className="mb-2">
+            <ChipGroup options={TICKET_CATEGORY_FILTER_OPTIONS} value={categoryFilter} onChange={(v) => setCategoryFilter(v as string)} />
+          </div>
+          <div className="mb-2">
+            <ChipGroup options={TICKET_PRIORITY_OPTIONS} value={priorityFilter} onChange={(v) => setPriorityFilter(v as string)} />
+          </div>
+          <div className="mb-4">
+            <ChipGroup options={TICKET_QUEUE_OPTIONS} value={queueFilter} onChange={(v) => setQueueFilter(v as string)} />
+          </div>
+
+          {isLoading ? (
+            <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-8 text-center text-sm">Loading…</p>
+          ) : (
+            <DataTable
+              columns={columns}
+              rows={tickets}
+              getRowId={(t) => t.id}
+              onRowClick={(t) => setSelectedId(t.id)}
+              emptyState={<EmptyState icon="lifeBuoy" title="No support requests match" />}
+            />
+          )}
+
+          <Drawer open={!!selected} onClose={() => setSelectedId(null)} title={selected?.subject} subtitle="Support request">
+            <AdminTicketDrawer ticket={selected} />
+          </Drawer>
+        </>
+      ) : (
+        <AdminHelpArticlesTab />
+      )}
     </AdminShell>
   )
 }

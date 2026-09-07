@@ -5,7 +5,7 @@ import { api } from './client'
 // backend's ADMIN_PERMISSION_KEYS (validators/adminAccountValidators.js).
 export const ADMIN_PERMISSION_KEYS = [
   'overview', 'users', 'projects', 'land', 'contractors', 'community',
-  'disputes', 'fraud', 'verifications', 'notifications', 'settings', 'admins',
+  'disputes', 'fraud', 'verifications', 'notifications', 'support', 'settings', 'admins',
 ] as const
 export type AdminPermissionKey = (typeof ADMIN_PERMISSION_KEYS)[number]
 

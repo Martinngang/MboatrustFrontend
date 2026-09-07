@@ -10,6 +10,7 @@ import { Breadcrumbs } from './Breadcrumbs'
 import { QUICK_CREATE_BY_ROLE } from './quickCreate'
 import { useShortcutsHelp } from './KeyboardShortcuts'
 import { useNotificationsDrawer } from '../NotificationsDrawer'
+import { useFeedbackModal } from '../FeedbackModal'
 import { SiteWeatherHeader } from '../SiteWeatherHeader'
 
 /** Top bar: breadcrumb trail, global search (opens the command palette),
@@ -30,6 +31,7 @@ export function TopBar() {
   const { show } = useCommandPalette()
   const { show: showShortcuts } = useShortcutsHelp()
   const { toggle: toggleNotifications } = useNotificationsDrawer()
+  const { open: openFeedback } = useFeedbackModal()
   const [menuOpen, setMenuOpen] = useState(false)
   const quickCreate = QUICK_CREATE_BY_ROLE[role ?? 'funder']
 
@@ -104,6 +106,19 @@ export function TopBar() {
           )}
           <ConnectivityBar />
           <InstallButton />
+          <button
+            onClick={() => openFeedback()}
+            aria-label="Help & feedback"
+            title="Help & feedback"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-colors hover:bg-[var(--color-parchment)]"
+            style={{ background: C.parchment }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9" stroke={C.inkMuted} strokeWidth="1.4" />
+              <circle cx="12" cy="12" r="4" stroke={C.inkMuted} strokeWidth="1.4" />
+              <path d="M5.6 5.6l3.2 3.2M18.4 5.6l-3.2 3.2M5.6 18.4l3.2-3.2M18.4 18.4l-3.2-3.2" stroke={C.inkMuted} strokeWidth="1.4" />
+            </svg>
+          </button>
           <NotificationBell onClick={toggleNotifications} />
           <ThemeToggle />
           <button
