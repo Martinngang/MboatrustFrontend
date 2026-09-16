@@ -40,6 +40,7 @@ const LocationMapModal = lazy(() =>
 import { useContractorProfilesInfiniteQuery } from '../api/contractors'
 import { PaymentMethodSelector, type PaymentMethodId } from '../components/PaymentMethodSelector'
 import { StripeCheckout } from '../components/StripeCheckout'
+import { Dossier, DossierTab, Legend, PerforatedRule, LedgerRecord, WaxSeal, SealImpression, RubberStamp, type RecordState } from '../components/dossier'
 
 function buildProjectTimeline(p: Project): TimelineEvent[] {
   const events: TimelineEvent[] = [
@@ -204,98 +205,159 @@ export function ProjectDetailScreen() {
   const p = found ?? directProject ?? projects[0]
   const pct = Math.round((p.raised / p.totalAmount) * 100)
 
+  // The dossier's file number. Derived from the real project id rather than
+  // invented, so the number on screen is something support can actually look
+  // up — a file number nobody can cross-reference is set dressing, not a record.
+  const fileNo = `MT-${String(p.id).replace(/[^a-zA-Z0-9]/g, '').slice(-6).toUpperCase().padStart(6, '0')}`
+  const sealedCount = p.milestones.filter((m) => m.status === 'released').length
+  const reviewing = p.milestones.find((m) => m.status === 'under_review')
+
   return (
     <AppShell noNav>
-      {/* Hero image */}
-      <div className="relative h-52 sm:h-64 lg:h-80">
-        <img src={p.image} alt={p.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(15,27,20,0.8), transparent 50%)' }} />
-        <button onClick={() => nav(-1)} aria-label="Back" className="absolute top-6 left-4 w-9 h-9 rounded-full flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 3L5 8L10 13" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      {/* ── File cover ────────────────────────────────────────────────────
+          The photograph is mounted INTO the document rather than bled to the
+          screen edge: an evidence photo pasted into a file, with the caption
+          strip a real dossier would carry underneath it. */}
+      <div className="px-4 pt-4 sm:pt-6 pb-1 sm:mx-auto sm:max-w-3xl">
+        <button
+          onClick={() => nav(-1)}
+          aria-label="Back"
+          className="mb-3 inline-flex items-center gap-2 py-1 pr-2"
+          style={{ fontFamily: FONT.mono, fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase', color: C.inkSubtle }}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
+          back to file room
         </button>
-        <div className="absolute bottom-4 left-4 right-4">
-          <StatusBadge status={p.status} />
-          <h1 style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white mt-1 sm:text-2xl">{p.title}</h1>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[10px] uppercase tracking-wider">{p.location}</div>
-        </div>
-      </div>
 
-      <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-3xl">
-        {/* Funding progress */}
-        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div className="flex justify-between mb-2">
-            <div>
-              <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold">{fmt(p.raised)}</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">raised of {fmt(p.totalAmount)}</div>
+        <DossierTab>dossier № {fileNo}</DossierTab>
+        <Dossier>
+          <div className="p-3 sm:p-4">
+            <div className="relative overflow-hidden" style={{ borderRadius: 2, border: `1px solid ${C.parchmentDark}` }}>
+              <img src={p.image} alt={p.title} className="w-full h-44 sm:h-60 lg:h-72 object-cover" />
+              {/* Photographic corner-mount, top-right — the tell that this is
+                  an object placed on paper, not a full-bleed hero. */}
+              <div
+                className="absolute top-0 right-0"
+                style={{ width: 26, height: 26, background: 'linear-gradient(225deg, rgba(20,23,27,0.22) 0%, transparent 62%)' }}
+                aria-hidden="true"
+              />
             </div>
-            <div className="text-right">
-              <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-xl font-bold">{pct}%</div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">funded</div>
+
+            <div className="pt-3 flex items-start justify-between gap-4 flex-wrap">
+              <div className="min-w-0">
+                <Legend>{p.location} · opened file</Legend>
+                <h1 style={{ fontFamily: FONT.serif, color: C.ink }} className="dsr-press text-xl sm:text-2xl font-bold leading-tight mt-1">
+                  {p.title}
+                </h1>
+              </div>
+              <RubberStamp tone={p.status === 'completed' ? 'sealed' : p.status === 'disputed' ? 'void' : 'review'}>
+                {String(p.status).replace(/_/g, ' ')}
+              </RubberStamp>
+            </div>
+
+            {/* ── Certification of escrow ──────────────────────────────────
+                Stated as a finding of fact, the way a document asserts, rather
+                than as a metric in a tile. */}
+            <div className="mt-4 pt-4" style={{ borderTop: `1px solid ${C.parchmentDark}` }}>
+              <Legend>sum committed to escrow</Legend>
+              <div className="flex items-end justify-between gap-4 mt-1.5 flex-wrap">
+                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="dsr-press text-2xl sm:text-3xl font-bold tabular-nums">
+                  {fmt(p.raised)}
+                </div>
+                <div className="text-right">
+                  <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-sm font-semibold tabular-nums">{pct}%</div>
+                  <Legend>of {fmt(p.totalAmount)}</Legend>
+                </div>
+              </div>
+              <div className="mt-2.5">
+                <ProgressBar pct={pct} />
+              </div>
+              <div className="mt-2.5 flex items-center gap-4 flex-wrap">
+                <Legend>
+                  {sealedCount} of {p.milestones.length} records sealed
+                </Legend>
+                {p.daysLeft > 0 && <Legend>{p.daysLeft} days remaining</Legend>}
+              </div>
             </div>
           </div>
-          <ProgressBar pct={pct} />
-          {p.daysLeft > 0 && (
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-2">{p.daysLeft} days remaining</div>
-          )}
-        </div>
+        </Dossier>
+      </div>
 
-        {/* Description */}
-        <div>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-2">About this project</p>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">{p.description}</p>
-        </div>
+      <div className="px-4 py-5 space-y-6 sm:mx-auto sm:max-w-3xl">
+        {/* ── Statement ─────────────────────────────────────────────────── */}
+        <section>
+          <Legend className="mb-2">statement of works</Legend>
+          <Dossier>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed p-4">
+              {p.description}
+            </p>
+          </Dossier>
+        </section>
 
         <Suspense fallback={<SkeletonCard />}>
           <ProjectLocationSection locationName={p.location} coordinates={p.coordinates} />
         </Suspense>
 
-        {/* Milestones */}
-        <div>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">Milestone tracker</p>
-          <div className="space-y-2">
-            {p.milestones.map((m, i) => (
-              <div
-                key={m.id}
-                className="flex items-start gap-3 p-4 rounded-xl border"
-                style={{
-                  borderColor: m.status === 'under_review' ? C.amber : C.parchmentDark,
-                  background: m.status === 'released' ? 'var(--status-success-bg)' : m.status === 'under_review' ? 'var(--status-warning-bg)' : C.white,
-                }}
-              >
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                  style={{ background: m.status === 'released' ? C.forest : m.status === 'under_review' ? C.amber : C.parchmentDark }}
-                >
-                  {m.status === 'released' ? (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                      <path d="M2 6L5 9L10 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
-                    </svg>
-                  ) : (
-                    <span style={{ fontFamily: FONT.mono, color: m.status === 'under_review' ? C.forestDark : C.inkSubtle }} className="text-[10px] font-bold">{i + 1}</span>
-                  )}
+        {/* ── The ledger ────────────────────────────────────────────────────
+            Milestones as entries in a bound ledger: numbered in the ruled
+            margin, money in a right-hand column, separated by perforations,
+            each terminated by a seal or an empty socket. Scanning the column
+            of seals answers "what is proven" before any text is read. */}
+        <section>
+          <Legend className="mb-2">schedule of milestones · release ledger</Legend>
+          <Dossier ruled>
+            {p.milestones.map((m, i) => {
+              const state: RecordState = m.status === 'released' ? 'sealed' : m.status === 'under_review' ? 'review' : 'locked'
+              return (
+                <div key={m.id}>
+                  {i > 0 && <PerforatedRule />}
+                  <LedgerRecord
+                    index={i + 1}
+                    title={m.title}
+                    amount={fmt(m.amount)}
+                    state={state}
+                    meta={
+                      state === 'review' ? (
+                        <button
+                          onClick={() => nav(`/funder/review/${p.id}`)}
+                          className="inline-flex items-center gap-1.5"
+                          style={{ fontFamily: FONT.mono, fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.forest }}
+                        >
+                          examine evidence
+                          <svg width="12" height="12" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                            <path d="M3 7H11M8 4L11 7L8 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      ) : undefined
+                    }
+                    seal={
+                      state === 'sealed' ? (
+                        <SealImpression monogram="MT" size={56} />
+                      ) : (
+                        <div className="hidden sm:block" style={{ width: 56 }} aria-hidden="true" />
+                      )
+                    }
+                  />
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <div style={{ fontFamily: FONT.sans }} className="text-sm font-semibold">{m.title}</div>
-                    <StatusBadge status={m.status} />
-                  </div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] mt-0.5">{fmt(m.amount)}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              )
+            })}
+          </Dossier>
+        </section>
 
-        {/* Activity */}
-        <div>
-          <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">Activity</p>
-          <ActivityTimeline events={buildProjectTimeline(p)} />
-        </div>
+        {/* ── Record of proceedings ─────────────────────────────────────── */}
+        <section>
+          <Legend className="mb-2">record of proceedings</Legend>
+          <Dossier>
+            <div className="p-4">
+              <ActivityTimeline events={buildProjectTimeline(p)} />
+            </div>
+          </Dossier>
+        </section>
 
         {/* Actions */}
-        {p.milestones.some((m) => m.status === 'under_review') && (
+        {reviewing && (
           <button
             onClick={() => nav(`/funder/review/${p.id}`)}
             className="w-full py-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2"
@@ -641,6 +703,8 @@ export function MilestoneReviewScreen() {
   const milestone = project?.milestones.find((m) => m.status === 'under_review') ?? project?.milestones[0]
   const [decision, setDecision] = useState<'approve' | 'dispute' | 'changes' | null>(null)
   const [approving, setApproving] = useState(false)
+  // Bumped on a failed release to remount (and so un-press) the wax seal.
+  const [sealAttempt, setSealAttempt] = useState(0)
   const [geoMapOpen, setGeoMapOpen] = useState(false)
 
   // All hooks below are called unconditionally (before the loading/not-found
@@ -713,6 +777,10 @@ export function MilestoneReviewScreen() {
       }
     } catch (err) {
       showToast({ title: 'Approval failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+      // Remount the seal so it returns to unpressed. Without this the wax
+      // stays struck after a failed release — the single most misleading
+      // state this screen could be left in.
+      setSealAttempt((n) => n + 1)
     } finally {
       setApproving(false)
     }
@@ -957,14 +1025,30 @@ export function MilestoneReviewScreen() {
             <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm">Your sign-off is recorded — waiting on the other approvers before funds release.</span>
           </div>
         ) : (
-          <button
-            onClick={handleApprove}
-            disabled={approving}
-            className="w-full py-4 rounded-xl font-bold text-sm disabled:opacity-60"
-            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
-          >
-            {approving ? 'Releasing…' : requiresMultiSig ? `Add your approval (${approvers.filter((a) => a.status === 'approved').length}/${approvers.length})` : `Approve — release ${fmt(milestone.amount)}`}
-          </button>
+          /* ── The seal ────────────────────────────────────────────────────
+             This is the only irreversible action on the screen, so it is the
+             only one that isn't a button. Press-and-hold puts the deliberation
+             into the gesture instead of into a modal nobody reads, and states
+             the consequence beside the control rather than after it. */
+          <div className="dsr-sheet flex items-center gap-4 p-4">
+            <WaxSeal
+              key={sealAttempt}
+              onSeal={handleApprove}
+              label={requiresMultiSig ? 'Press and hold to add your approval' : `Press and hold to release ${fmt(milestone.amount)}`}
+              caption={approving ? 'releasing…' : 'press & hold'}
+            />
+            <div className="min-w-0">
+              <Legend>{requiresMultiSig ? `approval ${approvers.filter((a) => a.status === 'approved').length} of ${approvers.length}` : 'irreversible release'}</Legend>
+              <div style={{ fontFamily: FONT.serif, color: C.ink }} className="dsr-press text-lg font-bold leading-tight mt-0.5 tabular-nums">
+                {fmt(milestone.amount)}
+              </div>
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-[12px] leading-snug mt-1">
+                {requiresMultiSig
+                  ? 'Your sign-off is recorded now; funds move once every required approver has sealed.'
+                  : 'Sealing releases these funds from escrow to the contractor. This cannot be undone.'}
+              </p>
+            </div>
+          </div>
         )}
         <button
           onClick={() => setDecision('changes')}

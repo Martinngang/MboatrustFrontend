@@ -28,3 +28,11 @@ export function getSocket(): Socket {
   }
   return socket
 }
+
+/** Called on logout so the next login (possibly a different account, e.g.
+ * the dev-user switcher) opens a fresh connection with fresh auth rather
+ * than reusing a stale authenticated socket. */
+export function disconnectSocket(): void {
+  socket?.disconnect()
+  socket = null
+}

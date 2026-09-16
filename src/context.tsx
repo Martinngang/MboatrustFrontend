@@ -16,6 +16,8 @@ import { useLandListingsQuery, useCreateListingMutation, useUpdateVerificationSt
 import { useLandOffersQuery } from './api/landOffers'
 import { useContractorProfilesQuery } from './api/contractors'
 import { useNotificationsQuery, useMarkNotificationReadMutation, useMarkAllNotificationsReadMutation } from './api/notifications'
+import { useGlobalRealtime } from './api/realtime'
+import { disconnectSocket } from './api/socket'
 
 export type Role = 'funder' | 'contractor' | 'seller' | 'supplier' | null
 
@@ -351,15 +353,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (fbUser) {
         // fetchBackendUser now throws when the backend is unreachable
         // (rather than returning null, which is reserved for "no account").
-        // Swallow it here: this listener's job is only to restore an
-        // already-complete session, and leaving state untouched keeps the
-        // user where they are instead of appearing signed out. The
-        // interactive paths (completeAuthSuccess) surface the error.
-        let backendUser: BackendUser | null
+        // This listener only *restores* an existing session, so an outage
+        // simply means "couldn't restore" — fall through without logging
+        // in. Crucially it must NOT bail early: setAuthChecked(true) below
+        // is what releases the splash screen, so returning here left the
+        // app spinning forever. The interactive path
+        // (completeAuthSuccess) is where the error is surfaced to the user.
+        let backendUser: BackendUser | null = null
         try {
           backendUser = await fetchBackendUser()
         } catch {
-          return
+          backendUser = null
         }
         const dest = backendUser ? resolveAuthDestination(backendUser) : null
         if (backendUser && (dest === 'home' || dest === 'admin')) {
@@ -430,6 +434,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     if (firebaseConfigured) await firebaseSignOut().catch(() => {})
+    disconnectSocket()
     clearDevUserId()
     setLoggedIn(false)
     setRole(null)
@@ -498,6 +503,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     prevDevUserId.current = devUserId
   }, [devUserId, qc])
+
+  // App-wide live updates (bids, milestones, project postings, notification
+  // bell, inbox) for whatever screen is currently open — see api/realtime.ts.
+  // Messaging's own open-thread live-append (useConversationRealtime) is
+  // separate and untouched by this.
+  useGlobalRealtime(devUserId)
 
   const projectsQuery = useProjectsQuery()
   // Shows mock data only while the *first* real fetch is genuinely still in

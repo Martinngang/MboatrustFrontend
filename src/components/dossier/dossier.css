@@ -1,0 +1,274 @@
+/* ── The Sealed Dossier ───────────────────────────────────────────────────────
+   A physical design language for the one thing MboaTrust actually sells:
+   proof. Money crosses 5,000km on the strength of a record somebody trusts,
+   so the record is built to *look* like it costs something to forge — laid
+   paper, a ruled ledger margin, letterpress type, and a wax seal that has to
+   be physically pressed.
+
+   Everything here resolves through the existing theme custom properties
+   (see index.css), so the whole language flips with [data-theme] rather than
+   needing a second dark-mode stylesheet. No external images: the paper grain,
+   the deckle and the wax are all generated, which keeps it offline-safe and
+   avoids another network request on a Douala 3G connection.
+   ────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Laid paper: the fine parallel lines you see holding real bond paper to
+     the light, plus a wider chain line every ~24px. Kept far below the
+     threshold of conscious notice — it should read as texture, not stripes. */
+  --paper-laid: repeating-linear-gradient(
+      90deg,
+      rgba(20, 23, 27, 0.016) 0px,
+      rgba(20, 23, 27, 0.016) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(20, 23, 27, 0.012) 0px,
+      rgba(20, 23, 27, 0.012) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+  --paper-fiber: radial-gradient(circle at 18% 22%, rgba(201, 151, 30, 0.05), transparent 42%),
+    radial-gradient(circle at 82% 12%, rgba(178, 58, 46, 0.035), transparent 38%),
+    radial-gradient(circle at 62% 88%, rgba(15, 122, 82, 0.04), transparent 45%);
+  --paper-edge: rgba(20, 23, 27, 0.1);
+  --paper-rule: rgba(178, 58, 46, 0.28);
+  --paper-body: #fdfcfa;
+  --paper-body-2: #f6f3ec;
+  --letterpress: 0 1px 0 rgba(255, 255, 255, 0.85);
+  --deboss: inset 0 1px 1px rgba(20, 23, 27, 0.1);
+}
+
+[data-theme='dark'] {
+  --paper-laid: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.02) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 3px
+    ),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.014) 0px,
+      rgba(255, 255, 255, 0.014) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+  --paper-fiber: radial-gradient(circle at 18% 22%, rgba(212, 175, 55, 0.06), transparent 42%),
+    radial-gradient(circle at 82% 12%, rgba(201, 68, 48, 0.05), transparent 38%),
+    radial-gradient(circle at 62% 88%, rgba(14, 140, 92, 0.05), transparent 45%);
+  --paper-edge: rgba(0, 0, 0, 0.5);
+  --paper-rule: rgba(201, 68, 48, 0.36);
+  --paper-body: #191a1f;
+  --paper-body-2: #141519;
+  --letterpress: 0 1px 0 rgba(0, 0, 0, 0.6);
+  --deboss: inset 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+/* ── The sheet ─────────────────────────────────────────────────────────────
+   A single leaf of the dossier. The ::before carries the grain so the paper
+   texture never tints the content sitting on top of it. */
+.dsr-sheet {
+  position: relative;
+  isolation: isolate;
+  background: linear-gradient(168deg, var(--paper-body) 0%, var(--paper-body-2) 100%);
+  border: 1px solid var(--paper-edge);
+  border-radius: 3px; /* paper barely rounds — 3px, not 16px */
+  box-shadow:
+    0 1px 1px rgba(20, 23, 27, 0.05),
+    0 12px 34px -20px rgba(20, 23, 27, 0.45);
+}
+
+.dsr-sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--paper-laid), var(--paper-fiber);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* The ruled ledger margin — a single hairline in seal red, the way an
+   accounting ledger reserves a column for the entry number. Record numbers
+   live to the left of it. */
+.dsr-sheet--ruled::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 58px;
+  width: 1px;
+  background: var(--paper-rule);
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+@media (max-width: 640px) {
+  .dsr-sheet--ruled::after {
+    left: 44px;
+  }
+}
+
+/* ── Type ──────────────────────────────────────────────────────────────────
+   Letterpress: ink pressed INTO paper sits fractionally below the surface,
+   so a 1px light shadow underneath reads as depth rather than as a glow. */
+.dsr-press {
+  text-shadow: var(--letterpress);
+}
+
+.dsr-legend {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-ink-subtle);
+}
+
+/* ── The record ────────────────────────────────────────────────────────────
+   One milestone. Separated from its neighbours by a perforation rather than
+   a border, because a dossier is a sequence of tear-off records, not a stack
+   of unrelated cards. */
+.dsr-perf {
+  height: 1px;
+  background-image: linear-gradient(
+    90deg,
+    var(--paper-edge) 0 4px,
+    transparent 4px 9px
+  );
+  background-size: 9px 1px;
+  opacity: 0.85;
+}
+
+.dsr-record {
+  position: relative;
+  transition: background-color 200ms ease;
+}
+
+.dsr-record--live {
+  background: linear-gradient(
+    90deg,
+    rgba(201, 151, 30, 0.09) 0%,
+    rgba(201, 151, 30, 0.02) 55%,
+    transparent 100%
+  );
+}
+
+/* A locked record is paper that hasn't been written on yet. Desaturated and
+   set back, but never hidden — the funder is entitled to see what's coming. */
+.dsr-record--locked {
+  opacity: 0.52;
+  filter: saturate(0.35);
+}
+
+/* ── Rubber stamp ──────────────────────────────────────────────────────────
+   Real stamps are never level and never fully inked. The rotation and the
+   mask doing the eroding are what stop this reading as a rounded badge. */
+.dsr-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.82;
+  transform: rotate(-2.5deg);
+  /* Erodes the ink unevenly so the edges look absorbed into the fibre. */
+  mask-image: radial-gradient(circle at 12% 22%, transparent 0 1.5px, #000 2px),
+    radial-gradient(circle at 78% 76%, transparent 0 2px, #000 2.5px),
+    radial-gradient(circle at 44% 8%, transparent 0 1px, #000 1.5px);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+}
+
+.dsr-stamp--void {
+  transform: rotate(-8deg);
+}
+
+/* ── Wax seal ──────────────────────────────────────────────────────────────
+   The press-and-hold target. Scaling down on press is the whole point: it
+   reads as pressing INTO the page, and the hold is a deliberate guard on an
+   irreversible money release. */
+.dsr-seal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 140ms cubic-bezier(0.34, 1.3, 0.64, 1), filter 140ms ease;
+  filter: drop-shadow(0 6px 10px rgba(20, 23, 27, 0.28));
+}
+
+.dsr-seal:disabled {
+  cursor: default;
+}
+
+.dsr-seal--pressing {
+  transform: scale(0.93) rotate(-1.5deg);
+  filter: drop-shadow(0 2px 3px rgba(20, 23, 27, 0.4));
+}
+
+.dsr-seal--struck {
+  animation: dsr-strike 620ms cubic-bezier(0.2, 0.9, 0.2, 1) forwards;
+}
+
+@keyframes dsr-strike {
+  0% {
+    transform: scale(0.93) rotate(-1.5deg);
+  }
+  35% {
+    transform: scale(1.14) rotate(1deg);
+    filter: drop-shadow(0 0 26px rgba(178, 58, 46, 0.85));
+  }
+  100% {
+    transform: scale(1) rotate(-2deg);
+    filter: drop-shadow(0 5px 9px rgba(20, 23, 27, 0.3));
+  }
+}
+
+/* Empty seal socket on a record that cannot be sealed yet. */
+.dsr-seal-socket {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--paper-edge);
+  display: grid;
+  place-items: center;
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dsr-seal,
+  .dsr-seal--struck {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* ── File tab ──────────────────────────────────────────────────────────────
+   The tab on a physical folder: joined to the sheet below it, so the bottom
+   corners stay square and the bottom border is removed. */
+.dsr-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 18px 8px;
+  background: linear-gradient(180deg, var(--paper-body) 0%, var(--paper-body-2) 100%);
+  border: 1px solid var(--paper-edge);
+  border-bottom: 0;
+  border-radius: 7px 7px 0 0;
+  margin-bottom: -1px;
+  box-shadow: 0 -2px 8px -6px rgba(20, 23, 27, 0.4);
+}
