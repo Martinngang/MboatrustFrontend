@@ -4,6 +4,7 @@ import { useApp } from '../context'
 import { useMyKycStatusQuery, type KycStatus } from '../api/kyc'
 import { useMaterials } from '../materials'
 import { useMyRoleTypesQuery, useUploadAvatarMutation, useUpdatePreferredLanguageMutation } from '../api/session'
+import { useOpenAdvisorConversationMutation } from '../api/messaging'
 import { useTheme } from '../theme'
 import { C, FONT, AppShell, Card, Header, PillButton, StatusBadge, MomoOmPicker } from '../components/MobileLayout'
 import { useMySubscriptionsQuery, useCreateSubscriptionMutation, useCancelSubscriptionMutation, PLAN_PRICES, type PlanType } from '../api/subscriptions'
@@ -992,6 +993,7 @@ export function ProfileScreen() {
   const { mySupplier } = useMaterials()
   const { open: openNotifications } = useNotificationsDrawer()
   const { show: showToast } = useToast()
+  const openAdvisor = useOpenAdvisorConversationMutation(devUserId)
   const uploadAvatarMutation = useUploadAvatarMutation()
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const pickAvatar = () => avatarInputRef.current?.click()
@@ -1224,11 +1226,19 @@ export function ProfileScreen() {
             <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[10px] mt-0.5">Real support for real decisions</div>
           </div>
           <button
-            onClick={() => nav('/messages')}
-            className="flex-shrink-0 rounded-lg px-3 py-2 text-xs font-semibold active:scale-95 transition-transform"
+            onClick={async () => {
+              try {
+                const conversation = await openAdvisor.mutateAsync()
+                nav(`/messages/${conversation.id}`)
+              } catch (err) {
+                showToast({ title: 'Could not open Advisor chat', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
+              }
+            }}
+            disabled={openAdvisor.isPending}
+            className="flex-shrink-0 rounded-lg px-3 py-2 text-xs font-semibold active:scale-95 transition-transform disabled:opacity-60"
             style={{ background: C.amber, color: C.forestDark, fontFamily: FONT.sans }}
           >
-            Message
+            {openAdvisor.isPending ? '…' : 'Message'}
           </button>
         </div>
 

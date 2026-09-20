@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../context'
-import { C, FONT, UserAvatar } from '../MobileLayout'
+import { C, FONT, UserAvatar, ThemeToggle, LanguageToggle } from '../MobileLayout'
 import { AppIcon } from '../icons'
 import { Drawer } from './Drawer'
 import { AdminSidebar, AdminNavList } from './AdminSidebar'
@@ -53,7 +53,14 @@ export function AdminShell({ children }: { children: ReactNode }) {
             </div>
           </button>
 
-          <div className="ml-auto flex items-center gap-3">
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            {/* Language + theme, same controls and same persistence the
+                consumer app uses — an admin session had no way to reach
+                either, so a French-speaking admin was stuck in English and
+                the dashboard ignored the theme chosen elsewhere in the app
+                (ThemeProvider is app-wide; only the control was missing). */}
+            <LanguageToggle />
+            <ThemeToggle />
             <span style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="hidden sm:inline text-xs font-medium">{name}</span>
             <UserAvatar onClick={() => {}} size={32} />
             <button

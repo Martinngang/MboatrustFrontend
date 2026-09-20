@@ -110,7 +110,7 @@ function NotifCard({ n, onOpen }: { n: AppNotification; onOpen: () => void }) {
             {category.label}
           </span>
         </div>
-        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-[11.5px] leading-snug">{n.body}</p>
+        {n.body && <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-[11.5px] leading-snug">{n.body}</p>}
         {n.stat && <NotifStatPill stat={n.stat} />}
       </div>
       <div className="flex flex-shrink-0 flex-col items-end gap-1.5 pt-0.5">

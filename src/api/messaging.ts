@@ -7,6 +7,9 @@ export interface BackendParticipant {
   _id: string
   fullName: string
   avatarUrl: string | null
+  // True only for the one singleton "Mboa Trust Advisor" account (see
+  // backend services/bootstrapAdvisorService.js) — never a real signup.
+  isSystemAccount?: boolean
 }
 
 export interface BackendConversation {
@@ -19,6 +22,10 @@ export interface BackendConversation {
   updatedAt: string
   unreadCount?: number
   lastMessage?: BackendMessage
+  // Set by GET /conversations (conversationController.getMine) from the
+  // caller's own ConversationParticipant.pinnedAt — today only ever true for
+  // the AI Advisor conversation, never a general user-togglable flag.
+  pinned?: boolean
 }
 
 export interface BackendPublicProfile {
@@ -90,6 +97,11 @@ export interface Conversation {
   isGroup: boolean
   updatedAt: string
   participantIds: BackendParticipant[]
+  // True when the other participant is the AI Advisor system account.
+  isAdvisor: boolean
+  // Always pinned at the top of the Messages list when true — today this is
+  // only ever the Advisor conversation (see useOpenAdvisorConversationMutation).
+  pinned: boolean
 }
 
 export interface ChatMessage {
@@ -133,7 +145,9 @@ function mapConversation(doc: BackendConversation, selfId: string): Conversation
     lastMessage: doc.lastMessage,
     isGroup,
     updatedAt: doc.updatedAt,
-    participantIds: doc.participantIds || []
+    participantIds: doc.participantIds || [],
+    isAdvisor: Boolean(other?.isSystemAccount),
+    pinned: Boolean(doc.pinned),
   }
 }
 
@@ -292,6 +306,30 @@ export function useStartConversationMutation(selfId: string | null) {
           return prev.map(c => c.id === newConv.id ? newConv : c)
         }
         return [newConv, ...prev]
+      })
+      qc.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+}
+
+// Get-or-create the caller's 1:1 conversation with the AI Advisor (backend
+// conversationController.getOrCreateAdvisor) — unlike useStartConversationMutation
+// above, this always returns a real, persisted, already-pinned conversation
+// (seeded with a greeting on first call), never a draft, so callers can
+// navigate straight to it with no draft/new_<id> intermediate step.
+export function useOpenAdvisorConversationMutation(selfId: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (): Promise<Conversation> => {
+      const { data } = await api.post<{ data: { conversation: BackendConversation; advisorUserId: string } }>('/conversations/advisor')
+      return mapConversation(data.data.conversation, selfId!)
+    },
+    onSuccess: (conversation) => {
+      qc.setQueryData<Conversation>(['conversation', conversation.id, selfId], conversation)
+      qc.setQueryData<Conversation[]>(['conversations', selfId], (prev) => {
+        if (!prev) return [conversation]
+        if (prev.some((c) => c.id === conversation.id)) return prev.map((c) => c.id === conversation.id ? conversation : c)
+        return [conversation, ...prev]
       })
       qc.invalidateQueries({ queryKey: ['conversations'] })
     },

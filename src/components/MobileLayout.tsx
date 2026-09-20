@@ -16,6 +16,7 @@ import type { ReactNode, KeyboardEvent } from 'react'
 import { C, FONT, STATUS_TONE_VARS, type StatusTone } from './tokens'
 export { C, FONT, STATUS_TONE_VARS, type StatusTone }
 import { AppIcon, type IconName } from './icons'
+import { useUpdatePreferredLanguageMutation } from '../api/session'
 
 const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   released: { tone: 'success', label: 'Released' },
@@ -90,6 +91,62 @@ export function ThemeToggle({ dark }: { dark?: boolean }) {
         </svg>
       )}
     </button>
+  )
+}
+
+// ── Language toggle ──────────────────────────────────────────────────────────
+/** Compact EN/FR segmented control for a header bar.
+ *
+ * Settings exposes language as a full-width row (see SharedScreens), which is
+ * right for a settings list but wrong for chrome — hence a segmented control
+ * here: with only two languages, showing both and marking the active one
+ * states the current value without needing a label, which a single cycling
+ * button can't do.
+ *
+ * Follows Settings' change semantics exactly: switch the UI immediately via
+ * `setLang`, persist to the backend in the background. A failed persist is
+ * deliberately silent — the switch still took effect for this session, and an
+ * error toast for a preference that visibly worked would be noise. `dark`
+ * mirrors ThemeToggle's prop for use on colored backgrounds.
+ */
+export function LanguageToggle({ dark }: { dark?: boolean }) {
+  const { lang, setLang } = useApp()
+  const updateLanguage = useUpdatePreferredLanguageMutation()
+
+  const pick = (l: 'en' | 'fr') => {
+    if (l === lang) return
+    setLang(l)
+    updateLanguage.mutate(l)
+  }
+
+  return (
+    <div
+      role="group"
+      aria-label="Language"
+      className="flex flex-shrink-0 items-center rounded-full p-0.5"
+      style={{ background: dark ? 'rgba(255,255,255,0.14)' : C.parchment }}
+    >
+      {(['en', 'fr'] as const).map((l) => {
+        const active = lang === l
+        return (
+          <button
+            key={l}
+            onClick={() => pick(l)}
+            aria-pressed={active}
+            aria-label={l === 'en' ? 'English' : 'Français'}
+            className="rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase transition-colors"
+            style={{
+              fontFamily: FONT.mono,
+              letterSpacing: '0.06em',
+              background: active ? C.forest : 'transparent',
+              color: active ? '#FFFFFF' : dark ? 'rgba(255,255,255,0.75)' : C.inkSubtle,
+            }}
+          >
+            {l}
+          </button>
+        )
+      })}
+    </div>
   )
 }
 

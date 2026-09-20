@@ -59,7 +59,16 @@ export function AppShell({
             reliable) codepath. Just TopBar (auto) + <main> (1fr) now —
             BottomNav is `position:fixed` (see MobileLayout.tsx), so it's no
             longer part of this flow and doesn't need its own row. */}
-        <div className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)]">
+        {/* grid-cols-[minmax(0,1fr)] is load-bearing. With rows defined but no
+            columns, the grid's single implicit column is `auto`, which can't
+            shrink below its widest item's min-content — and TopBar's
+            min-content counts the (scrollable, min-w-0) breadcrumb at full
+            width. On routes with a longer trail ("HOME › MESSAGES") that
+            forced the column to 447px on a 390px phone, dragging <main> with
+            it: chat bubbles, call buttons and the composer's send button were
+            all clipped off the right edge. A minmax(0,1fr) column holds both
+            to the viewport and lets the breadcrumb give up the space. */}
+        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]">
           <TopBar />
 
           {/* min-h-0: grid items get the same automatic min-height:auto

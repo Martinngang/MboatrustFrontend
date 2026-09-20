@@ -817,8 +817,13 @@ function ConvoRow({ convo, isActive, onClick }: {
       <Avatar url={convo.avatarUrl} name={convo.withName} isGroup={convo.isGroup} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2 mb-0.5">
-          <span className="truncate text-sm font-semibold" style={{ color: C.ink, fontFamily: FONT.sans }}>
-            {convo.withName}
+          <span className="truncate text-sm font-semibold flex items-center gap-1.5" style={{ color: C.ink, fontFamily: FONT.sans }}>
+            <span className="truncate">{convo.withName}</span>
+            {convo.isAdvisor && (
+              <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: C.amber, color: C.forestDark, fontFamily: FONT.mono }}>
+                AI
+              </span>
+            )}
           </span>
           <span className="shrink-0 text-[10px] tabular-nums"
             style={{ color: convo.unreadCount > 0 ? C.forest : C.inkSubtle, fontFamily: FONT.mono }}>
@@ -1222,6 +1227,8 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
     isGroup: false,
     updatedAt: new Date().toISOString(),
     participantIds: [],
+    isAdvisor: false,
+    pinned: false,
   } : undefined
 
   const conversation = listConversation || singleConversation || draftConversation
@@ -1452,10 +1459,13 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
       {/* ── Header ── */}
       <div className="shrink-0 flex items-center justify-between px-4 h-[68px] border-b relative z-10"
         style={{ background: C.cream, borderColor: 'var(--color-parchment-dark)' }}>
-        <div className="flex items-center gap-3">
+        {/* min-w-0 flex-1 (here and on the name block below) lets a long name
+            truncate instead of shoving the call/video/info buttons off-screen
+            on a narrow phone. */}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           {onBack && (
             <button onClick={onBack}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center mr-1 transition-all hover:scale-105"
+              className="w-9 h-9 shrink-0 rounded-2xl flex items-center justify-center mr-1 transition-all hover:scale-105"
               style={{ background: C.parchment }}>
               <ChevronLeft className="w-5 h-5" style={{ color: C.ink }} />
             </button>
@@ -1472,9 +1482,14 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
           ) : (
             <>
               <Avatar url={conversation?.avatarUrl} name={conversation?.withName ?? 'User'} isGroup={conversation?.isGroup} />
-              <div>
-                <p className="font-semibold text-[15px]" style={{ color: C.ink, fontFamily: FONT.sans }}>
-                  {conversation?.withName ?? 'User'}
+              <div className="min-w-0">
+                <p className="font-semibold text-[15px] flex items-center gap-1.5" style={{ color: C.ink, fontFamily: FONT.sans }}>
+                  <span className="truncate">{conversation?.withName ?? 'User'}</span>
+                  {conversation?.isAdvisor && (
+                    <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: C.amber, color: C.forestDark, fontFamily: FONT.mono }}>
+                      AI
+                    </span>
+                  )}
                 </p>
                 <AnimatePresence mode="wait">
                   {typingUsers.length > 0 ? (
@@ -1484,7 +1499,7 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
                     </motion.p>
                   ) : (
                     <motion.p key="s" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      className="text-xs" style={{ color: C.inkSubtle, fontFamily: FONT.mono }}>
+                      className="truncate text-xs" style={{ color: C.inkSubtle, fontFamily: FONT.mono }}>
                       {conversation?.context ?? 'Chat'}
                     </motion.p>
                   )}
@@ -1494,7 +1509,7 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="ml-2 flex shrink-0 items-center gap-1.5">
           <button
             onClick={() => setCallMode('audio')}
             title="Start Voice Call"
@@ -1667,7 +1682,11 @@ function ChatPane({ id, onBack }: { id: string; onBack?: () => void }) {
               onChange={onInputChange}
               onKeyDown={onKeyDown}
               placeholder={editingMsg ? 'Edit message…' : `Message ${conversation?.withName ?? ''}…`}
-              className="flex-1 bg-transparent outline-none text-[15px] py-1"
+              // min-w-0: an <input> has an intrinsic ~20-character width, and a
+              // flex item's automatic minimum is its intrinsic width — so
+              // flex-1 alone can grow it but never shrink it, and at 320px it
+              // pushed the send/mic button off the right edge.
+              className="min-w-0 flex-1 bg-transparent outline-none text-[15px] py-1"
               style={{ color: C.ink, fontFamily: FONT.sans }}
               disabled={isSending || isUploading}
             />

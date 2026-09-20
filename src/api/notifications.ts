@@ -140,7 +140,30 @@ function describe(n: BackendNotification): Described {
         path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
       }
     default:
-      return { icon: 'bell', category: 'messages', title: n.type.replace(/_/g, ' '), body: '' }
+      return { icon: 'bell', ...fallbackDescribe(n.type) }
+  }
+}
+
+// The backend fires ~41 notification types; only the dozen above have
+// authored copy (mobile's MboaTrustAPP/api/notifications.ts has the identical
+// switch). Everything else used to show the raw type in lowercase ("pooled
+// contribution collected"), always filed under Messages regardless of what it
+// was about — so the category filters silently missed it. Kept identical to
+// mobile's fallbackDescribe so the two apps never disagree on the same event.
+function inferCategory(type: string): NotifCategory {
+  if (/^(pooled_|project_|subscription_|referral_|group_)/.test(type)) return 'funding'
+  if (/^(milestone_|dispute_|rating_|co_signer_)/.test(type)) return 'milestones'
+  if (/^(bid_|land_|material_order_|visit_|contract_)/.test(type)) return 'marketplace'
+  if (/(verif|kyc|supplier_application)/.test(type)) return 'verification'
+  return 'messages'
+}
+
+function fallbackDescribe(type: string): { category: NotifCategory; title: string; body: string } {
+  const words = type.replace(/_/g, ' ').trim()
+  return {
+    category: inferCategory(type),
+    title: words.charAt(0).toUpperCase() + words.slice(1),
+    body: '',
   }
 }
 
