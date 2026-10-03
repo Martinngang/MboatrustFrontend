@@ -259,9 +259,26 @@ export function useRiskFlagSummaryQuery() {
 }
 
 // ── Verification tasks (human verifier assignments) ─────────────────────
+interface BackendLocationDetails {
+  placeName?: string
+  formattedAddress?: string
+  source?: string
+}
+
+export interface VerificationTaskLocationDetails {
+  placeName: string | null
+  formattedAddress: string | null
+  source: string | null
+}
+
+export function mapTaskLocationDetails(d: BackendLocationDetails | null | undefined): VerificationTaskLocationDetails | null {
+  if (!d || (!d.placeName && !d.formattedAddress)) return null
+  return { placeName: d.placeName || null, formattedAddress: d.formattedAddress || null, source: d.source || null }
+}
+
 export interface BackendVerificationTask {
   _id: string
-  targetType: 'milestone' | 'land_listing'
+  targetType: 'milestone' | 'land_listing' | 'project_location'
   targetId: string
   verifierId: string
   status: 'assigned' | 'in_progress' | 'submitted'
@@ -269,13 +286,28 @@ export interface BackendVerificationTask {
   reportPhotos: string[]
   confirmedMatch: boolean | null
   createdAt: string
+  // Only meaningful for 'project_location' tasks — the verifier's confirmed
+  // coordinates, written straight onto the project by the backend. Together
+  // with verifierId + updatedAt, this task document IS the audit record.
+  confirmedLocation?: { lat: number | null; lng: number | null } | null
+  confirmedLocationDetails?: BackendLocationDetails | null
   // Server-resolved display info — targetId is a polymorphic reference
-  // (milestone subdocument or LandListing), so the backend looks it up
-  // rather than leaving the frontend to guess which collection it's in.
-  target: { title: string; location: string; milestoneTitle?: string; projectId?: string } | null
+  // (milestone subdocument, LandListing, or Project itself for
+  // project_location), so the backend looks it up rather than leaving the
+  // frontend to guess which collection it's in.
+  target: {
+    title: string
+    location: string
+    milestoneTitle?: string
+    projectId?: string
+    // Only meaningful for 'project_location' — the project's original
+    // (pre-confirmation) coordinates/place name, for context.
+    coordinates?: { lat: number | null; lng: number | null } | null
+    locationDetails?: BackendLocationDetails | null
+  } | null
 }
 
-export function useVerificationTasksQuery(filter: { verifierId?: string; targetType?: 'milestone' | 'land_listing'; targetId?: string; status?: string } = {}) {
+export function useVerificationTasksQuery(filter: { verifierId?: string; targetType?: 'milestone' | 'land_listing' | 'project_location'; targetId?: string; status?: string } = {}) {
   return useQuery({
     queryKey: ['verificationTasks', filter],
     queryFn: async (): Promise<BackendVerificationTask[]> => {
@@ -300,10 +332,18 @@ export function useStartVerificationTaskMutation() {
 export function useSubmitVerificationReportMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ taskId, reportText, reportPhotos, confirmedMatch }: {
-      taskId: string; reportText: string; reportPhotos: string[]; confirmedMatch: boolean
+    mutationFn: async ({ taskId, reportText, reportPhotos, confirmedMatch, confirmedLocation, placeName, formattedAddress }: {
+      taskId: string
+      reportText: string
+      reportPhotos: string[]
+      confirmedMatch: boolean
+      /** Only meaningful for a 'project_location' task — the verifier's
+       * confirmed coordinates, written straight onto the project. */
+      confirmedLocation?: { lat: number; lng: number }
+      placeName?: string | null
+      formattedAddress?: string | null
     }) => {
-      const { data } = await api.post(`/verification-tasks/${taskId}/report`, { reportText, reportPhotos, confirmedMatch })
+      const { data } = await api.post(`/verification-tasks/${taskId}/report`, { reportText, reportPhotos, confirmedMatch, confirmedLocation, placeName, formattedAddress })
       return data.data as BackendVerificationTask
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['verificationTasks'] }),

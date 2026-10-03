@@ -9,11 +9,14 @@ import { AppIcon } from '../components/icons'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
 import { useUpdateBidStatusMutation, useBidQuery } from '../api/tenders'
+import { useProjectQuery } from '../api/projects'
 import { useStartConversationMutation } from '../api/messaging'
 import { useBidsWithScoresQuery, useRecommendedContractorsQuery, type BidWithScore, type MatchScore } from '../api/matching'
 import { useContractorLeaderboardQuery } from '../api/contractors'
 import { useMaterials } from '../materials'
 import { useAssignSupplierMutation } from '../api/projects'
+import { RequestVerifierPanel, ViewPlanDocumentButton } from '../components/RequestVerifierPanel'
+import { FundingModeSelector, fundingModeLabel, type FundingMode } from '../components/FundingModeSelector'
 import {
   MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone,
 } from '../components/MilestoneScheduleEditor'
@@ -277,8 +280,13 @@ export function TenderBidsScreen() {
   // completed/cancelled together) via real completion — cancelling a
   // tender is blocked once a bid is accepted (see projectController.cancel).
   const job = jobs.find((j) => j.id === jobId)
+  // The cached `job` (from context.tsx's list query) is fine for display, but
+  // this screen needs the plan/location-verification fields too — fetched
+  // fresh here rather than widening the shared list query for every screen.
+  const { data: project } = useProjectQuery(jobId)
   const startConversation = useStartConversationMutation(devUserId)
   const [actingOn, setActingOn] = useState<string | null>(null)
+  const [verifierPanelOpen, setVerifierPanelOpen] = useState(false)
 
   const messageContact = async (contextType: 'bid' | 'project', contextId: string, contractorId: string | undefined, key: string) => {
     if (!contractorId) return
@@ -377,6 +385,54 @@ export function TenderBidsScreen() {
           />
         )}
       </div>
+
+      {project && (
+        <div className="px-5 py-5 space-y-4">
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div className="flex items-center justify-between mb-1">
+              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Project plan</div>
+              {project.hasPlanDocument && <ViewPlanDocumentButton projectId={project.id} />}
+            </div>
+            {!project.hasPlanDocument && (
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">
+                {project.hasExistingPlan ? 'A plan was indicated at creation but has not finished uploading yet.' : 'No existing project plan was provided for this tender.'}
+              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Location verification</div>
+            {project.locationVerificationStatus === 'confirmed' && (
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs font-semibold">
+                Confirmed by an independent Verifier.
+              </p>
+            )}
+            {project.locationVerificationStatus === 'requested' && (
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">
+                Awaiting confirmation from the assigned Verifier.
+              </p>
+            )}
+            {project.locationVerificationStatus === 'not_requested' && (
+              <>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mb-2">
+                  You haven't requested independent confirmation of the exact site location.
+                </p>
+                {!verifierPanelOpen ? (
+                  <button
+                    onClick={() => setVerifierPanelOpen(true)}
+                    className="text-xs font-semibold"
+                    style={{ fontFamily: FONT.sans, color: C.forest }}
+                  >
+                    Request a Verifier →
+                  </button>
+                ) : (
+                  <RequestVerifierPanel projectId={project.id} onAssigned={() => setVerifierPanelOpen(false)} />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="px-5 py-5">
         <SupplierAssignPanel job={job} projectId={jobId} />
@@ -478,6 +534,7 @@ function RoundCard({ round, isLatest }: { round: BidNegotiationRoundLike; isLate
         <span style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{fmt(round.price)}</span>
         <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs">{round.timelineDays} days</span>
       </div>
+      <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-1">{fundingModeLabel(round.fundingMode)}</div>
       {round.message && (
         <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs italic mt-1">"{round.message}"</p>
       )}
@@ -494,7 +551,7 @@ function RoundCard({ round, isLatest }: { round: BidNegotiationRoundLike; isLate
     </div>
   )
 }
-interface BidNegotiationRoundLike { proposedBy: 'funder' | 'contractor'; price: number; timelineDays: number; milestones: { title: string; description: string; amount: number }[]; message: string; createdAt: string }
+interface BidNegotiationRoundLike { proposedBy: 'funder' | 'contractor'; price: number; timelineDays: number; milestones: { title: string; description: string; amount: number }[]; message: string; fundingMode: FundingMode; createdAt: string }
 
 /** The negotiation surface for one bid — reachable by the funder (from the
  * bids table) and the contractor (from My Bids) alike. Shows the full
@@ -510,6 +567,11 @@ export function NegotiationScreen() {
   const { data: bid, isLoading } = useBidQuery(bidId)
   const updateStatus = useUpdateBidStatusMutation()
   const job = jobs.find((j) => j.id === bid?.jobId)
+  // The cached jobs list is useful for display, but it is not the authority
+  // for party identity: it may not contain a deep-linked tender yet. Resolve
+  // the project's owner from the bid's protected project record so a funder
+  // can never fall through to the contractor-facing waiting state.
+  const { data: project, isLoading: projectLoading } = useProjectQuery(bid?.jobId)
 
   const [mode, setMode] = useState<'view' | 'counter' | 'reject'>('view')
   const [useSchedule, setUseSchedule] = useState(false)
@@ -518,9 +580,10 @@ export function NegotiationScreen() {
   const [priceStr, setPriceStr] = useState('')
   const [timelineStr, setTimelineStr] = useState('')
   const [message, setMessage] = useState('')
+  const [fundingModeDraft, setFundingModeDraft] = useState<FundingMode>('staged')
   const [acting, setActing] = useState(false)
 
-  if (isLoading) return <AppShell noNav>{null}</AppShell>
+  if (isLoading || projectLoading) return <AppShell noNav>{null}</AppShell>
   if (!bid) {
     return (
       <AppShell noNav>
@@ -530,8 +593,9 @@ export function NegotiationScreen() {
     )
   }
 
+  const projectOwnerId = project?.ownerId ?? job?.ownerId
   const myParty: 'funder' | 'contractor' | null =
-    !devUserId ? null : job?.ownerId === devUserId ? 'funder' : bid.contractorId === devUserId ? 'contractor' : null
+    !devUserId ? null : projectOwnerId === devUserId ? 'funder' : bid.contractorId === devUserId ? 'contractor' : null
   const myTurn = myParty !== null && bid.status === 'pending' && bid.lastProposedBy !== myParty
   const currentRound = bid.rounds[bid.rounds.length - 1]
   const priceTarget = Number(priceStr) || 0
@@ -548,6 +612,7 @@ export function NegotiationScreen() {
       ? existing.map((m, i) => ({ id: i + 1, title: m.title, amount: String(m.amount), description: m.description }))
       : makeDefaultSchedule(3))
     setMessage('')
+    setFundingModeDraft(currentRound?.fundingMode ?? bid.fundingMode ?? 'staged')
     setMode('counter')
   }
 
@@ -559,6 +624,7 @@ export function NegotiationScreen() {
         timelineDays: Number(timelineStr),
         milestones: useSchedule ? milestones.map((m) => ({ title: m.title, description: m.description, amount: Number(m.amount) || 0 })) : [],
         message,
+        fundingMode: fundingModeDraft,
       })
       showToast({ title: 'Counter-offer sent', tone: 'success' })
       setMode('view')
@@ -622,6 +688,8 @@ export function NegotiationScreen() {
               style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }} />
           </div>
 
+          <FundingModeSelector value={fundingModeDraft} onChange={setFundingModeDraft} />
+
           <button
             onClick={() => setUseSchedule((v) => !v)}
             className="w-full flex items-center justify-between py-3 px-4 rounded-xl border-2 border-dashed text-sm font-semibold"
@@ -671,7 +739,11 @@ export function NegotiationScreen() {
         {bid.status === 'pending' && (
           <div className="rounded-xl border p-3 text-center" style={{ borderColor: myTurn ? C.forest : C.parchmentDark, background: myTurn ? 'var(--status-success-bg)' : C.parchment }}>
             <span style={{ fontFamily: FONT.sans, color: myTurn ? 'var(--status-success-text)' : C.inkMuted }} className="text-sm font-semibold">
-              {myTurn ? "It's your turn to respond" : `Waiting on the ${bid.lastProposedBy === 'funder' ? 'contractor' : 'funder'}`}
+              {myTurn
+                ? myParty === 'funder' ? 'Contractor bid received — review and respond' : "It's your turn to respond"
+                : myParty === 'contractor'
+                  ? 'Waiting on the funder'
+                  : 'Unable to identify your role in this negotiation'}
             </span>
           </div>
         )}
@@ -686,6 +758,12 @@ export function NegotiationScreen() {
 
       {myTurn && (
         <div className="px-5 pb-8 pt-4 border-t space-y-2 backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-center text-xs leading-relaxed">
+            Accepting locks in {fmt(currentRound?.price ?? bid.price)} with <strong style={{ color: C.ink }}>{fundingModeLabel(currentRound?.fundingMode ?? bid.fundingMode ?? 'staged').toLowerCase()}</strong>
+            {(currentRound?.fundingMode ?? bid.fundingMode) === 'full_upfront'
+              ? ' — the whole contract value goes into escrow before work starts.'
+              : ' — escrow is funded milestone by milestone; each milestone starts once it is funded.'}
+          </p>
           <PillButton onClick={accept} fullWidth disabled={acting}>{acting ? 'Working…' : `Accept — ${fmt(currentRound?.price ?? bid.price)}`}</PillButton>
           <div className="flex gap-2">
             <button onClick={openCounterForm} className="flex-1 py-3 rounded-xl font-semibold text-sm border" style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}>Counter</button>

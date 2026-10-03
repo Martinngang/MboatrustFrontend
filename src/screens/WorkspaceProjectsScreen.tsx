@@ -40,7 +40,8 @@ function dueDate(project: Project): Date {
  * destination the Sidebar's "Projects" item now points to. */
 export function WorkspaceProjectsScreen() {
   const nav = useNavigate()
-  const { devUserId } = useApp()
+  const { devUserId, roles } = useApp()
+  const canCreateProject = roles.includes('funder')
   // Scoped to projects this account owns — the bulk-cancel action below
   // 403s on anything else, so the platform-wide list useApp().projects
   // returns (needed elsewhere for Browse/Discover) was never the right
@@ -137,7 +138,9 @@ export function WorkspaceProjectsScreen() {
       <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <ViewSwitcher mode={mode} onChange={setMode} />
-        <PillButton onClick={() => nav('/funder/create')} variant="secondary">+ New project</PillButton>
+        {canCreateProject && (
+          <PillButton onClick={() => nav('/funder/create')} variant="secondary">+ New project</PillButton>
+        )}
       </div>
 
       {mode === 'list' && (

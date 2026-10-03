@@ -129,12 +129,22 @@ export function AdminOverviewScreen() {
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Platform overview</div>
           <h1 style={{ fontFamily: FONT.serif, color: C.ink }} className="mt-1 text-2xl font-bold">Dashboard</h1>
         </div>
-        <div className="hidden items-center gap-2 rounded-full px-3 py-1.5 sm:flex" style={{ background: 'var(--status-success-bg)' }}>
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--status-success-text)' }} />
-          <span style={{ fontFamily: FONT.mono, color: 'var(--status-success-text)' }} className="text-[10px] uppercase tracking-widest">
-            {health?.db.connected ? 'Systems normal' : 'Checking…'}
-          </span>
-        </div>
+        {(() => {
+          // `health` is undefined while the request is in flight, so
+          // "Checking…" only applies then — a resolved response with
+          // db.connected===false is a real outage and must read that way,
+          // not blend into the same "still loading" gray/green badge this
+          // used to render unconditionally regardless of the actual value.
+          const bg = !health ? 'var(--status-warning-bg)' : health.db.connected ? 'var(--status-success-bg)' : 'var(--status-error-bg)'
+          const fg = !health ? 'var(--status-warning-text)' : health.db.connected ? 'var(--status-success-text)' : 'var(--status-error-text)'
+          const label = !health ? 'Checking…' : health.db.connected ? 'Systems normal' : 'Database disconnected'
+          return (
+            <div className="hidden items-center gap-2 rounded-full px-3 py-1.5 sm:flex" style={{ background: bg }}>
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: fg }} />
+              <span style={{ fontFamily: FONT.mono, color: fg }} className="text-[10px] uppercase tracking-widest">{label}</span>
+            </div>
+          )
+        })()}
       </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">

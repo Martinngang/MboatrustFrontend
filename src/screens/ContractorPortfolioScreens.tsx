@@ -399,6 +399,80 @@ export function ContractorLeaderboardScreen() {
   const { data, isLoading } = useContractorLeaderboardQuery({ search: search || undefined, category: category === 'All' ? undefined : category, limit: 50 })
   const rows = data?.rows ?? []
 
+  // Signed-in visitors reach this page from the sidebar's "Contractor
+  // leaderboard" link. It is also a public page (no login required), with its
+  // own standalone header — which meant a signed-in user who clicked it lost
+  // the entire app shell: the sidebar (and its highlighted item) vanished.
+  // So: signed in → the normal shell; signed out → the public layout below.
+  const body = (
+    <div className="mx-auto max-w-5xl px-5 py-10 sm:px-8">
+      <div className="mb-8 max-w-2xl">
+        <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">Contractor Leaderboard</div>
+        <h1 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">The platform's top-performing contractors.</h1>
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-3 text-sm sm:text-base leading-relaxed">
+          Ranked by completed projects, ratings, reliability, and verified experience — no login required to browse.
+        </p>
+      </div>
+
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search contractors by name…"
+          className="w-full sm:max-w-xs border-2 rounded-xl px-4 py-2.5 outline-none text-sm"
+          style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
+        />
+        <div className="overflow-x-auto">
+          <ChipGroup options={['All', ...TRADES]} value={category} onChange={(v) => setCategory(v as string)} />
+        </div>
+      </div>
+
+      {isLoading ? (
+        <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-10 text-center text-sm">Loading…</p>
+      ) : rows.length === 0 ? (
+        <EmptyState icon="trophy" title="No contractors match these filters" illustration="tilt" />
+      ) : (
+        <StaggerList className="space-y-2.5">
+          {rows.map((r) => (
+            <StaggerItem key={r.userId}>
+              <Link
+                to={`/contractor/portfolio/${r.userId}`}
+                className="flex items-center gap-4 rounded-2xl border-2 p-4 transition-all hover:border-[var(--color-forest)]"
+                style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}
+              >
+                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-lg font-bold" style={{ fontFamily: FONT.serif, color: C.inkSubtle }}>
+                  {RANK_MEDAL[r.rank] ?? `#${r.rank}`}
+                </div>
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
+                  {r.fullName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '—'}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm truncate">{r.fullName}</div>
+                    {r.kycStatus === 'verified' && <AppIcon name="shieldCheck" size={13} style={{ color: C.forest }} />}
+                  </div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-0.5">
+                    {r.categories[0] ?? 'General Contracting'}{r.regions[0] ? ` · ${r.regions[0]}` : ''} · {r.yearsExperience} yrs
+                  </div>
+                  <div className="mt-1 flex items-center gap-3">
+                    <Stars rating={r.stats.avgRating ?? 0} />
+                    <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.stats.completedProjects} completed</span>
+                  </div>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                  <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-xl font-bold">{r.score.total}</div>
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">score</div>
+                </div>
+              </Link>
+            </StaggerItem>
+          ))}
+        </StaggerList>
+      )}
+    </div>
+  )
+
+  if (isLoggedIn) return <AppShell>{body}</AppShell>
+
   return (
     <div style={{ background: C.cream, color: C.ink, minHeight: '100vh' }}>
       <div className="sticky top-0 z-40 border-b backdrop-blur-md" style={{ borderColor: C.navGlassBorder, background: C.navGlassBg }}>
@@ -413,70 +487,7 @@ export function ContractorLeaderboardScreen() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-5xl px-5 py-10 sm:px-8">
-        <div className="mb-8 max-w-2xl">
-          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">Contractor Leaderboard</div>
-          <h1 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">The platform's top-performing contractors.</h1>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-3 text-sm sm:text-base leading-relaxed">
-            Ranked by completed projects, ratings, reliability, and verified experience — no login required to browse.
-          </p>
-        </div>
-
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search contractors by name…"
-            className="w-full sm:max-w-xs border-2 rounded-xl px-4 py-2.5 outline-none text-sm"
-            style={{ borderColor: C.parchmentDark, background: C.white, fontFamily: FONT.sans, color: C.ink }}
-          />
-          <div className="overflow-x-auto">
-            <ChipGroup options={['All', ...TRADES]} value={category} onChange={(v) => setCategory(v as string)} />
-          </div>
-        </div>
-
-        {isLoading ? (
-          <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="py-10 text-center text-sm">Loading…</p>
-        ) : rows.length === 0 ? (
-          <EmptyState icon="trophy" title="No contractors match these filters" illustration="tilt" />
-        ) : (
-          <StaggerList className="space-y-2.5">
-            {rows.map((r) => (
-              <StaggerItem key={r.userId}>
-                <Link
-                  to={`/contractor/portfolio/${r.userId}`}
-                  className="flex items-center gap-4 rounded-2xl border-2 p-4 transition-all hover:border-[var(--color-forest)]"
-                  style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowSm }}
-                >
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center text-lg font-bold" style={{ fontFamily: FONT.serif, color: C.inkSubtle }}>
-                    {RANK_MEDAL[r.rank] ?? `#${r.rank}`}
-                  </div>
-                  <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white font-bold" style={{ background: C.forest, fontFamily: FONT.serif }}>
-                    {r.fullName.split(' ').map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '—'}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <div style={{ fontFamily: FONT.sans }} className="font-semibold text-sm truncate">{r.fullName}</div>
-                      {r.kycStatus === 'verified' && <AppIcon name="shieldCheck" size={13} style={{ color: C.forest }} />}
-                    </div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-0.5">
-                      {r.categories[0] ?? 'General Contracting'}{r.regions[0] ? ` · ${r.regions[0]}` : ''} · {r.yearsExperience} yrs
-                    </div>
-                    <div className="mt-1 flex items-center gap-3">
-                      <Stars rating={r.stats.avgRating ?? 0} />
-                      <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{r.stats.completedProjects} completed</span>
-                    </div>
-                  </div>
-                  <div className="flex-shrink-0 text-right">
-                    <div style={{ fontFamily: FONT.serif, color: C.forest }} className="text-xl font-bold">{r.score.total}</div>
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider">score</div>
-                  </div>
-                </Link>
-              </StaggerItem>
-            ))}
-          </StaggerList>
-        )}
-      </div>
+      {body}
     </div>
   )
 }

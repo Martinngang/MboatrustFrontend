@@ -82,6 +82,9 @@ export function useRefreshEscrowStatusMutation() {
       qc.invalidateQueries({ queryKey: ['projectFundingSummary', escrow.projectId] })
       qc.invalidateQueries({ queryKey: ['project', escrow.projectId] })
       qc.invalidateQueries({ queryKey: ['projects'] })
+      // A completed fund also auto-releases any milestone approved while
+      // escrow was short, and moves the funder's dashboards/transactions.
+      for (const key of ['transactions', 'dashboard', 'contracts', 'contract']) qc.invalidateQueries({ queryKey: [key] })
     },
   })
 }

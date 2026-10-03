@@ -1,9 +1,26 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
+import type { LocationDetails, Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
+import type { RecommendedVerifier } from './reputation'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format'
+
+interface BackendLocationDetails {
+  placeName?: string
+  formattedAddress?: string
+  source?: string
+  resolvedAt?: string | null
+}
+
+function mapLocationDetails(d: BackendLocationDetails | null | undefined): LocationDetails | null {
+  if (!d || (!d.placeName && !d.formattedAddress)) return null
+  return {
+    placeName: d.placeName || null,
+    formattedAddress: d.formattedAddress || null,
+    source: (d.source as LocationDetails['source']) || null,
+  }
+}
 
 // ── Backend document shapes (only the fields we read/write) ────────────────
 interface BackendApprover {
@@ -17,6 +34,7 @@ interface BackendEvidence {
   notes: string
   geotag: { lat: number | null; lng: number | null } | null
   placeName: string | null
+  formattedAddress?: string | null
   capturedAt: string | null
   createdAt: string
   fileHash: string
@@ -24,6 +42,10 @@ interface BackendEvidence {
   timestampRecent: boolean | null
   duplicateFlag: boolean
   submittedBy?: { _id: string; fullName: string } | string
+  // 'ar_camera' for a live in-app HUD-camera capture, 'gallery_upload' for
+  // anything picked from an existing file/gallery. See the backend's
+  // Project.js EvidenceSchema.captureSource comment.
+  captureSource?: 'ar_camera' | 'gallery_upload'
 }
 interface BackendChangeRequest {
   reason: string
@@ -40,6 +62,8 @@ interface BackendMilestone {
   requiresVideo: boolean
   approvers: BackendApprover[]
   changeRequests?: BackendChangeRequest[]
+  location?: { lat: number | null; lng: number | null }
+  locationDetails?: BackendLocationDetails | null
 }
 interface BackendProject {
   _id: string
@@ -49,6 +73,9 @@ interface BackendProject {
   category: string
   locationName: string
   location: { lat: number | null; lng: number | null }
+  locationDetails?: BackendLocationDetails | null
+  locationBeforeVerification?: { lat: number | null; lng: number | null } | null
+  locationBeforeVerificationDetails?: BackendLocationDetails | null
   imageUrl: string
   totalAmount: number
   status: string
@@ -58,8 +85,44 @@ interface BackendProject {
   coSignerId: { _id: string; fullName: string } | string | null
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  hasExistingPlan?: boolean
+  hasPlanDocument?: boolean
+  locationVerificationStatus?: 'not_requested' | 'requested' | 'confirmed'
 }
-interface FundingSummary {
+/** Per-milestone escrow cover, derived by the backend's waterfall
+ * (milestoneFundingService.getFundingState) — never computed client-side. */
+export interface MilestoneFunding {
+  id: string
+  name: string
+  amount: number
+  status: string
+  fundedAmount: number
+  unfundedAmount: number
+  fundingStatus: 'released' | 'funded' | 'partially_funded' | 'unfunded'
+  /** The contractor explicitly chose "Proceed Without Full Escrow". */
+  proceedAtRisk: boolean
+  /** Work may start/continue: funded, or proceeding at own risk. */
+  workable: boolean
+  /** Approved by the funder, waiting for escrow to cover it. */
+  awaitingFunds: boolean
+}
+
+/** Contract value, funded escrow, released and unfunded amounts — four
+ * separate figures, all from one backend source of truth. `raised`,
+ * `released` and `escrowBalance` are the legacy names of
+ * fundedAmount / releasedAmount / inEscrow. */
+export interface FundingSummary {
+  totalContractValue: number
+  fundedAmount: number
+  releasedAmount: number
+  inEscrow: number
+  unfundedAmount: number
+  remainingToFund: number
+  pendingFunding: number
+  fundingMode: 'staged' | 'full_upfront'
+  milestones: MilestoneFunding[]
+  nextMilestoneToFund: { id: string; name: string; shortfall: number } | null
+  suggestedFundingAmount: number
   raised: number
   released: number
   escrowBalance: number
@@ -91,11 +154,13 @@ function mapEvidence(e: BackendEvidence): MilestoneEvidence {
     notes: e.notes || null,
     geotag: e.geotag && e.geotag.lat != null && e.geotag.lng != null ? { lat: e.geotag.lat, lng: e.geotag.lng } : null,
     placeName: e.placeName || null,
+    formattedAddress: e.formattedAddress || null,
     capturedAt: e.capturedAt ?? e.createdAt,
     locationMatch: e.locationMatch,
     timestampRecent: e.timestampRecent,
     duplicateFlag: e.duplicateFlag,
     submittedByName: typeof e.submittedBy === 'object' ? e.submittedBy.fullName : null,
+    captureSource: e.captureSource === 'ar_camera' ? 'ar_camera' : 'gallery_upload',
   }
 }
 
@@ -112,6 +177,8 @@ function mapMilestone(m: BackendMilestone): Milestone {
     requiresCosigner: m.requiresCosigner,
     requiresVideo: m.requiresVideo,
     approvers: (m.approvers || []).map(mapApprover),
+    location: m.location?.lat != null && m.location?.lng != null ? { lat: m.location.lat, lng: m.location.lng } : null,
+    locationDetails: mapLocationDetails(m.locationDetails),
   }
 }
 
@@ -132,6 +199,12 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined): P
     // reached the frontend at all, so a project's location was only ever a
     // display string with nothing to put a map marker on.
     coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
+    locationDetails: mapLocationDetails(doc.locationDetails),
+    locationBeforeVerification:
+      doc.locationBeforeVerification?.lat != null && doc.locationBeforeVerification?.lng != null
+        ? { lat: doc.locationBeforeVerification.lat, lng: doc.locationBeforeVerification.lng }
+        : null,
+    locationBeforeVerificationDetails: mapLocationDetails(doc.locationBeforeVerificationDetails),
     totalAmount: doc.totalAmount,
     raised: funding?.raised ?? 0,
     status: mapProjectStatus(doc.status),
@@ -148,6 +221,9 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined): P
     coSignerName: doc.coSignerId && typeof doc.coSignerId === 'object' ? doc.coSignerId.fullName : undefined,
     materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
     preferredSupplierId: doc.preferredSupplierId ?? null,
+    hasExistingPlan: doc.hasExistingPlan ?? false,
+    hasPlanDocument: doc.hasPlanDocument ?? false,
+    locationVerificationStatus: doc.locationVerificationStatus ?? 'not_requested',
   }
 }
 
@@ -195,12 +271,16 @@ export function useProjectsInfiniteQuery(limit = 12) {
  * they signed up). The backend already supports ?ownerId= on GET /projects;
  * this was simply never being passed. Disabled until a real ownerId is
  * known so a screen can't render a false-empty "no projects" state during
- * the brief window before devUserId resolves. */
+ * the brief window before devUserId resolves.
+ *
+ * No projectType filter: a funder owns the tenders they post (see
+ * assertCanCreateProjectType), so restricting this to the retired 'funding'
+ * type silently returned nothing for every real owner. */
 export function useMyProjectsQuery(ownerId: string | undefined) {
   return useQuery({
     queryKey: ['projects', 'mine', ownerId],
     queryFn: async (): Promise<Project[]> => {
-      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', ownerId } })
+      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { ownerId, limit: 100 } })
       const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
       return data.data.map((p, i) => mapProject(p, fundings[i]))
     },
@@ -215,12 +295,16 @@ export function useMyProjectsQuery(ownerId: string | undefined) {
  * /projects (which looks at who funded, not who owns). Without this,
  * FunderHome had no correct way to ask for its own dashboard data and fell
  * back to the full public catalog — every funder's "my total funded" and
- * "my active projects" were actually everyone's. */
+ * "my active projects" were actually everyone's.
+ *
+ * No projectType filter: funders fund tenders ('funding' projects are
+ * retired and can no longer be created), so restricting to 'funding' here
+ * silently returned nothing for every real funder. */
 export function useMyFundedProjectsQuery(funderId: string | undefined) {
   return useQuery({
     queryKey: ['projects', 'funded-by-me', funderId],
     queryFn: async (): Promise<Project[]> => {
-      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { projectType: 'funding', funderId } })
+      const { data } = await api.get<{ data: BackendProject[] }>('/projects', { params: { funderId, limit: 100 } })
       const fundings = await Promise.all(data.data.map((p) => fetchFundingSummary(p._id)))
       return data.data.map((p, i) => mapProject(p, fundings[i]))
     },
@@ -379,7 +463,55 @@ export function useFundProjectMutation() {
       )
       return data.data as FundProjectResult
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    // Funding changes contract-level numbers, per-milestone cover, the funder's
+    // dashboards and (via auto-release) transactions — refresh all of them.
+    onSuccess: () => invalidateFundingQueries(qc),
+  })
+}
+
+export function invalidateFundingQueries(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of ['projects', 'project', 'projectFundingSummary', 'escrow', 'transactions', 'dashboard', 'contracts', 'contract']) {
+    qc.invalidateQueries({ queryKey: [key] })
+  }
+}
+
+/** Fee-on-top quote: what the funder actually pays for `netAmount` to be
+ * credited to escrow (the backend owns the fee maths). */
+export interface FundingQuote {
+  currency: string
+  netAmount: number
+  creditedNet: number
+  grossAmount: number
+  feeAmount: number
+  feeRate: number
+}
+
+export function useFundingQuoteQuery(projectId: string | undefined, netAmount: number, currency = 'XAF') {
+  return useQuery({
+    queryKey: ['fundingQuote', projectId, netAmount, currency],
+    queryFn: async (): Promise<FundingQuote> => {
+      const { data } = await api.get<{ data: FundingQuote }>(`/projects/${projectId}/funding-quote`, { params: { netAmount, currency } })
+      return data.data
+    },
+    enabled: Boolean(projectId) && netAmount > 0,
+    staleTime: 30_000,
+  })
+}
+
+/** "Proceed Without Full Escrow" — the awarded contractor explicitly accepts
+ * the risk of working on an under-funded milestone. Only an override of the
+ * funded-milestone gate: it never funds, releases or guarantees anything. */
+export function useProceedAtRiskMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, milestoneId }: { projectId: string; milestoneId: string }) => {
+      const { data } = await api.post<{ data: { funding: FundingSummary } }>(
+        `/projects/${projectId}/milestones/${milestoneId}/proceed-at-risk`,
+        { acknowledged: true }
+      )
+      return data.data
+    },
+    onSuccess: () => invalidateFundingQueries(qc),
   })
 }
 
@@ -417,6 +549,222 @@ export function useAssignSupplierMutation() {
   })
 }
 
+/** Dedicated endpoint, not the generic project update — PATCH /projects/:id
+ * blocks ANY edit once a project leaves draft/open (to protect the escrow
+ * ledger), but correcting a mislabeled pin has to keep working after that,
+ * same reasoning as assign-supplier above. */
+/** The extra fields LocationEditModal's onSave now hands back — already
+ * resolved client-side (an address search's own result) or left for the
+ * backend to reverse-geocode itself (GPS/manual drag) if omitted. Either
+ * way, Project.locationDetails never ends up empty. */
+interface LocationSaveExtras {
+  placeName?: string | null
+  formattedAddress?: string | null
+  locationSource?: LocationDetails['source']
+}
+
+export function useUpdateProjectLocationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, location, ...extras }: { projectId: string; location: { lat: number; lng: number } } & LocationSaveExtras) => {
+      const { data } = await api.patch<{ data: BackendProject }>(`/projects/${projectId}/location`, { location, ...extras })
+      return mapProject(data.data, undefined)
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export function useUpdateMilestoneLocationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, milestoneId, location, ...extras }: { projectId: string; milestoneId: string; location: { lat: number; lng: number } } & LocationSaveExtras) => {
+      const { data } = await api.patch<{ data: BackendProject }>(`/projects/${projectId}/milestones/${milestoneId}/location`, { location, ...extras })
+      return mapProject(data.data, undefined)
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+/** Uploads (or replaces) the project's plan document — a follow-up
+ * multipart call after creation, since POST /projects itself is plain
+ * JSON (see createProject's hasExistingPlan field). */
+export function useUploadPlanDocumentMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, file }: { projectId: string; file: File }) => {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post(`/projects/${projectId}/plan-document`, form)
+      return data.data as { hasPlanDocument: boolean }
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export interface PlanDocument {
+  fileUrl: string
+  fileName: string
+  mimeType: string
+  uploadedAt: string
+}
+
+/** A mutation, not a query — fetching the real fileUrl is a deliberate,
+ * on-demand user action ("View plan"), not something to pre-fetch/cache
+ * indefinitely, and the backend 403s for anyone not authorized to see it
+ * (owner/admin/contractor/verifier — see projectController.getPlanDocument). */
+export function useFetchPlanDocumentMutation() {
+  return useMutation({
+    mutationFn: async (projectId: string): Promise<PlanDocument> => {
+      const { data } = await api.get<{ data: PlanDocument }>(`/projects/${projectId}/plan-document`)
+      return data.data
+    },
+  })
+}
+
+/** Owner-only — same shared verifier-matching/scoring engine the admin-only
+ * land-listing/milestone assignment flow already uses (see
+ * api/reputation.ts's useRecommendedVerifiersQuery), just scoped to the
+ * project's own owner via a dedicated endpoint instead of admin-only. */
+export function useRecommendedVerifiersForProjectQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['recommendedVerifiers', 'project_location', projectId],
+    queryFn: async (): Promise<RecommendedVerifier[]> => {
+      const { data } = await api.get<{ data: RecommendedVerifier[] }>(`/projects/${projectId}/recommended-verifiers`)
+      return data.data
+    },
+    enabled: enabled && !!projectId,
+    staleTime: 10_000,
+  })
+}
+
+export function useRequestLocationVerificationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, verifierId }: { projectId: string; verifierId: string }) => {
+      const { data } = await api.post(`/projects/${projectId}/request-location-verification`, { verifierId })
+      return data.data
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+// ── Verifier invitations — a funder inviting someone THEY already know,
+// distinct from picking an already-approved verifier off the recommended
+// list above. See verifierInvitationController.js on the backend. ─────────
+export interface VerifierInvitation {
+  _id: string
+  projectId: string
+  email: string
+  name: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expiresAt: string
+  createdAt: string
+}
+
+interface BackendVerifierInvitation {
+  _id: string
+  projectId: string
+  email: string
+  name: string
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expiresAt: string
+  createdAt: string
+}
+
+function mapInvitation(doc: BackendVerifierInvitation): VerifierInvitation {
+  return { _id: doc._id, projectId: doc.projectId, email: doc.email, name: doc.name, status: doc.status, expiresAt: doc.expiresAt, createdAt: doc.createdAt }
+}
+
+/** Owner/admin-only — sends the invite email directly and also returns the
+ * real shareable link, so the funder can copy/share it themselves rather
+ * than relying solely on the email arriving. */
+export function useInviteVerifierMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, email, name }: { projectId: string; email: string; name?: string }) => {
+      const { data } = await api.post<{ data: { invitation: BackendVerifierInvitation; inviteUrl: string } }>(
+        `/projects/${projectId}/verifier-invitations`,
+        { email, name }
+      )
+      return { invitation: mapInvitation(data.data.invitation), inviteUrl: data.data.inviteUrl }
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['verifierInvitations', projectId] })
+    },
+  })
+}
+
+export function useProjectVerifierInvitationsQuery(projectId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['verifierInvitations', projectId],
+    queryFn: async (): Promise<VerifierInvitation[]> => {
+      const { data } = await api.get<{ data: BackendVerifierInvitation[] }>(`/projects/${projectId}/verifier-invitations`)
+      return data.data.map(mapInvitation)
+    },
+    enabled: enabled && !!projectId,
+    staleTime: 10_000,
+  })
+}
+
+export function useRevokeVerifierInvitationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ projectId, invitationId }: { projectId: string; invitationId: string }) => {
+      const { data } = await api.post<{ data: BackendVerifierInvitation }>(`/projects/${projectId}/verifier-invitations/${invitationId}/revoke`)
+      return mapInvitation(data.data)
+    },
+    onSuccess: (_data, { projectId }) => {
+      qc.invalidateQueries({ queryKey: ['verifierInvitations', projectId] })
+    },
+  })
+}
+
+export interface VerifierInvitationPreview {
+  status: 'pending' | 'accepted' | 'revoked' | 'expired'
+  expiresAt: string
+  projectTitle: string
+  locationName: string
+  funderName: string
+}
+
+/** Public — no auth — for the accept page (#/verifier-invite/:token) to
+ * render context before/during signup. A plain function, not a hook: this
+ * is fetched imperatively from a route param, not tied to any component's
+ * render-driven query lifecycle in a way that benefits from useQuery. */
+export async function fetchVerifierInvitationPreview(token: string): Promise<VerifierInvitationPreview> {
+  const { data } = await api.get<{ data: VerifierInvitationPreview }>(`/verifier-invitations/${token}`)
+  return data.data
+}
+
+/** Authenticated — any signed-in user (new or existing). Grants the
+ * accepting user roleType:'verifier' and creates their VerificationTask;
+ * never creates a VerifierProfile and never touches the funder's account —
+ * see verifierInvitationController.acceptInvitation. */
+export function useAcceptVerifierInvitationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const { data } = await api.post<{ data: { task: unknown; project: BackendProject } }>(`/verifier-invitations/${token}/accept`)
+      return data.data
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
 export interface SubmitEvidenceInput {
   projectId: string
   milestoneId: string
@@ -425,18 +773,26 @@ export interface SubmitEvidenceInput {
   geotag?: { lat: number; lng: number } | null
   /** Already resolved client-side (see useReverseGeocodeQuery in
    * MilestoneSubmitScreen) — sent along so the backend persists the same
-   * name the submitter saw during capture instead of re-geocoding, and
-   * every later viewer reads a real place name instead of raw coordinates. */
+   * name/address the submitter saw during capture instead of re-geocoding,
+   * and every later viewer reads a real place name instead of raw
+   * coordinates. */
   placeName?: string | null
+  formattedAddress?: string | null
   notes?: string
+  // Defaults preserve the exact previous behavior (always 'photo'/
+  // 'gallery_upload') for every pre-existing call site that doesn't pass
+  // these — only the new AR-camera capture path sends 'video'/'ar_camera'.
+  type?: 'photo' | 'video'
+  captureSource?: 'ar_camera' | 'gallery_upload'
 }
 
 export function useSubmitEvidenceMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag, placeName, notes }: SubmitEvidenceInput) => {
+    mutationFn: async ({ projectId, milestoneId, file, fileUrl, geotag, placeName, formattedAddress, notes, type, captureSource }: SubmitEvidenceInput) => {
       const form = new FormData()
-      form.append('type', 'photo')
+      form.append('type', type ?? 'photo')
+      if (captureSource) form.append('captureSource', captureSource)
       if (file) form.append('file', file)
       if (fileUrl) form.append('fileUrl', fileUrl)
       if (geotag) {
@@ -444,6 +800,7 @@ export function useSubmitEvidenceMutation() {
         form.append('geotagLng', String(geotag.lng))
       }
       if (placeName) form.append('placeName', placeName)
+      if (formattedAddress) form.append('formattedAddress', formattedAddress)
       if (notes) form.append('notes', notes)
       const { data } = await api.post(`/projects/${projectId}/milestones/${milestoneId}/evidence`, form)
       return data.data
@@ -466,14 +823,21 @@ export function useDecideApprovalMutation() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ projectId, milestoneId, status }: { projectId: string; milestoneId: string; status: 'approved' | 'rejected' }) => {
-      const { data } = await api.post<{ data: { project: BackendProject; releasedEscrow: unknown } }>(
+      const { data } = await api.post<{ data: { project: BackendProject; releasedEscrow: unknown; awaitingFunds?: boolean; shortfall?: number } }>(
         `/projects/${projectId}/milestones/${milestoneId}/approval`,
         { status },
         { headers: { 'Idempotency-Key': crypto.randomUUID() } }
       )
       // Only the milestone/approver state is needed by callers — funding
       // totals/rating aren't relevant to an approval decision's result.
-      return { project: mapProject(data.data.project, undefined), releasedEscrow: data.data.releasedEscrow }
+      return {
+        project: mapProject(data.data.project, undefined),
+        releasedEscrow: data.data.releasedEscrow,
+        // Approved while escrow was short: nothing was released — the payment
+        // goes out automatically once the funder tops up.
+        awaitingFunds: Boolean(data.data.awaitingFunds),
+        shortfall: data.data.shortfall ?? 0,
+      }
     },
     // Same gap useSubmitEvidenceMutation was fixed for above: a funder
     // approves/rejects from MilestoneReviewScreen (FunderScreens.tsx), which
@@ -483,10 +847,7 @@ export function useDecideApprovalMutation() {
     // a milestone (including releasing escrow) left every project-detail
     // screen showing the stale pre-approval status until an unrelated
     // refetch happened to occur.
-    onSuccess: (_data, { projectId }) => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['project', projectId] })
-    },
+    onSuccess: () => invalidateFundingQueries(qc),
   })
 }
 

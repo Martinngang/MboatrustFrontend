@@ -1,7 +1,8 @@
-import { useState, lazy, Suspense, type ReactNode } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense, type ReactNode } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router-dom'
-import { useApp, fmt } from '../context'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useApp, fmt, type LocationDetails } from '../context'
+import { useLocationCapture } from '../hooks/useLocationCapture'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
 import { AdminShell } from '../components/shell/AdminShell'
 import { Drawer } from '../components/shell/Drawer'
@@ -19,10 +20,13 @@ import { api, apiErrorMessage } from '../api/client'
 import { useUpsertMyContractorProfileMutation } from '../api/contractors'
 import { useBidsQuery } from '../api/tenders'
 import { useCreateRatingMutation, useRatingSummaryQuery } from '../api/reputation'
+import { useDashboardQuery, formatRating } from '../api/dashboard'
 import { useAllCertificationsQuery, useDecideCertificationMutation } from '../api/certifications'
 import { useVerifierApplicationsQuery, useDecideVerifierApplicationMutation } from '../api/verifierProfiles'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation } from '../api/contracts'
-import { useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { useProjectQuery, useProjectFundingSummaryQuery, useUpdateProjectLocationMutation, useUploadPlanDocumentMutation } from '../api/projects'
+import { RequestVerifierPanel, ViewPlanDocumentButton } from '../components/RequestVerifierPanel'
+import { FundingBreakdown, MilestoneFundingBadge } from '../components/FundingBreakdown'
 import { uploadAttachment } from '../api/messaging'
 import { useEscrowQuery, useRefreshEscrowStatusMutation } from '../api/escrow'
 // Code-split: Leaflet (pulled in by ProjectMap.tsx) would otherwise inflate
@@ -31,8 +35,14 @@ import { useEscrowQuery, useRefreshEscrowStatusMutation } from '../api/escrow'
 const ProjectLocationSection = lazy(() =>
   import('../components/ProjectMap').then((m) => ({ default: m.ProjectLocationSection }))
 )
+const LocationEditModal = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.LocationEditModal }))
+)
+const LocationCaptureCard = lazy(() =>
+  import('../components/LocationCaptureCard').then((m) => ({ default: m.LocationCaptureCard }))
+)
 import { useVisitRequestsQuery, useRequestVisitMutation, useConfirmVisitMutation, useCancelVisitMutation } from '../api/landVisits'
-import { useDisputesQuery, useResolveDisputeMutation, useCreateDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery } from '../api/reputation'
+import { useDisputesQuery, useResolveDisputeMutation, useCreateDisputeMutation, useRiskFlagsQuery, useRiskFlagSummaryQuery, type BackendDispute, useVerificationTasksQuery, useStartVerificationTaskMutation, useSubmitVerificationReportMutation, type BackendVerificationTask, useCreateVerificationTaskMutation, useRecommendedVerifiersQuery, mapTaskLocationDetails } from '../api/reputation'
 import { usePlatformStatsQuery, useAdminUsersQuery, useDeactivateUserMutation, useReactivateUserMutation, useSystemHealthQuery } from '../api/admin'
 import { AppIcon, type IconName } from '../components/icons'
 import { EmptyState } from '../components/EmptyState'
@@ -49,9 +59,15 @@ import {
 } from '../api/support'
 
 function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
+  const coordinates = t.target?.coordinates?.lat != null && t.target?.coordinates?.lng != null
+    ? { lat: t.target.coordinates.lat, lng: t.target.coordinates.lng }
+    : null
+  const confirmedLocation = t.confirmedLocation?.lat != null && t.confirmedLocation?.lng != null
+    ? { lat: t.confirmedLocation.lat, lng: t.confirmedLocation.lng }
+    : null
   return {
     id: t._id,
-    type: t.targetType === 'land_listing' ? 'land' : 'milestone',
+    type: t.targetType === 'land_listing' ? 'land' : t.targetType === 'project_location' ? 'location' : 'milestone',
     projectId: t.target?.projectId ?? t.targetId,
     projectTitle: t.target?.title ?? 'Assignment',
     milestoneTitle: t.target?.milestoneTitle,
@@ -61,6 +77,10 @@ function mapVerificationTask(t: BackendVerificationTask): VerifierTask {
     dueDate: `Assigned ${new Date(t.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`,
     status: t.status === 'assigned' ? 'pending' : t.status,
     report: t.confirmedMatch !== null ? { match: !!t.confirmedMatch, notes: t.reportText, photos: t.reportPhotos.length, submittedAt: '' } : undefined,
+    coordinates,
+    locationDetails: mapTaskLocationDetails(t.target?.locationDetails),
+    confirmedLocation,
+    confirmedLocationDetails: mapTaskLocationDetails(t.confirmedLocationDetails),
   }
 }
 
@@ -238,6 +258,7 @@ export function ContractorOnboardingScreen() {
 // ── Post a job / tender screen ────────────────────────────────────────────────
 export function PostJobScreen() {
   const nav = useNavigate()
+  const routeLocation = useLocation()
   const { addJob } = useApp()
   const { show: showToast } = useToast()
   const [form, setForm] = useState({ title: '', description: '', category: '', region: '', town: '', budget: '', deadline: '' })
@@ -246,7 +267,28 @@ export function PostJobScreen() {
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [createdJobId, setCreatedJobId] = useState<string | null>(null)
+  const isCreateProjectFlow = routeLocation.pathname === '/funder/create'
   const categories = PROJECT_CATEGORIES
+
+  // "Approximate" keeps today's existing behavior unchanged (a town centroid
+  // via getTownCoords) — a funder who never engages with this new section at
+  // all gets exactly what shipped before it existed. "Exact" opens the same
+  // address-search/draggable-pin map already used for post-creation pin
+  // correction. "Verifier" explicitly leaves location unset at creation and
+  // surfaces a verifier-request panel on the success screen below.
+  const [locationChoice, setLocationChoice] = useState<'approximate' | 'exact' | 'verifier'>('approximate')
+  const [exactCoordinates, setExactCoordinates] = useState<{ lat: number; lng: number } | null>(null)
+  // Resolved the moment the pin is set (address search/GPS/manual drag —
+  // see LocationEditModal) so the feedback below shows a real place name,
+  // not just raw coordinates, and it's submitted alongside the pin so it's
+  // never lost on the way to the backend.
+  const [exactLocationDetails, setExactLocationDetails] = useState<{ placeName?: string | null; formattedAddress?: string | null; source?: LocationDetails['source'] } | null>(null)
+  const [exactLocationModalOpen, setExactLocationModalOpen] = useState(false)
+
+  const [hasPlan, setHasPlan] = useState<'yes' | 'no'>('no')
+  const [planFile, setPlanFile] = useState<File | null>(null)
+  const uploadPlanDocument = useUploadPlanDocumentMutation()
+  const [planUploadFailed, setPlanUploadFailed] = useState(false)
 
   const budgetNumber = Number(form.budget) || 0
   // Previously hardcoded to the literal string 'Cameroon' with no field to
@@ -256,15 +298,22 @@ export function PostJobScreen() {
   const location = form.region && form.town ? `${form.town}, ${getCameroonRegionName(form.region)}` : ''
   const canSubmit = form.title.trim() !== '' && form.category !== '' && form.region !== '' && form.town !== '' && budgetNumber > 0
     && scheduleRowsValid(milestones) && scheduleTotal(milestones) === budgetNumber
+    && (hasPlan === 'no' || planFile !== null)
 
   const submit = async () => {
     setSubmitting(true)
+    setPlanUploadFailed(false)
     try {
       const created = await addJob({
         title: form.title,
         category: form.category || 'General',
         location,
-        coordinates: getTownCoords(form.region, form.town),
+        coordinates: locationChoice === 'exact' ? exactCoordinates
+          : locationChoice === 'verifier' ? null
+          : getTownCoords(form.region, form.town),
+        ...(locationChoice === 'exact' && exactLocationDetails
+          ? { placeName: exactLocationDetails.placeName, formattedAddress: exactLocationDetails.formattedAddress, locationSource: exactLocationDetails.source }
+          : {}),
         budget: budgetNumber,
         deadline: form.deadline || 'TBD',
         bids: 0,
@@ -273,8 +322,17 @@ export function PostJobScreen() {
         posted: 'Just now',
         description: form.description,
         status: 'open',
+        hasExistingPlan: hasPlan === 'yes',
       })
       setCreatedJobId(created.id)
+      if (hasPlan === 'yes' && planFile) {
+        try {
+          await uploadPlanDocument.mutateAsync({ projectId: created.id, file: planFile })
+        } catch (err) {
+          setPlanUploadFailed(true)
+          showToast({ title: 'Project created, but the plan upload failed', description: apiErrorMessage(err, 'You can retry from the project screen'), tone: 'error' })
+        }
+      }
       setSubmitted(true)
     } catch (err) {
       showToast({ title: 'Failed to post job', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -286,18 +344,43 @@ export function PostJobScreen() {
   if (submitted) {
     return (
       <AppShell noNav>
-        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+        <div className="flex flex-col items-center justify-center px-8 pt-10 pb-8 text-center">
           <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: 'var(--status-info-bg)' }}>
             <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
               <rect x="6" y="6" width="24" height="24" rx="3" stroke="var(--status-info-text)" strokeWidth="2" />
               <path d="M12 18L16 22L24 14" stroke="var(--status-info-text)" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
-          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Job posted</h1>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
-            Your job is now visible to verified contractors. You will receive bids within 48 hours. You can browse and
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">{isCreateProjectFlow ? 'Project created' : 'Job posted'}</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-6">
+            Your project is now visible to verified contractors. You will receive bids within 48 hours. You can browse and
             assign a materials supplier for it any time from the bids screen.
           </p>
+          {planUploadFailed && createdJobId && planFile && (
+            <button
+              onClick={async () => {
+                try {
+                  await uploadPlanDocument.mutateAsync({ projectId: createdJobId, file: planFile })
+                  setPlanUploadFailed(false)
+                  showToast({ title: 'Plan uploaded', tone: 'success' })
+                } catch (err) {
+                  showToast({ title: 'Still failed to upload', description: apiErrorMessage(err, 'Please try again later'), tone: 'error' })
+                }
+              }}
+              disabled={uploadPlanDocument.isPending}
+              className="mb-4 text-xs font-semibold underline"
+              style={{ fontFamily: FONT.sans, color: C.forest }}
+            >
+              {uploadPlanDocument.isPending ? 'Retrying…' : 'Retry uploading the plan document →'}
+            </button>
+          )}
+        </div>
+        {locationChoice === 'verifier' && createdJobId && (
+          <div className="px-5 pb-6 sm:mx-auto sm:max-w-md">
+            <RequestVerifierPanel projectId={createdJobId} />
+          </div>
+        )}
+        <div className="px-5 pb-8 sm:mx-auto sm:max-w-md">
           <PillButton onClick={() => nav(createdJobId ? `/funder/tender/${createdJobId}/bids` : '/funder/contractors')} fullWidth>View bids as they come in</PillButton>
         </div>
       </AppShell>
@@ -306,7 +389,7 @@ export function PostJobScreen() {
 
   return (
     <AppShell noNav>
-      <Header title="Post a Job" back />
+      <Header title={isCreateProjectFlow ? 'Create New Project' : 'Post a Job'} back />
 
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         <div>
@@ -339,6 +422,93 @@ export function PostJobScreen() {
           />
         </div>
 
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">
+            Do you know the exact site location?
+          </label>
+          <div className="grid grid-cols-1 gap-2">
+            {([
+              { value: 'approximate' as const, label: 'Use the approximate location above', desc: 'A reasonable centroid for the town/region picked above.' },
+              { value: 'exact' as const, label: 'I know the exact location', desc: 'Search an address or drop a pin on a map.' },
+              { value: 'verifier' as const, label: "I don't have the exact location", desc: 'Request a Verifier to visit the site and confirm it for you.' },
+            ]).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { setLocationChoice(opt.value); if (opt.value === 'exact') setExactLocationModalOpen(true) }}
+                className="text-left rounded-xl border-2 px-3.5 py-2.5 transition-colors"
+                style={{
+                  borderColor: locationChoice === opt.value ? C.forest : C.parchmentDark,
+                  background: locationChoice === opt.value ? 'var(--status-success-bg)' : C.white,
+                }}
+              >
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{opt.label}</div>
+                <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5">{opt.desc}</div>
+                {opt.value === 'exact' && locationChoice === 'exact' && (
+                  <div style={{ fontFamily: FONT.mono, color: exactCoordinates ? C.forest : C.inkSubtle }} className="text-[10px] uppercase tracking-wider mt-1.5">
+                    {exactCoordinates
+                      ? `Pinned: ${exactLocationDetails?.placeName || `${exactCoordinates.lat.toFixed(5)}, ${exactCoordinates.lng.toFixed(5)}`} — tap to change`
+                      : 'Tap to set the exact pin →'}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+          <Suspense fallback={null}>
+            <LocationEditModal
+              open={exactLocationModalOpen}
+              onClose={() => setExactLocationModalOpen(false)}
+              initialLat={exactCoordinates?.lat ?? null}
+              initialLng={exactCoordinates?.lng ?? null}
+              title="Set the exact site location"
+              onSave={({ lat, lng, placeName, formattedAddress, source }) => {
+                setExactCoordinates({ lat, lng })
+                setExactLocationDetails({ placeName, formattedAddress, source })
+                setExactLocationModalOpen(false)
+              }}
+            />
+          </Suspense>
+        </div>
+
+        <div>
+          <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">
+            Do you already have a project plan?
+          </label>
+          <div className="flex gap-2 mb-2">
+            {(['no', 'yes'] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => { setHasPlan(v); if (v === 'no') setPlanFile(null) }}
+                className="flex-1 rounded-xl border-2 py-2.5 text-sm font-semibold capitalize"
+                style={{
+                  borderColor: hasPlan === v ? C.forest : C.parchmentDark,
+                  background: hasPlan === v ? 'var(--status-success-bg)' : C.white,
+                  fontFamily: FONT.sans, color: C.ink,
+                }}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+          {hasPlan === 'yes' && (
+            <label className="flex items-center justify-between gap-2 rounded-xl border-2 border-dashed px-3.5 py-3 cursor-pointer" style={{ borderColor: C.parchmentDark }}>
+              <span style={{ fontFamily: FONT.sans, color: planFile ? C.ink : C.inkSubtle }} className="text-xs truncate">
+                {planFile ? planFile.name : 'Tap to attach a plan (PDF, image, or Word doc)'}
+              </span>
+              <span style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-wider flex-shrink-0">
+                {planFile ? 'Change' : 'Attach'}
+              </span>
+              <input
+                type="file"
+                accept="image/*,.pdf,.doc,.docx"
+                className="hidden"
+                onChange={(e) => setPlanFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Budget (XAF)</label>
@@ -366,13 +536,13 @@ export function PostJobScreen() {
         <div className="rounded-xl p-3 border" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Escrow protection</div>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
-            The full budget is held in escrow before work begins. Contractors are paid per milestone after proof is verified.
+            Escrow is funded milestone by milestone as you go — you never have to lock the whole budget up front unless you and the contractor agree to. A milestone starts once it is funded, and the contractor is paid for it after proof is verified.
           </p>
         </div>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        <PillButton onClick={submit} fullWidth disabled={!canSubmit || submitting}>{submitting ? 'Publishing…' : 'Publish job'}</PillButton>
+        <PillButton onClick={submit} fullWidth disabled={!canSubmit || submitting}>{submitting ? 'Publishing…' : isCreateProjectFlow ? 'Create project' : 'Publish job'}</PillButton>
       </div>
     </AppShell>
   )
@@ -392,7 +562,11 @@ export function ContractSummaryScreen() {
   // funder's side, accepting a bid had no next step at all — the contract
   // just sat there with nothing funded and no way from the UI to change that.
   const { data: fundingSummary } = useProjectFundingSummaryQuery(contract?.projectId)
-  const remainingToFund = project ? Math.max(0, project.totalAmount - (fundingSummary?.raised ?? 0)) : 0
+  // Backend-derived (milestoneFundingService): total contract value, funded,
+  // released and unfunded stay four separate figures; nothing is recomputed here.
+  const remainingToFund = fundingSummary?.remainingToFund ?? 0
+  const suggestedFunding = fundingSummary?.suggestedFundingAmount ?? 0
+  const milestoneFunding = new Map((fundingSummary?.milestones ?? []).map((m) => [m.id, m]))
   // A provider whose webhook can't reach this backend (Stripe, on
   // localhost) leaves its escrow at status='pending' until something
   // explicitly reconciles it — without checking for that here, "Fund
@@ -402,6 +576,9 @@ export function ContractSummaryScreen() {
   const { data: pendingEscrows } = useEscrowQuery({ projectId: contract?.projectId, type: 'fund', status: 'pending' })
   const hasPendingPayment = (pendingEscrows?.entries.length ?? 0) > 0
   const refreshEscrowStatus = useRefreshEscrowStatusMutation()
+  const [locationEditOpen, setLocationEditOpen] = useState(false)
+  const updateLocation = useUpdateProjectLocationMutation()
+  const [verifierPanelOpen, setVerifierPanelOpen] = useState(false)
   const [checkingStatus, setCheckingStatus] = useState(false)
   const checkPendingPayment = async () => {
     if (!pendingEscrows?.entries.length) return
@@ -486,8 +663,78 @@ export function ContractSummaryScreen() {
         </div>
 
         <Suspense fallback={<div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white, minHeight: 64 }} />}>
-          <ProjectLocationSection locationName={project.location} coordinates={project.coordinates} />
+          <ProjectLocationSection
+            locationName={project.location}
+            coordinates={project.coordinates}
+            locationDetails={project.locationDetails}
+            milestones={project.milestones}
+            onEditLocation={() => setLocationEditOpen(true)}
+          />
+          <LocationEditModal
+            open={locationEditOpen}
+            onClose={() => setLocationEditOpen(false)}
+            initialLat={project.coordinates?.lat ?? null}
+            initialLng={project.coordinates?.lng ?? null}
+            title="Edit project location"
+            saving={updateLocation.isPending}
+            onSave={({ lat, lng, placeName, formattedAddress, source }) => {
+              updateLocation.mutate(
+                { projectId: project.id, location: { lat, lng }, placeName, formattedAddress, locationSource: source },
+                {
+                  onSuccess: () => {
+                    setLocationEditOpen(false)
+                    showToast({ title: 'Location updated', tone: 'success' })
+                  },
+                  onError: (err) => showToast({ title: 'Could not update location', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }),
+                }
+              )
+            }}
+          />
         </Suspense>
+
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div className="flex items-center justify-between mb-1">
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Project plan</div>
+            {project.hasPlanDocument && <ViewPlanDocumentButton projectId={project.id} />}
+          </div>
+          {!project.hasPlanDocument && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">
+              {project.hasExistingPlan ? 'A plan was indicated at creation but has not finished uploading yet.' : 'No existing project plan was provided for this tender.'}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Location verification</div>
+          {project.locationVerificationStatus === 'confirmed' && (
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs font-semibold">
+              Confirmed by an independent Verifier.
+            </p>
+          )}
+          {project.locationVerificationStatus === 'requested' && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">
+              Awaiting confirmation from the assigned Verifier.
+            </p>
+          )}
+          {project.locationVerificationStatus === 'not_requested' && (
+            <>
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mb-2">
+                You haven't requested independent confirmation of the exact site location.
+              </p>
+              {!verifierPanelOpen ? (
+                <button
+                  onClick={() => setVerifierPanelOpen(true)}
+                  className="text-xs font-semibold"
+                  style={{ fontFamily: FONT.sans, color: C.forest }}
+                >
+                  Request a Verifier →
+                </button>
+              ) : (
+                <RequestVerifierPanel projectId={project.id} onAssigned={() => setVerifierPanelOpen(false)} />
+              )}
+            </>
+          )}
+        </div>
 
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">Payment schedule</div>
@@ -503,6 +750,7 @@ export function ContractSummaryScreen() {
                       notifications; this is the tender-side equivalent of what
                       ProjectDetailScreen already shows for funding projects. */}
                   <StatusBadge status={m.status} />
+                  <MilestoneFundingBadge milestone={milestoneFunding.get(m.id)} />
                 </div>
                 <span style={{ fontFamily: FONT.mono, color: C.ink }} className="text-xs font-bold">{fmt(m.amount)}</span>
               </div>
@@ -528,13 +776,10 @@ export function ContractSummaryScreen() {
         )}
 
         {/* Awarding a bid only locks in the terms — it never moves money on
-            its own. Nothing else on the funder's side prompted funding the
-            escrow after that, so a fully-awarded contract could sit forever
-            with zero funded and no visible next step. */}
+            its own. Escrow is funded milestone by milestone (staged) unless the
+            parties agreed to full upfront funding. */}
+        {fundingSummary && <FundingBreakdown funding={fundingSummary} />}
         <div className="rounded-2xl border-2 p-4" style={{ borderColor: hasPendingPayment ? C.steel : remainingToFund > 0 ? C.amber : C.forest, background: hasPendingPayment ? 'var(--status-info-bg)' : remainingToFund > 0 ? 'var(--status-warning-bg)' : 'var(--status-success-bg)' }}>
-          <div style={{ fontFamily: FONT.mono, color: hasPendingPayment ? 'var(--status-info-text)' : remainingToFund > 0 ? 'var(--status-warning-text)' : 'var(--status-success-text)' }} className="text-[10px] uppercase tracking-widest mb-1">
-            Escrow funding
-          </div>
           {hasPendingPayment ? (
             <>
               <p style={{ fontFamily: FONT.sans, color: 'var(--status-info-text)' }} className="text-sm font-semibold mb-1">
@@ -547,15 +792,21 @@ export function ContractSummaryScreen() {
           ) : remainingToFund > 0 ? (
             <>
               <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm font-semibold mb-1">
-                {fmt(fundingSummary?.raised ?? 0)} of {fmt(contract.totalAmount)} funded
+                {fundingSummary?.fundingMode === 'full_upfront'
+                  ? `Full upfront funding — fund the remaining ${fmt(remainingToFund)} before any milestone can start.`
+                  : fundingSummary?.nextMilestoneToFund
+                    ? `Next to fund: "${fundingSummary.nextMilestoneToFund.name}" — ${fmt(suggestedFunding)}`
+                    : `${fmt(remainingToFund)} still to fund`}
               </p>
               <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs leading-relaxed">
-                Work can't start until this is in escrow. Fund the remaining {fmt(remainingToFund)} to release the contractor to begin.
+                {fundingSummary?.fundingMode === 'full_upfront'
+                  ? 'The contractor starts once the whole contract value is held in escrow.'
+                  : 'A milestone can start once its amount is held in escrow. Fund it now, or top up before each next milestone — the contractor may also choose to start early at their own risk.'}
               </p>
             </>
           ) : (
             <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-sm font-semibold">
-              Fully funded — {fmt(contract.totalAmount)} held in escrow.
+              Fully funded — the whole contract value is covered by escrow.
             </p>
           )}
         </div>
@@ -577,7 +828,9 @@ export function ContractSummaryScreen() {
           </PillButton>
         ) : remainingToFund > 0 && (
           <PillButton onClick={() => nav('/funder/fund', { state: { projectId: project.id } })} fullWidth>
-            Fund escrow — {fmt(remainingToFund)}
+            {fundingSummary?.fundingMode === 'staged' && fundingSummary.nextMilestoneToFund
+              ? `Fund next milestone — ${fmt(suggestedFunding)}`
+              : `Fund escrow — ${fmt(remainingToFund)}`}
           </PillButton>
         )}
         {contract.status === 'active' && (
@@ -889,6 +1142,9 @@ export function VerifierRegistrationScreen() {
   const [step, setStep] = useState<'info' | 'id'>('info')
   const [form, setForm] = useState({ specialty: '', regionCode: '', bio: '' })
   const [idFile, setIdFile] = useState<File | null>(null)
+  // A verifier's own service-area location — auto-fires on mount since
+  // there's no existing value to overwrite (a brand-new application).
+  const locationCapture = useLocationCapture({ autoAttempt: true })
 
   const finish = () => {
     registerVerifier({
@@ -896,6 +1152,9 @@ export function VerifierRegistrationScreen() {
       regions: form.regionCode ? [getCameroonRegionName(form.regionCode)] : [],
       bio: form.bio.trim(),
       file: idFile,
+      ...(locationCapture.status === 'success' && locationCapture.coords
+        ? { location: locationCapture.coords, placeName: locationCapture.placeName, formattedAddress: locationCapture.formattedAddress, locationSource: 'gps' }
+        : {}),
     })
     nav('/verifier/dashboard')
   }
@@ -923,6 +1182,11 @@ export function VerifierRegistrationScreen() {
               />
             </div>
             <RegionSelect value={form.regionCode} onChange={(regionCode) => setForm((f) => ({ ...f, regionCode }))} label="Region you cover" />
+            <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+              <Suspense fallback={null}>
+                <LocationCaptureCard capture={locationCapture} title="Your service-area location" idleLabel="Get my location" />
+              </Suspense>
+            </div>
             <div>
               <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">Relevant experience (optional)</label>
               <textarea
@@ -987,7 +1251,7 @@ export function VerifierDashboard() {
   const { verifierProfile } = useVerification()
   const { devUserId, name } = useApp()
   const { data: rawTasks } = useVerificationTasksQuery(devUserId ? { verifierId: devUserId } : {})
-  const { data: ratingSummary } = useRatingSummaryQuery(devUserId ?? undefined)
+  const { data: dash } = useDashboardQuery('verifier', Boolean(verifierProfile && verifierProfile.applicationStatus === 'approved'))
   const verifierTasks = (rawTasks ?? []).map(mapVerificationTask)
   const [view, setView] = useState<'list' | 'map'>('list')
 
@@ -1031,9 +1295,9 @@ export function VerifierDashboard() {
           title={verifierProfile.userName || name}
           background={`linear-gradient(135deg, ${C.moss} 0%, ${C.forest} 100%)`}
           stats={[
-            { label: 'Pending', value: String(pending.length) },
-            { label: 'In progress', value: String(inProgress.length) },
-            { label: 'Rating', value: ratingSummary && ratingSummary.count > 0 ? ratingSummary.average!.toFixed(1) : '—' },
+            { label: 'Pending', value: dash ? String(dash.stats.assigned) : String(pending.length) },
+            { label: 'In progress', value: dash ? String(dash.stats.inProgress) : String(inProgress.length) },
+            { label: 'Rating', value: dash ? formatRating(dash.stats.rating, dash.stats.ratingCount) : '—' },
           ]}
           action={
             <button onClick={() => nav('/verifier/profile')} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
@@ -1131,7 +1395,9 @@ export function VerifierTaskDetailScreen() {
 
   const checklist = task.type === 'land'
     ? ['Plot boundaries match the survey plan', 'No visible encroachments or disputes', 'Access road and neighbouring plots confirmed']
-    : ['Work matches the submitted photo/video proof', 'Location GPS confirmed on-site', 'Materials and quality are adequate']
+    : task.type === 'location'
+      ? ['Confirm you are physically on-site', 'Capture a fresh GPS fix rather than an estimate', 'Note any discrepancy from the funder\'s original pin']
+      : ['Work matches the submitted photo/video proof', 'Location GPS confirmed on-site', 'Materials and quality are adequate']
 
   const begin = async () => {
     try {
@@ -1151,7 +1417,7 @@ export function VerifierTaskDetailScreen() {
           <div className="flex items-start justify-between gap-2">
             <div>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">
-                {task.type === 'land' ? 'Land site inspection' : 'Milestone verification'}
+                {task.type === 'land' ? 'Land site inspection' : task.type === 'location' ? 'Location verification' : 'Milestone verification'}
               </div>
               <div style={{ fontFamily: FONT.serif }} className="font-bold">{task.projectTitle}</div>
               {task.milestoneTitle && <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{task.milestoneTitle}</div>}
@@ -1159,9 +1425,14 @@ export function VerifierTaskDetailScreen() {
             <StatusBadge status={task.status} />
           </div>
           <div className="mt-3 flex justify-between border-t pt-3" style={{ borderColor: C.parchmentDark }}>
-            <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">{task.location}</span>
+            <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">{task.locationDetails?.placeName || task.location}</span>
             <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-xs">Due {task.dueDate}</span>
           </div>
+          {task.type === 'location' && task.coordinates && (
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-1">
+              {task.coordinates.lat.toFixed(5)}, {task.coordinates.lng.toFixed(5)}
+            </div>
+          )}
         </div>
 
         <div>
@@ -1182,6 +1453,13 @@ export function VerifierTaskDetailScreen() {
           <div className="rounded-xl border p-4" style={{ background: 'var(--status-success-bg)', borderColor: 'var(--status-success-text)' }}>
             <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Already submitted</div>
             <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">{task.report.notes}</p>
+            {task.type === 'location' && task.confirmedLocation && (
+              <p style={{ fontFamily: FONT.mono, color: 'var(--status-success-text)' }} className="text-[11px] mt-2">
+                {task.confirmedLocationDetails?.placeName
+                  ? `${task.confirmedLocationDetails.placeName} (${task.confirmedLocation.lat.toFixed(5)}, ${task.confirmedLocation.lng.toFixed(5)})`
+                  : `${task.confirmedLocation.lat.toFixed(5)}, ${task.confirmedLocation.lng.toFixed(5)}`}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -1213,6 +1491,23 @@ export function VerifierReportScreen() {
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
+  // 'location' tasks need a confirmed pin alongside the pass/fail verdict —
+  // auto-fires the moment we know this is a location task (the verifier is
+  // standing on-site specifically to confirm it) rather than waiting for a
+  // button press. Failure/timeout/denial surfaces the shared red
+  // "Auto-Get My Location" retry button via LocationCaptureCard.
+  const isLocationTask = task?.type === 'location'
+  const locationCapture = useLocationCapture({ autoAttempt: false })
+  const locationTriggered = useRef(false)
+  useEffect(() => {
+    if (isLocationTask && !locationTriggered.current) {
+      locationTriggered.current = true
+      locationCapture.retry()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLocationTask])
+  const confirmedPos = locationCapture.status === 'success' ? locationCapture.coords : null
+
   // A sworn on-site inspection report can't be backed by stock photos — this
   // used to cycle through 2 hardcoded Unsplash URLs, letting a verifier sign
   // and submit a "site inspection" without ever visiting anything. Real
@@ -1233,9 +1528,21 @@ export function VerifierReportScreen() {
 
   const submit = async () => {
     if (!decision) return
+    if (isLocationTask && !confirmedPos) {
+      showToast({ title: 'Location required', description: 'Please capture your current location before submitting.', tone: 'error' })
+      return
+    }
     setSubmitting(true)
     try {
-      await submitMutation.mutateAsync({ taskId: task.id, reportText: notes, reportPhotos: photos, confirmedMatch: decision === 'match' })
+      await submitMutation.mutateAsync({
+        taskId: task.id,
+        reportText: notes,
+        reportPhotos: photos,
+        confirmedMatch: decision === 'match',
+        ...(isLocationTask && confirmedPos
+          ? { confirmedLocation: confirmedPos, placeName: locationCapture.placeName, formattedAddress: locationCapture.formattedAddress }
+          : {}),
+      })
       setSubmitted(true)
     } catch (err) {
       showToast({ title: 'Failed to submit report', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -1279,6 +1586,14 @@ export function VerifierReportScreen() {
           <div style={{ fontFamily: FONT.sans }} className="font-semibold">{task.projectTitle}</div>
           {task.milestoneTitle && <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{task.milestoneTitle}</div>}
         </div>
+
+        {isLocationTask && (
+          <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+            <Suspense fallback={null}>
+              <LocationCaptureCard capture={locationCapture} title="Confirm the site location" idleLabel="Use my current location" />
+            </Suspense>
+          </div>
+        )}
 
         <div>
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">On-site photo evidence</div>

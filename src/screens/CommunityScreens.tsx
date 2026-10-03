@@ -497,7 +497,7 @@ interface ShowcaseProject {
 
 export function PublicShowcaseScreen() {
   const nav = useNavigate()
-  const { projects } = useApp()
+  const { projects, isLoggedIn } = useApp()
   const [category, setCategory] = useState('All')
   const [region, setRegion] = useState('All')
 
@@ -521,6 +521,56 @@ export function PublicShowcaseScreen() {
   const categories = ['All', ...Array.from(new Set(all.map((p) => p.category)))]
   const regions = ['All', ...Array.from(new Set(all.map((p) => p.region)))]
   const filtered = all.filter((p) => (category === 'All' || p.category === category) && (region === 'All' || p.region === region))
+
+  // Reached by signed-in users from the Menu hub's "Public project showcase"
+  // link, but also a public page with its own standalone header (which
+  // prompts "Get started") — so a signed-in visitor used to lose the whole
+  // app shell, sidebar and highlighted item included. Signed in → the normal
+  // shell; signed out → the public layout below.
+  const body = (
+    <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8">
+      <div className="mb-10 max-w-2xl">
+        <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">Public showcase</div>
+        <h1 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">Verified projects, completed and delivered.</h1>
+        <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-3 text-sm sm:text-base leading-relaxed">
+          Every project here was funded through escrow, verified on-site, and completed with photo proof — no login required to browse.
+        </p>
+      </div>
+
+      <div className="mb-3">
+        <ChipGroup options={categories} value={category} onChange={(v) => setCategory(v as string)} />
+      </div>
+      <div className="mb-8">
+        <ChipGroup options={regions} value={region} onChange={(v) => setRegion(v as string)} tone="amber" />
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon="hardHat" title="No projects match these filters" illustration="tilt" />
+      ) : (
+        <StaggerList className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {filtered.map((p) => (
+            <StaggerItem key={p.id}>
+              <Card variant="elevated" tilt>
+                <div className="p-3 pb-0">
+                  <img src={p.afterImage} alt={p.title} className="w-full h-48 object-cover rounded-xl" />
+                </div>
+                <div className="p-5">
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.region}</div>
+                  <div style={{ fontFamily: FONT.serif }} className="mt-1 text-base font-bold">{p.title}</div>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold">{fmt(p.fundedAmount)}</span>
+                    <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.completedDate}</span>
+                  </div>
+                </div>
+              </Card>
+            </StaggerItem>
+          ))}
+        </StaggerList>
+      )}
+    </div>
+  )
+
+  if (isLoggedIn) return <AppShell>{body}</AppShell>
 
   return (
     <div style={{ background: C.cream, color: C.ink, minHeight: '100vh' }}>
@@ -546,46 +596,7 @@ export function PublicShowcaseScreen() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl px-5 py-10 sm:px-8">
-        <div className="mb-10 max-w-2xl">
-          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-xs uppercase tracking-[0.3em]">Public showcase</div>
-          <h1 style={{ fontFamily: FONT.serif }} className="mt-3 text-3xl font-bold sm:text-4xl">Verified projects, completed and delivered.</h1>
-          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-3 text-sm sm:text-base leading-relaxed">
-            Every project here was funded through escrow, verified on-site, and completed with photo proof — no login required to browse.
-          </p>
-        </div>
-
-        <div className="mb-3">
-          <ChipGroup options={categories} value={category} onChange={(v) => setCategory(v as string)} />
-        </div>
-        <div className="mb-8">
-          <ChipGroup options={regions} value={region} onChange={(v) => setRegion(v as string)} tone="amber" />
-        </div>
-
-        {filtered.length === 0 ? (
-          <EmptyState icon="hardHat" title="No projects match these filters" illustration="tilt" />
-        ) : (
-          <StaggerList className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((p) => (
-              <StaggerItem key={p.id}>
-                <Card variant="elevated" tilt>
-                  <div className="p-3 pb-0">
-                    <img src={p.afterImage} alt={p.title} className="w-full h-48 object-cover rounded-xl" />
-                  </div>
-                  <div className="p-5">
-                    <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider">{p.category} · {p.region}</div>
-                    <div style={{ fontFamily: FONT.serif }} className="mt-1 text-base font-bold">{p.title}</div>
-                    <div className="mt-3 flex items-center justify-between">
-                      <span style={{ fontFamily: FONT.serif, color: C.forest }} className="text-sm font-bold">{fmt(p.fundedAmount)}</span>
-                      <span style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px]">{p.completedDate}</span>
-                    </div>
-                  </div>
-                </Card>
-              </StaggerItem>
-            ))}
-          </StaggerList>
-        )}
-      </div>
+      {body}
     </div>
   )
 }

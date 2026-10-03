@@ -18,6 +18,7 @@ import { CommandPaletteProvider } from './components/shell/CommandPalette'
 import { KeyboardShortcutsProvider } from './components/shell/KeyboardShortcuts'
 import { NotificationsDrawerProvider } from './components/NotificationsDrawer'
 import { FeedbackModalProvider } from './components/FeedbackModal'
+import { RouteErrorBoundary } from './components/shell/RouteErrorBoundary'
 
 // Landing
 import { LandingScreen } from './screens/Landing'
@@ -76,6 +77,7 @@ import { GlobalActivityScreen } from './screens/GlobalActivityScreen'
 import { TemplatesScreen } from './screens/TemplatesScreen'
 import { TeamManagementScreen } from './screens/TeamManagementScreen'
 import { NotificationPreferencesScreen } from './screens/NotificationPreferencesScreen'
+import { VerifierInviteAcceptScreen } from './screens/VerifierInviteScreens'
 // PWA
 import { InstallModal } from './components/InstallModal'
 
@@ -191,6 +193,7 @@ export default function App() {
                 <HashRouter>
                   <WebFrame>
                     <AuthGate>
+                    <RouteErrorBoundary>
                     <Routes>
                       {/* Onboarding */}
                       <Route path="/" element={<RedirectIfAuthed><LandingScreen /></RedirectIfAuthed>} />
@@ -222,6 +225,11 @@ export default function App() {
                       <Route path="/profile" element={<ProfileSetupScreen />} />
                       {/* Public — no login required */}
                       <Route path="/showcase" element={<PublicShowcaseScreen />} />
+                      {/* Not gated by RedirectIfAuthed — reachable both signed-out
+                          (create/sign-in through it) and signed-in (an existing
+                          user accepting a fresh invitation), same reasoning as
+                          /role above. */}
+                      <Route path="/verifier-invite/:token" element={<VerifierInviteAcceptScreen />} />
                       <Route path="/contractors/leaderboard" element={<ContractorLeaderboardScreen />} />
 
                       {/* Home (role-aware) */}
@@ -239,6 +247,11 @@ export default function App() {
                       {/* Funder */}
                       <Route path="/funder/browse" element={<P><BrowseProjectsScreen /></P>} />
                       <Route path="/funder/project/:id" element={<P><ProjectDetailScreen /></P>} />
+                      {/* The workspace's New Project action targets this stable
+                          creation entry point. It must use the same funder gate
+                          as the explicit post-job route because POST /projects
+                          only permits funders to create tenders. */}
+                      <Route path="/funder/create" element={<RequireRole role="funder"><PostJobScreen /></RequireRole>} />
                       <Route path="/funder/fund" element={<P><FundProjectScreen /></P>} />
                       <Route path="/funder/review/:id?" element={<P><MilestoneReviewScreen /></P>} />
                       <Route path="/funder/dispute/:id/:milestoneId" element={<P><DisputeScreen /></P>} />
@@ -352,6 +365,7 @@ export default function App() {
         
                       <Route path="*" element={<Navigate to="/" replace />} />
                     </Routes>
+                    </RouteErrorBoundary>
                     </AuthGate>
                   </WebFrame>
                 </HashRouter>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { useMyCertificationsQuery, useRemoveCertificationMutation } from '../api/certifications'
@@ -13,16 +13,23 @@ import { DeferredReveal, SkeletonCard } from '../components/Skeleton'
 import { useRatingsQuery } from '../api/reputation'
 import { useTransactionsQuery } from '../api/transactions'
 import { useContractsQuery, useCompleteContractMutation, useTerminateContractMutation, useWithdrawableBalanceQuery, useWithdrawMutation } from '../api/contracts'
-import { useProjectQuery } from '../api/projects'
+import { useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { FundingBreakdown, MilestoneFundingBadge } from '../components/FundingBreakdown'
+import { ProceedAtRiskPanel } from '../components/ProceedAtRiskPanel'
+import { FundingModeSelector, type FundingMode } from '../components/FundingModeSelector'
 import { useJobsInfiniteQuery } from '../api/tenders'
 import {
   MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone,
 } from '../components/MilestoneScheduleEditor'
 import { useOfflineQueue } from '../offlineQueue'
-import { useReverseGeocodeQuery } from '../api/tools'
+import { useLocationCapture } from '../hooks/useLocationCapture'
+import { LocationCaptureCard } from '../components/LocationCaptureCard'
 import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
-import { AIPhotoInspector } from '../components/AIPhotoInspector'
+import { inspectConstructionPhoto, type AIPhotoInspectionResult } from '../api/geminiAI'
+import { ARCameraCapture, type CapturedMedia } from '../components/ARCameraCapture'
+import { MediaChooserSheet } from '../components/MediaChooserSheet'
+import { MediaPreviewModal } from '../components/MediaPreviewModal'
 import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
 
 // ── Browse jobs ────────────────────────────────────────────────────────────────
@@ -221,7 +228,7 @@ export function JobDetailScreen() {
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-1">Total budget</div>
             <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-xl font-bold">{fmt(job.budget)}</div>
-            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-0.5">Escrow-protected</div>
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] mt-0.5">Paid from escrow per milestone</div>
           </div>
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-1">Deadline</div>
@@ -256,7 +263,7 @@ export function JobDetailScreen() {
         <div className="rounded-xl p-4 border" style={{ background: 'var(--status-success-bg)', borderColor: C.forestLight }}>
           <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Payment protection</div>
           <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs leading-relaxed">
-            The full budget is held in escrow before work begins. You get paid for each milestone after submitting photo/video proof and approval. Zero chasing invoices.
+            Escrow is funded milestone by milestone (or fully upfront, if agreed in negotiation). A milestone starts once it is funded, and you get paid for it after submitting photo/video proof and approval. Zero chasing invoices.
           </p>
         </div>
       </div>
@@ -303,6 +310,7 @@ export function SubmitBidScreen() {
   const [useSchedule, setUseSchedule] = useState(false)
   const [weekly, setWeekly] = useState(false)
   const [milestones, setMilestones] = useState<DraftScheduleMilestone[]>(makeDefaultSchedule(3))
+  const [fundingMode, setFundingMode] = useState<FundingMode>('staged')
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -372,6 +380,7 @@ export function SubmitBidScreen() {
         status: 'pending',
         submitted: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         milestones: useSchedule ? milestones.map((m) => ({ title: m.title, description: m.description, amount: Number(m.amount) || 0 })) : undefined,
+        fundingMode,
       })
       setSubmitted(true)
     } catch (err) {
@@ -476,6 +485,8 @@ export function SubmitBidScreen() {
             onWeeklyChange={setWeekly}
           />
         )}
+
+        <FundingModeSelector value={fundingMode} onChange={setFundingMode} />
 
         <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
           <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">This is a negotiable opening proposal</div>
@@ -623,6 +634,10 @@ export function ContractDetailScreen() {
   const { data: contracts, isLoading: contractLoading } = useContractsQuery({ bidId })
   const contract = contracts?.[0]
   const { data: project, isLoading: projectLoading } = useProjectQuery(contract?.projectId)
+  // Contract value / funded / released / unfunded, plus per-milestone escrow
+  // cover — all backend-derived, kept live by the realtime invalidations.
+  const { data: fundingSummary } = useProjectFundingSummaryQuery(contract?.projectId)
+  const milestoneFunding = new Map((fundingSummary?.milestones ?? []).map((f) => [f.id, f]))
   const completeContract = useCompleteContractMutation()
   const terminateContract = useTerminateContractMutation()
   const [acting, setActing] = useState<'complete' | 'terminate' | null>(null)
@@ -667,19 +682,23 @@ export function ContractDetailScreen() {
       </Header>
 
       <div className="px-5 py-5 space-y-5 sm:mx-auto sm:max-w-2xl">
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { label: 'Contract value', value: fmt(contract.totalAmount) },
-            { label: 'Paid so far', value: fmt(paid) },
-          ].map(({ label, value }) => (
-            <Card key={label} variant="glass">
-              <div className="p-3">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
-                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
-              </div>
-            </Card>
-          ))}
-        </div>
+        {fundingSummary ? (
+          <FundingBreakdown funding={fundingSummary} title="Contract funding" />
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'Contract value', value: fmt(contract.totalAmount) },
+              { label: 'Paid so far', value: fmt(paid) },
+            ].map(({ label, value }) => (
+              <Card key={label} variant="glass">
+                <div className="p-3">
+                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-widest mb-0.5">{label}</div>
+                  <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{value}</div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {contract.status !== 'active' && <StatusBadge status={contract.status} />}
 
@@ -706,7 +725,10 @@ export function ContractDetailScreen() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{m.title}</span>
-                    <StatusBadge status={m.status} />
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      <StatusBadge status={m.status} />
+                      <MilestoneFundingBadge milestone={milestoneFunding.get(m.id)} />
+                    </div>
                   </div>
                   <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px] mt-0.5">{fmt(m.amount)}</div>
                   {m.description && (
@@ -767,9 +789,23 @@ export function ContractDetailScreen() {
           </button>
         )}
 
-        {contract?.status === 'active' && (
-          <PillButton onClick={() => nav(`/contractor/submit/${project.id}`)} fullWidth>Submit next milestone proof</PillButton>
-        )}
+        {contract?.status === 'active' && (() => {
+          const nextOpen = milestones.find((m) => m.status !== 'released' && m.status !== 'approved')
+          const nextFunding = nextOpen ? milestoneFunding.get(nextOpen.id) : undefined
+          const locked = Boolean(nextFunding && !nextFunding.workable && nextFunding.fundingStatus !== 'released')
+          return (
+            <>
+              {locked && (
+                <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs text-center leading-relaxed">
+                  "{nextOpen?.title}" isn't funded yet. Open it to see your options.
+                </p>
+              )}
+              <PillButton onClick={() => nav(`/contractor/submit/${project.id}`)} fullWidth>
+                {locked ? 'Open next milestone' : 'Submit next milestone proof'}
+              </PillButton>
+            </>
+          )
+        })()}
       </div>
     </AppShell>
   )
@@ -1001,18 +1037,39 @@ export function ContractorProfileScreen() {
 }
 
 // ── Milestone submission ─────────────────────────────────────────────────────
+function fileToDataUrl(file: File | Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 function filesToDataUrls(files: FileList): Promise<string[]> {
-  return Promise.all(
-    Array.from(files).map(
-      (file) =>
-        new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.onerror = reject
-          reader.readAsDataURL(file)
-        }),
-    ),
-  )
+  return Promise.all(Array.from(files).map(fileToDataUrl))
+}
+
+// One evidence item, whether picked from the gallery or captured live
+// through the AR HUD camera — replaces the old parallel `photos`/`photoFiles`
+// arrays (which could desync: deleting a preview thumbnail didn't remove its
+// matching File). `previewUrl` is always a real data: URL (never a
+// blob: object URL) so it survives an offline-queue round trip through
+// IndexedDB/reload the same way a gallery pick always has.
+interface MediaItem {
+  previewUrl: string
+  file: File
+  mediaType: 'photo' | 'video'
+  captureSource: 'ar_camera' | 'gallery_upload'
+  capturedAt?: string
+  geotagLat?: number
+  geotagLng?: number
+  placeName?: string
+  // Gemini inspection result — only ever computed for the first PHOTO added
+  // to a submission, whichever way it arrived (camera or gallery). See
+  // runAiInspection below.
+  aiResult?: AIPhotoInspectionResult | null
+  aiAnalysing?: boolean
 }
 
 /** The contractor's milestone-proof-submission flow for a tender they were
@@ -1030,35 +1087,30 @@ export function MilestoneSubmitScreen() {
   // Called unconditionally (before the not-found early return below) per the
   // Rules of Hooks — the query itself no-ops via `enabled` until both ids resolve.
   const { data: materialOrders = [] } = useMaterialOrdersForMilestoneQuery(project?.id, milestone?.id)
+  // Escrow cover for THIS milestone (backend waterfall). Work only proceeds on
+  // a funded milestone — or one the contractor explicitly opens at own risk.
+  const { data: fundingSummary } = useProjectFundingSummaryQuery(project?.id)
+  const milestoneFunding = fundingSummary?.milestones.find((f) => f.id === milestone?.id)
+  const locked = Boolean(milestoneFunding && !milestoneFunding.workable && milestoneFunding.fundingStatus !== 'released')
   const [step, setStep] = useState<'capture' | 'submitted' | 'queued'>('capture')
   const [submitting, setSubmitting] = useState(false)
   const [notes, setNotes] = useState('')
-  const [photos, setPhotos] = useState<string[]>([])
-  const [photoFiles, setPhotoFiles] = useState<File[]>([])
-  const [geo, setGeo] = useState<{ lat: number; lng: number; label: string } | null>(null)
-  const [geoStatus, setGeoStatus] = useState<'locating' | 'ok' | 'unavailable'>('locating')
-  // Resolves the raw fix to a real place name ("Bonabéri, Douala, Littoral
-  // Region") the moment it comes in — geo.label stays the raw-coordinate
-  // fallback for while this is loading or if it fails (offline, geocoder
-  // down), so there's always something to show either way.
-  const { data: placeName, isLoading: placeNameLoading } = useReverseGeocodeQuery(geo?.lat, geo?.lng)
-
-  // Real GPS — works fully offline, no network required to read device location.
-  useEffect(() => {
-    if (!('geolocation' in navigator)) {
-      setGeoStatus('unavailable')
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords
-        setGeo({ lat: latitude, lng: longitude, label: `${latitude.toFixed(5)}, ${longitude.toFixed(5)}` })
-        setGeoStatus('ok')
-      },
-      () => setGeoStatus('unavailable'),
-      { enableHighAccuracy: true, timeout: 8000 },
-    )
-  }, [])
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([])
+  const [chooserVisible, setChooserVisible] = useState(false)
+  const [arCameraVisible, setArCameraVisible] = useState(false)
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Auto-fires on mount (works fully offline for the GPS fix itself — only
+  // the reverse-geocode needs network) and, on failure/timeout/denial, the
+  // card below shows the shared "Auto-Get My Location" retry button instead
+  // of leaving the submitter stuck with no location and no way to retry.
+  const geoCapture = useLocationCapture({ autoAttempt: true })
+  const { coords, placeName, formattedAddress } = geoCapture
+  // Downstream consumers (the offline queue, ARCameraCapture) still expect
+  // the raw-coordinate `label` fallback string this screen always provided —
+  // derived here rather than widening the shared hook's return shape for
+  // one caller's display convenience.
+  const geo = coords ? { ...coords, label: `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}` } : null
 
   if (isLoading) return <AppShell noNav>{null}</AppShell>
   if (!project || !milestone) {
@@ -1076,18 +1128,108 @@ export function MilestoneSubmitScreen() {
   const existingQueued = queue.find((q) => q.projectId === project.id && q.milestoneId === milestone.id && q.status !== 'synced')
   const materialOrder = materialOrders[0]
 
+  // Runs Gemini inspection on exactly one photo — the first one added to
+  // this submission, whichever way it arrived (camera or gallery). Matches
+  // the previous AIPhotoInspector's scope (it only ever inspected its own
+  // single "primary" slot) without needing a dedicated upload widget of its
+  // own anymore; the result now attaches to that item and shows in its
+  // full-size preview (see MediaPreviewModal) instead of a separate inline
+  // card above the gallery.
+  const runAiInspection = (targetPreviewUrl: string, file: File) => {
+    setMediaItems((prev) => prev.map((m) => (m.previewUrl === targetPreviewUrl ? { ...m, aiAnalysing: true } : m)))
+    inspectConstructionPhoto(file)
+      .then((result) => {
+        setMediaItems((prev) => prev.map((m) => (m.previewUrl === targetPreviewUrl ? { ...m, aiAnalysing: false, aiResult: result } : m)))
+        if (result.verdict === 'fail') {
+          showToast({ title: 'AI Flagged Photo', description: result.summary, tone: 'error' })
+        }
+      })
+      .catch(() => {
+        setMediaItems((prev) => prev.map((m) => (m.previewUrl === targetPreviewUrl ? { ...m, aiAnalysing: false } : m)))
+        showToast({ title: 'AI analysis failed', description: 'Could not reach the AI service. The photo was still saved.', tone: 'error' })
+      })
+  }
+
+  const addItems = (items: MediaItem[], currentItems: MediaItem[]) => {
+    const isFirstPhotoEver = !currentItems.some((m) => m.mediaType === 'photo')
+    setMediaItems((prev) => [...prev, ...items])
+    if (isFirstPhotoEver) {
+      const firstPhoto = items.find((i) => i.mediaType === 'photo')
+      if (firstPhoto) runAiInspection(firstPhoto.previewUrl, firstPhoto.file)
+    }
+  }
+
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     const urls = await filesToDataUrls(files)
-    setPhotos((p) => [...p, ...urls])
-    setPhotoFiles((f) => [...f, ...Array.from(files)])
+    const items: MediaItem[] = Array.from(files).map((file, i) => ({
+      previewUrl: urls[i],
+      file,
+      mediaType: file.type.startsWith('video/') ? 'video' : 'photo',
+      captureSource: 'gallery_upload',
+    }))
+    addItems(items, mediaItems)
   }
 
+  const removeMedia = (idx: number) => {
+    setMediaItems((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const handleArCaptured = async (media: CapturedMedia) => {
+    // ARCameraCapture hands back a blob: object URL for immediate preview —
+    // converted to a real data: URL here so this item survives an offline
+    // queue round trip through IndexedDB/reload exactly like a gallery pick
+    // (a blob: URL is revoked the moment its tab/page context goes away).
+    const dataUrl = await fileToDataUrl(media.file)
+    const item: MediaItem = {
+      previewUrl: dataUrl,
+      file: media.file,
+      mediaType: media.mediaType,
+      captureSource: media.captureSource,
+      capturedAt: media.capturedAt,
+      geotagLat: media.geotagLat,
+      geotagLng: media.geotagLng,
+      placeName: media.placeName,
+    }
+    addItems([item], mediaItems)
+  }
+
+  const handleArUnavailable = () => {
+    setArCameraVisible(false)
+    showToast({ title: 'Camera unavailable', description: "The live AR camera isn't available or was denied — use the gallery instead.", tone: 'error' })
+  }
+
+  const milestoneNumber = project ? project.milestones.findIndex((m) => m.id === milestone.id) + 1 : 1
+
   const submit = async () => {
+    // Video capture always needs a live connection today — the offline
+    // queue (IndexedDB via db/evidenceQueue.ts) only round-trips photo data
+    // URLs back into `.jpg` files (see offlineQueue.tsx's dataUrlsToFiles),
+    // not video; extending that store's schema for a rare offline-video edge
+    // case is out of scope for this feature (see the AR-camera plan's "out
+    // of scope" section on the 15s cap replacing a backend limit change).
+    if (!isOnline && mediaItems.some((m) => m.mediaType === 'video')) {
+      showToast({ title: 'Video needs a connection', description: 'Video evidence can only be submitted while online — photos still save for later sync.', tone: 'error' })
+      return
+    }
     if (isOnline) {
       setSubmitting(true)
       try {
-        await submitMilestoneProof(project.id, milestone.id, photoFiles, geo ? { lat: geo.lat, lng: geo.lng } : null, notes, placeName)
+        await submitMilestoneProof(
+          project.id,
+          milestone.id,
+          mediaItems.map((m) => m.file),
+          geo ? { lat: geo.lat, lng: geo.lng } : null,
+          notes,
+          placeName,
+          formattedAddress,
+          mediaItems.map((m) => ({
+            type: m.mediaType,
+            captureSource: m.captureSource,
+            geotag: m.geotagLat != null && m.geotagLng != null ? { lat: m.geotagLat, lng: m.geotagLng } : undefined,
+            placeName: m.placeName ?? undefined,
+          })),
+        )
         setStep('submitted')
       } catch (err) {
         showToast({ title: 'Submission failed', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -1101,7 +1243,7 @@ export function MilestoneSubmitScreen() {
       projectTitle: project.title,
       milestoneId: milestone.id,
       milestoneTitle: milestone.title,
-      photos,
+      photos: mediaItems.map((m) => m.previewUrl),
       notes,
       geotag: geo,
     })
@@ -1160,7 +1302,7 @@ export function MilestoneSubmitScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Saved on this device</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-2 leading-relaxed">
-            You're offline, so this evidence ({item?.photos.length ?? photos.length} photo{(item?.photos.length ?? photos.length) === 1 ? '' : 's'}, notes, and GPS location) is saved on this device.
+            You're offline, so this evidence ({item?.photos.length ?? mediaItems.length} photo{(item?.photos.length ?? mediaItems.length) === 1 ? '' : 's'}, notes, and GPS location) is saved on this device.
           </p>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-6">
             It will upload automatically as soon as you're back online — nothing else to do.
@@ -1185,15 +1327,44 @@ export function MilestoneSubmitScreen() {
       <Header title="Submit Milestone Proof" subtitle={project.title} back />
 
       <div className="px-5 py-5 space-y-5 overflow-y-auto sm:mx-auto sm:max-w-2xl">
-        {/* Milestone card */}
-        <div className="rounded-2xl border-2 p-4" style={{ borderColor: C.forest, background: 'var(--status-success-bg)' }}>
-          <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-[10px] uppercase tracking-widest mb-1">Submitting for</div>
-          <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} held in escrow</div>
+        {/* Milestone Tranche Overview Card */}
+        <div className="rounded-3xl border p-5 shadow-sm space-y-4 bg-white" style={{ borderColor: C.parchmentDark }}>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center border" style={{ backgroundColor: C.forest + '15', borderColor: C.forest + '25' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.forest} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" />
+                <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <span className="inline-block px-2 py-0.5 rounded text-[10px] uppercase font-semibold tracking-wider" style={{ backgroundColor: C.forest + '15', color: C.forest }}>
+                Active Milestone Tranche
+              </span>
+              <div style={{ fontFamily: FONT.serif }} className="text-lg font-bold text-slate-900 mt-1 truncate">{milestone.title}</div>
+            </div>
+          </div>
+
+          <div className="rounded-xl p-3 flex items-center justify-between border" style={{ backgroundColor: C.parchment, borderColor: C.parchmentDark }}>
+            <div>
+              <div style={{ fontFamily: FONT.sans }} className="text-[11px] uppercase tracking-wider font-semibold text-slate-500">
+                Payout Value
+              </div>
+              <div style={{ fontFamily: FONT.sans }} className="text-xs text-slate-500">
+                Escrow Protected
+              </div>
+            </div>
+            <div style={{ fontFamily: FONT.mono, color: C.forest }} className="text-base font-bold">
+              {fmt(milestone.amount)}
+            </div>
+          </div>
           {milestone.description && (
-            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-2 leading-relaxed">{milestone.description}</p>
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed">{milestone.description}</p>
           )}
         </div>
+
+        {/* Locked until funded, or the contractor explicitly proceeds at own risk;
+            once funded this renders nothing / the at-risk banner disappears live. */}
+        <ProceedAtRiskPanel projectId={project.id} milestone={milestoneFunding} />
 
         {/* Sent back for corrections — the funder's most recent reason,
             shown prominently since this is exactly what needs fixing before
@@ -1207,6 +1378,7 @@ export function MilestoneSubmitScreen() {
           </div>
         )}
 
+        <div className={locked ? 'pointer-events-none select-none opacity-50 space-y-5' : 'space-y-5'} aria-disabled={locked}>
         {/* Materials — an alternative (or addition) to photo proof: request
             materials from a verified supplier instead of handling cash
             yourself. Once they confirm, that becomes this milestone's
@@ -1223,102 +1395,102 @@ export function MilestoneSubmitScreen() {
           </button>
         )}
 
-        {/* AI Photo Inspector */}
-        <div className="space-y-2">
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">
-            AI Photo Quality & Fraud Audit
-          </div>
-          <AIPhotoInspector
-            label="Upload Milestone Site Photo for AI Inspection"
-            onFileSelected={(file) => {
-              // Add to files queue
-              setPhotoFiles((f) => [...f, file])
-              // Convert to dataUrl for preview
-              filesToDataUrls(Object.assign([file], { item: () => file, length: 1 }) as unknown as FileList).then((urls) => {
-                setPhotos((p) => [...p, ...urls])
-              })
-            }}
-            onAnalysisComplete={(res) => {
-              if (res.verdict === 'fail') {
-                showToast({ title: 'AI Flagged Photo', description: res.summary, tone: 'error' })
-              }
-            }}
-          />
-        </div>
-
-        {/* Photo upload */}
+        {/* Evidence gallery — camera-first: clicking anything here always
+            opens the Camera-vs-Upload chooser first. The first photo added
+            (camera or gallery) is automatically sent through Gemini AI
+            inspection; its result shows on that thumbnail and in its full
+            preview, same as every other item's details. */}
         <div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Photo / video evidence gallery</div>
-          {photos.length > 0 ? (
+          <div className="flex items-center gap-2 mb-2">
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Photo / video evidence gallery</div>
+            <span
+              className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+              style={{ background: C.forest + '18', color: C.forest, fontFamily: FONT.mono }}
+            >
+              Gemini AI
+            </span>
+          </div>
+          {mediaItems.length > 0 ? (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                {photos.map((src, i) => (
-                  <div key={i} className="relative rounded-xl overflow-hidden aspect-video">
-                    <img src={src} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
-                    <button
-                      onClick={() => setPhotos((p) => p.filter((_, j) => j !== i))}
+                {mediaItems.map((item, i) => (
+                  <button key={i} onClick={() => setPreviewIndex(i)} className="relative rounded-xl overflow-hidden aspect-video text-left">
+                    {item.mediaType === 'video' ? (
+                      <video src={item.previewUrl} className="w-full h-full object-cover" muted playsInline />
+                    ) : (
+                      <img src={item.previewUrl} alt={`Evidence ${i + 1}`} className="w-full h-full object-cover" />
+                    )}
+                    {item.captureSource === 'ar_camera' && (
+                      <span
+                        className="absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 text-[9px] font-bold text-white"
+                        style={{ background: C.forest, fontFamily: FONT.mono }}
+                      >
+                        AR
+                      </span>
+                    )}
+                    {item.aiAnalysing && (
+                      <span
+                        className="absolute bottom-1.5 left-1.5 rounded px-1.5 py-0.5 text-[9px] font-bold text-white"
+                        style={{ background: 'rgba(0,0,0,0.65)', fontFamily: FONT.mono }}
+                      >
+                        AI analysing…
+                      </span>
+                    )}
+                    {item.aiResult && (
+                      <span
+                        className="absolute bottom-1.5 left-1.5 rounded px-1.5 py-0.5 text-[9px] font-bold text-white"
+                        style={{
+                          background: item.aiResult.verdict === 'pass' ? '#1a7a4a' : item.aiResult.verdict === 'flag' ? '#b45309' : '#b91c1c',
+                          fontFamily: FONT.mono,
+                        }}
+                      >
+                        AI {item.aiResult.score}
+                      </span>
+                    )}
+                    <span
+                      onClick={(e) => { e.stopPropagation(); removeMedia(i) }}
                       className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
                       style={{ background: 'rgba(0,0,0,0.6)' }}
                     >
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
                         <path d="M1.5 1.5L6.5 6.5M6.5 1.5L1.5 6.5" stroke="white" strokeWidth="1.3" />
                       </svg>
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
-              <label
-                className="block w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium text-center cursor-pointer"
+              <button
+                onClick={() => setChooserVisible(true)}
+                className="w-full py-3 rounded-xl border-2 border-dashed text-sm font-medium text-center"
                 style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
               >
-                + Add another photo
-                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
-              </label>
+                + Add more evidence
+              </button>
             </div>
           ) : (
-            <div className="space-y-3">
-              <label
-                className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all active:scale-95 cursor-pointer"
-                style={{ borderColor: C.parchmentDark, background: C.white }}
-              >
-                <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: C.parchment }}>
-                  <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
-                    <rect x="2" y="6" width="22" height="16" rx="2" stroke={C.inkSubtle} strokeWidth="1.4" />
-                    <circle cx="13" cy="14" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
-                    <path d="M8 6V4C8 3.4 8.4 3 9 3H17C17.6 3 18 3.4 18 4V6" stroke={C.inkSubtle} strokeWidth="1.3" />
-                  </svg>
-                </div>
-                <div className="text-center">
-                  <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">Take photo or upload</div>
-                  <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5 uppercase tracking-wider">Min. 2 photos required · works offline</div>
-                </div>
-                <input type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={(e) => addPhotos(e.target.files)} />
-              </label>
-            </div>
+            <button
+              onClick={() => setChooserVisible(true)}
+              className="w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all active:scale-95"
+              style={{ borderColor: C.parchmentDark, background: C.white }}
+            >
+              <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: C.parchment }}>
+                <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+                  <rect x="2" y="6" width="22" height="16" rx="2" stroke={C.inkSubtle} strokeWidth="1.4" />
+                  <circle cx="13" cy="14" r="4" stroke={C.inkSubtle} strokeWidth="1.3" />
+                  <path d="M8 6V4C8 3.4 8.4 3 9 3H17C17.6 3 18 3.4 18 4V6" stroke={C.inkSubtle} strokeWidth="1.3" />
+                </svg>
+              </div>
+              <div className="text-center">
+                <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">Take photo or upload</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5 uppercase tracking-wider">Min. 2 photos required · works offline</div>
+              </div>
+            </button>
           )}
         </div>
 
-        {/* Geotag display — real device GPS, no network required */}
+        {/* Geotag display — real device GPS, no network required for the fix itself */}
         <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Auto-geotag</div>
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'var(--status-info-bg)' }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M8 2C5.8 2 4 3.8 4 6C4 9.5 8 14 8 14C8 14 12 9.5 12 6C12 3.8 10.2 2 8 2Z" stroke="var(--status-info-text)" strokeWidth="1.3" />
-                <circle cx="8" cy="6" r="1.5" fill="var(--status-info-text)" />
-              </svg>
-            </div>
-            <div>
-              <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-xs font-semibold">
-                {geoStatus === 'locating' ? 'Locating…' : geoStatus === 'ok' ? 'GPS location attached' : 'Location unavailable'}
-              </div>
-              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] mt-0.5">
-                {geoStatus === 'ok' && geo
-                  ? `${placeNameLoading ? 'Resolving place name…' : placeName ? `${placeName} (${geo.label})` : geo.label} · ${new Date().toLocaleDateString()}`
-                  : geoStatus === 'unavailable' ? 'Enable location access to attach GPS proof' : 'Waiting for a GPS fix…'}
-              </div>
-            </div>
-          </div>
+          <LocationCaptureCard capture={geoCapture} title="Auto-geotag" />
         </div>
 
         {/* Notes */}
@@ -1338,7 +1510,7 @@ export function MilestoneSubmitScreen() {
         <div className="rounded-xl p-4 border" style={{ background: 'var(--status-warning-bg)', borderColor: 'var(--status-warning-bg)' }}>
           <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-2">After submission</div>
           <div className="space-y-2">
-            {['A local verifier reviews the evidence on-site (72h)', 'The funder receives your proof for approval', 'Funds are released once approved'].map((s, i) => (
+            {['A local verifier reviews the evidence on-site (72h)', 'The funder receives your proof for approval', 'Funds are released once approved and covered by escrow'].map((s, i) => (
               <div key={i} className="flex items-start gap-2">
                 <div className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: C.amber, fontFamily: FONT.mono }}>
                   <span className="text-[8px] font-bold" style={{ color: C.forestDark }}>{i + 1}</span>
@@ -1348,16 +1520,49 @@ export function MilestoneSubmitScreen() {
             ))}
           </div>
         </div>
+        </div>
       </div>
 
       <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl sm:mx-auto sm:max-w-2xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-        {!isOnline && photos.length > 0 && (
+        {!isOnline && mediaItems.length > 0 && (
           <p style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-center text-xs mb-3">You're offline — this will be saved on your device and sync automatically once you're back online.</p>
         )}
-        <PillButton onClick={submit} fullWidth disabled={photos.length === 0 || submitting}>
-          {submitting ? 'Submitting…' : photos.length === 0 ? 'Add at least one photo' : isOnline ? 'Submit milestone proof' : 'Save for sync'}
+        <PillButton onClick={submit} fullWidth disabled={locked || mediaItems.length === 0 || submitting}>
+          {locked ? 'Milestone not funded yet' : submitting ? 'Submitting…' : mediaItems.length === 0 ? 'Add at least one photo' : isOnline ? 'Submit milestone proof' : 'Save for sync'}
         </PillButton>
       </div>
+
+      <ARCameraCapture
+        visible={arCameraVisible}
+        onClose={() => setArCameraVisible(false)}
+        onCaptured={handleArCaptured}
+        onUnavailable={handleArUnavailable}
+        projectTitle={project.title}
+        milestoneName={milestone.title}
+        milestoneNumber={milestoneNumber}
+        geo={geo}
+        placeName={placeName}
+      />
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,video/*"
+        multiple
+        className="hidden"
+        onChange={(e) => { addPhotos(e.target.files); e.target.value = '' }}
+      />
+
+      <MediaChooserSheet
+        visible={chooserVisible}
+        onClose={() => setChooserVisible(false)}
+        onChooseCamera={() => { setChooserVisible(false); setArCameraVisible(true) }}
+        onChooseUpload={() => { setChooserVisible(false); fileInputRef.current?.click() }}
+      />
+
+      {previewIndex != null && mediaItems[previewIndex] && (
+        <MediaPreviewModal media={mediaItems[previewIndex]} onClose={() => setPreviewIndex(null)} />
+      )}
     </AppShell>
   )
 }

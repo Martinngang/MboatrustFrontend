@@ -29,6 +29,17 @@ export interface MilestoneApprover {
   status: 'pending' | 'approved' | 'rejected'
 }
 
+/** Resolved alongside a raw {lat,lng} pair everywhere one is captured —
+ * manual pin, GPS, address search, auto-detected, or a verifier's
+ * confirmation. See Project.locationDetails / LocationDetailsSchema on the
+ * backend; this is never stored without an accompanying attempt to resolve
+ * it. `source` records how these particular coordinates were captured. */
+export interface LocationDetails {
+  placeName: string | null
+  formattedAddress: string | null
+  source: 'manual_pin' | 'gps' | 'geocoded_search' | 'auto_detected' | 'verifier_confirmed' | null
+}
+
 export interface MilestoneEvidence {
   id: string
   type: string
@@ -36,11 +47,15 @@ export interface MilestoneEvidence {
   notes: string | null
   geotag: { lat: number; lng: number } | null
   placeName: string | null
+  formattedAddress?: string | null
   capturedAt: string | null
   locationMatch: boolean | null
   timestampRecent: boolean | null
   duplicateFlag: boolean
   submittedByName: string | null
+  // 'ar_camera' for a live in-app HUD-camera capture, 'gallery_upload' for
+  // anything picked from an existing file/gallery.
+  captureSource: 'ar_camera' | 'gallery_upload'
 }
 
 export interface MilestoneChangeRequest {
@@ -62,6 +77,17 @@ export interface Milestone {
   /** Full history of "send this back for corrections" rounds — see
    * projectController.requestMilestoneChanges. Newest last. */
   changeRequests: MilestoneChangeRequest[]
+  /** Where THIS milestone's work happens, distinct from the project's
+   * overall `coordinates` — null means "use the project's location" (most
+   * milestones on a single-site project never need their own). Set via
+   * PATCH /projects/:id/milestones/:milestoneId/location. Distinct from an
+   * evidence entry's `geotag` (where a submitted photo was actually taken —
+   * proof, not plan). */
+  location: { lat: number; lng: number } | null
+  /** Resolved place name/address for this milestone's own `location`, when
+   * set — see LocationDetails. Optional so existing literals/mocks that
+   * predate this field keep compiling unchanged. */
+  locationDetails?: LocationDetails | null
 }
 
 export interface Project {
@@ -81,6 +107,16 @@ export interface Project {
    * per-photo `geotag` (where evidence was captured, not where the project
    * itself is). */
   coordinates: { lat: number; lng: number } | null
+  /** Resolved place name/address for `coordinates`, when available — see
+   * LocationDetails. Preferred over `location` (a free-text string) for
+   * display everywhere a real geocode exists. Optional so existing
+   * literals/mocks that predate this field keep compiling unchanged. */
+  locationDetails?: LocationDetails | null
+  /** One-time snapshot of `coordinates`/`locationDetails` taken right before
+   * a verifier's confirmation overwrote them — the audit trail's "what was
+   * there before" half. Undefined/null when nothing has ever been confirmed. */
+  locationBeforeVerification?: { lat: number; lng: number } | null
+  locationBeforeVerificationDetails?: LocationDetails | null
   totalAmount: number
   raised: number
   status: string
@@ -104,6 +140,18 @@ export interface Project {
    * requester to pick a store from scratch. */
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  /** The funder's yes/no answer at creation to "do you already have a
+   * project plan?" — distinct from hasPlanDocument: a funder can answer
+   * yes and not have finished uploading the file yet. */
+  hasExistingPlan: boolean
+  /** Always-public flag — whether a real plan document is attached. The
+   * actual file (planDocument.fileUrl) is never included in this object;
+   * fetch it via useFetchPlanDocumentMutation, which enforces who's
+   * allowed to see it server-side. */
+  hasPlanDocument: boolean
+  /** Set when the funder didn't know the exact site coordinates and asked
+   * a Verifier to go confirm them — see requestLocationVerification. */
+  locationVerificationStatus: 'not_requested' | 'requested' | 'confirmed'
 }
 
 export interface JobPosting {
@@ -115,6 +163,9 @@ export interface JobPosting {
    * as Project.coordinates. Optional (not required like Project's) since
    * older/mock JobPosting literals never had a reason to carry it. */
   coordinates?: { lat: number; lng: number } | null
+  /** Resolved place name/address for `coordinates`, when available — see
+   * LocationDetails. */
+  locationDetails?: LocationDetails | null
   budget: number
   deadline: string
   bids: number
@@ -159,6 +210,14 @@ export interface LandListing {
    * specific uploaded document has actually been checked matters for
    * display, not just what document types exist. */
   documentStatuses: { type: string; verificationStatus: string }[]
+  /** Real GPS coordinates for the plot — same convention as Project's own
+   * `coordinates` (auto-geocoded from region/city at creation if the seller
+   * didn't set a manual pin, correctable afterward). Null for a listing
+   * created before this existed and never migrated/geocoded. */
+  coordinates: { lat: number; lng: number } | null
+  /** Resolved place name/address for `coordinates`, when available — see
+   * LocationDetails. */
+  locationDetails?: LocationDetails | null
 }
 
 export interface Contractor {
@@ -180,6 +239,8 @@ export interface BidNegotiationRound {
   timelineDays: number
   milestones: BidScheduleMilestone[]
   message: string
+  /** How escrow gets funded under these terms. */
+  fundingMode: 'staged' | 'full_upfront'
   createdAt: string
 }
 
@@ -205,6 +266,9 @@ export interface Bid {
   /** Who proposed the CURRENT live terms — the other party is the one who
    * can Accept/Counter/Reject right now. */
   lastProposedBy: 'funder' | 'contractor'
+  /** Funding mode of the CURRENT live terms: 'staged' (fund milestone by
+   * milestone) or 'full_upfront' (whole contract value before work). */
+  fundingMode: 'staged' | 'full_upfront'
 }
 
 export interface Offer {
@@ -301,20 +365,28 @@ export interface AppState {
   projects: Project[]
   projectsLoading: boolean
   fundProject: (id: string, amount: number, opts: { paymentProvider: 'mtn_momo' | 'orange_money' | 'stripe' | 'flutterwave'; payerPhoneNumber?: string; currency?: string }) => Promise<FundProjectResult>
-  submitMilestoneProof: (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null) => Promise<void>
-  approveMilestone: (projectId: string, milestoneId: string) => Promise<{ project: Project; releasedEscrow: unknown }>
+  submitMilestoneProof: (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null, formattedAddress?: string | null, items?: Array<{ type?: 'photo' | 'video'; captureSource?: 'ar_camera' | 'gallery_upload'; geotag?: { lat: number; lng: number } | null; placeName?: string | null }>) => Promise<void>
+  approveMilestone: (projectId: string, milestoneId: string) => Promise<{ project: Project; releasedEscrow: unknown; awaitingFunds: boolean; shortfall: number }>
   disputeMilestone: (projectId: string, milestoneId: string, reason?: string) => Promise<void>
   requestMilestoneChanges: (projectId: string, milestoneId: string, reason: string) => Promise<void>
 
   jobs: JobPosting[]
-  addJob: (j: Omit<JobPosting, 'id'> & { milestoneSchedule?: { title: string; amount: number; description: string }[] }) => Promise<JobPosting>
+  addJob: (j: Omit<JobPosting, 'id' | 'locationDetails'> & {
+    milestoneSchedule?: { title: string; amount: number; description: string }[]
+    hasExistingPlan?: boolean
+    /** Already resolved client-side by LocationEditModal, or left for the
+     * backend to reverse-geocode itself when omitted. */
+    placeName?: string | null
+    formattedAddress?: string | null
+    locationSource?: LocationDetails['source']
+  }) => Promise<JobPosting>
   landListings: LandListing[]
   addListing: (l: Omit<LandListing, 'id'>) => Promise<LandListing>
   updateListingStatus: (id: string, status: 'pending' | 'verified' | 'disputed') => void
   contractors: Contractor[]
   bids: Bid[]
-  addBid: (b: Omit<Bid, 'id' | 'milestones' | 'rounds' | 'lastProposedBy'> & { milestones?: BidScheduleMilestone[] }) => Promise<Bid>
-  counterBid: (bidId: string, terms: { price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string }) => Promise<Bid>
+  addBid: (b: Omit<Bid, 'id' | 'milestones' | 'rounds' | 'lastProposedBy' | 'fundingMode'> & { milestones?: BidScheduleMilestone[]; fundingMode?: 'staged' | 'full_upfront' }) => Promise<Bid>
+  counterBid: (bidId: string, terms: { price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string; fundingMode?: 'staged' | 'full_upfront' }) => Promise<Bid>
   offers: Offer[]
 
   notifications: AppNotification[]
@@ -560,7 +632,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const result = await fundProjectMutation.mutateAsync({ id, amount, ...opts })
     return result
   }
-  const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null) => {
+  const submitMilestoneProof = async (projectId: string, milestoneId: string, files: File[], geotag?: { lat: number; lng: number } | null, notes?: string, placeName?: string | null, formattedAddress?: string | null, items?: Array<{ type?: 'photo' | 'video'; captureSource?: 'ar_camera' | 'gallery_upload'; geotag?: { lat: number; lng: number } | null; placeName?: string | null }>) => {
     // The backend stores one Evidence sub-document per file (POST .../evidence
     // accepts a single file), so a multi-photo submission is one call per
     // photo, sequential to keep evidence order deterministic and avoid
@@ -568,10 +640,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // The submitter's notes describe the submission as a whole, not any one
     // photo, but there's nowhere else to store them — attached to every
     // evidence entry created in this batch so a reviewer sees them regardless
-    // of which entry they're looking at. Same for placeName — already
-    // resolved once client-side for the whole submission, not per photo.
-    for (const file of files) {
-      await submitEvidenceMutation.mutateAsync({ projectId, milestoneId, file, geotag, notes, placeName })
+    // of which entry they're looking at. Same for placeName/formattedAddress —
+    // already resolved once client-side for the whole submission, not per
+    // photo, unless `items` (index-aligned with `files`) carries its own
+    // AR-capture-time value, which then wins for that one item — an AR
+    // capture's own geotag/place is the real moment the shutter fired.
+    for (let i = 0; i < files.length; i++) {
+      const item = items?.[i]
+      await submitEvidenceMutation.mutateAsync({
+        projectId,
+        milestoneId,
+        file: files[i],
+        geotag: item?.geotag ?? geotag,
+        notes,
+        placeName: item?.placeName ?? placeName,
+        formattedAddress,
+        type: item?.type,
+        captureSource: item?.captureSource,
+      })
     }
   }
   const approveMilestone = async (projectId: string, milestoneId: string) => {
@@ -586,9 +672,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   const addJob: AppState['addJob'] = async (j) => {
     const created = await createJobMutation.mutateAsync({
-      title: j.title, category: j.category, location: j.location, coordinates: j.coordinates, budget: j.budget,
+      title: j.title, category: j.category, location: j.location, coordinates: j.coordinates,
+      placeName: j.placeName, formattedAddress: j.formattedAddress, locationSource: j.locationSource, budget: j.budget,
       deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
-      milestoneSchedule: j.milestoneSchedule,
+      milestoneSchedule: j.milestoneSchedule, hasExistingPlan: j.hasExistingPlan,
     })
     return created
   }
@@ -606,7 +693,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   const addBid: AppState['addBid'] = async (b) => {
     const created = await createBidMutation.mutateAsync({
-      jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes, milestones: b.milestones,
+      jobId: b.jobId, price: b.price, timeline: b.timeline, materials: b.materials, notes: b.notes, milestones: b.milestones, fundingMode: b.fundingMode,
     })
     return { ...created, jobTitle: b.jobTitle }
   }
@@ -657,14 +744,14 @@ export const MOCK_PROJECTS: Project[] = [
     raised: 2100000,
     status: 'active',
     milestones: [
-      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm1', title: 'Site survey & permits', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm2', title: 'Drilling & casing', amount: 1400000, status: 'under_review', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm3', title: 'Pump installation & testing', amount: 1400000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
     ],
     image: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format',
     description: 'A community borehole serving 340 households in Bamenda North who currently walk 4km for clean water. Work started February 2025.',
     daysLeft: 24,
-    requiresMultiSig: false,
+    requiresMultiSig: false, hasExistingPlan: false, hasPlanDocument: false, locationVerificationStatus: 'not_requested',
   },
   {
     id: 'p2',
@@ -677,14 +764,14 @@ export const MOCK_PROJECTS: Project[] = [
     raised: 1800000,
     status: 'completed',
     milestones: [
-      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm1', title: 'Materials procurement', amount: 600000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm2', title: 'Structural work', amount: 800000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm3', title: 'Final roofing & inspection', amount: 400000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
     ],
     image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=400&h=220&fit=crop&auto=format',
     description: 'Replacement of the collapsed roof on Bloc C of the Government Primary School, Maroua. 280 pupils affected.',
     daysLeft: 0,
-    requiresMultiSig: false,
+    requiresMultiSig: false, hasExistingPlan: false, hasPlanDocument: false, locationVerificationStatus: 'not_requested',
   },
   {
     id: 'p3',
@@ -697,15 +784,15 @@ export const MOCK_PROJECTS: Project[] = [
     raised: 1200000,
     status: 'active',
     milestones: [
-      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
-      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [] },
+      { id: 'm1', title: 'Structural assessment & plans', amount: 500000, status: 'released', proof: true, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm2', title: 'Foundation & walls', amount: 2000000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm3', title: 'Electrical & plumbing', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
+      { id: 'm4', title: 'Finishing & equipment', amount: 1500000, status: 'pending', proof: false, evidence: [], requiresCosigner: false, requiresVideo: false, approvers: [], description: '', changeRequests: [], location: null },
     ],
     image: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=400&h=220&fit=crop&auto=format',
     description: 'Renovation of the only maternity unit serving 8 villages in Limbe District. Building has not been maintained since 2009.',
     daysLeft: 61,
-    requiresMultiSig: false,
+    requiresMultiSig: false, hasExistingPlan: false, hasPlanDocument: false, locationVerificationStatus: 'not_requested',
   },
 ]
 
@@ -801,6 +888,7 @@ export const MOCK_LAND: LandListing[] = [
     description: 'Corner plot in a quiet residential street, Bastos neighbourhood. 15 minutes from Yaoundé city centre. All utilities on street.',
     docs: ['Title deed No. 2847/CNT', 'Land tax receipt 2024', 'Survey plan (geo-referenced)', 'No dispute certificate'],
     documentStatuses: [],
+    coordinates: null,
   },
   {
     id: 'l2',
@@ -818,6 +906,7 @@ export const MOCK_LAND: LandListing[] = [
     description: 'Fertile agricultural plot 4km from Bafoussam ring road. Currently producing arabica coffee. Pending freehold title being processed.',
     docs: ['Customary rights letter', 'Local council attestation', 'Survey plan', 'Title registration receipt'],
     documentStatuses: [],
+    coordinates: null,
   },
   {
     id: 'l3',
@@ -836,6 +925,7 @@ export const MOCK_LAND: LandListing[] = [
     description: 'Commercial plot on the Bonabéri industrial corridor. High footfall area, suitable for warehouse or retail. Documents submitted for platform verification.',
     docs: ['Purchase order', 'Local attestation (unverified)'],
     documentStatuses: [],
+    coordinates: null,
   },
   {
     id: 'l4',
@@ -854,6 +944,7 @@ export const MOCK_LAND: LandListing[] = [
     description: 'Corner plot in Bastos neighbourhood, Yaoundé. Recently listed — please note this closely matches another active listing on the platform.',
     docs: ['Title deed (copy)', 'Land tax receipt 2024'],
     documentStatuses: [],
+    coordinates: null,
   },
 ]
 

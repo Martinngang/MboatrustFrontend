@@ -23,6 +23,7 @@ import { getCameroonRegionName } from '../utils/locationData'
 import { CATEGORY_NAMES } from '../inventoryTaxonomy'
 import { AppIcon } from '../components/icons'
 import { useToast } from '../components/Toast'
+import { useDashboardQuery, formatRating } from '../api/dashboard'
 
 function toPaymentProvider(m: 'momo' | 'om'): 'mtn_momo' | 'orange_money' {
   return m === 'momo' ? 'mtn_momo' : 'orange_money'
@@ -183,6 +184,7 @@ export function SupplierDashboardScreen() {
   const { data: lowStockSummary } = useMyInventoryQuery({ status: 'active', lowStockOnly: true, limit: 1 }, Boolean(mySupplier))
   const isVerified = mySupplier?.verificationStatus === 'verified'
   const { data: orders = [] } = useMaterialOrdersForMySupplierQuery('all', isVerified)
+  const { data: dash } = useDashboardQuery('supplier', isVerified)
   const confirmOrder = useConfirmMaterialOrderMutation()
   const rejectOrder = useRejectMaterialOrderMutation()
   const markOutForDelivery = useMarkOrderOutForDeliveryMutation()
@@ -224,7 +226,6 @@ export function SupplierDashboardScreen() {
   // `history` into its own actionable section instead.
   const readyToShip = orders.filter((o) => o.status === 'confirmed')
   const history = orders.filter((o) => o.status !== 'requested' && o.status !== 'confirmed')
-  const earnings = orders.filter((o) => o.status === 'confirmed' || o.status === 'out_for_delivery' || o.status === 'delivered').reduce((s, o) => s + o.totalAmount, 0)
 
   return (
     <AppShell>
@@ -234,9 +235,9 @@ export function SupplierDashboardScreen() {
           title={mySupplier.businessName}
           background={`linear-gradient(135deg, ${C.moss} 0%, ${C.forest} 100%)`}
           stats={[
-            { label: 'Pending orders', value: String(requested.length) },
-            { label: 'Completed', value: String(mySupplier.completedOrderCount) },
-            { label: 'Rating', value: mySupplier.averageRating > 0 ? mySupplier.averageRating.toFixed(1) : '—' },
+            { label: 'Pending orders', value: dash ? String(dash.stats.pendingOrders) : String(requested.length) },
+            { label: 'Completed', value: dash ? String(dash.stats.completedOrders) : '—' },
+            { label: 'Rating', value: dash ? formatRating(dash.stats.rating, dash.stats.ratingCount) : '—' },
           ]}
           action={
             <button onClick={() => nav(`/supplier/profile/${mySupplier.id}`)} className="rounded-full px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'rgba(255,255,255,0.14)' }}>
@@ -355,8 +356,8 @@ export function SupplierDashboardScreen() {
           <div className="mt-4 space-y-3">
             <Card>
               <div className="p-4 flex items-center justify-between">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Total earnings</div>
-                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{fmt(earnings)}</div>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Total paid out</div>
+                <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">{fmt(dash?.stats.paidOut ?? 0)}</div>
               </div>
             </Card>
             {history.length === 0 ? (

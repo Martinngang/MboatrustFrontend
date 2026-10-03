@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt } from '../context'
 import { C, FONT, AppShell, Card, StatusBadge, Stars, PillButton, Header } from '../components/MobileLayout'
 import { ActivityTimeline } from '../components/ActivityTimeline'
 import { LandFlagBadge } from '../components/LandFlagBadge'
 import { NeighboringListingsMap } from '../components/NeighboringListingsMap'
+const LocationEditModal = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.LocationEditModal }))
+)
 import { ChipGroup } from '../components/Chip'
 import { Tabs } from '../components/Tabs'
 import { StaggerList, StaggerItem } from '../components/Stagger'
@@ -20,7 +23,7 @@ import {
   useWithdrawOfferMutation,
 } from '../api/landOffers'
 import { useSendDirectMessageMutation } from '../api/messaging'
-import { useAddLandDocumentMutation, useRecommendedListingsQuery, useLandListingsInfiniteQuery } from '../api/land'
+import { useAddLandDocumentMutation, useRecommendedListingsQuery, useLandListingsInfiniteQuery, useUpdateMyListingLocationMutation } from '../api/land'
 import { useVerificationTasksQuery } from '../api/reputation'
 import { AppIcon } from '../components/icons'
 import { RegionTownSelect } from '../components/LocationSelect'
@@ -211,6 +214,8 @@ export function LandListingDetailScreen() {
   const [counteringId, setCounteringId] = useState<string | null>(null)
   const [counterAmount, setCounterAmount] = useState('')
   const [actingOn, setActingOn] = useState<string | null>(null)
+  const [locationEditOpen, setLocationEditOpen] = useState(false)
+  const updateLocation = useUpdateMyListingLocationMutation()
   const isSeller = Boolean(devUserId && listing.sellerId && devUserId === listing.sellerId)
 
   // Real, human, on-site verifier report — only exists when an admin has
@@ -312,8 +317,43 @@ export function LandListingDetailScreen() {
 
         {/* Neighboring context */}
         <div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Nearby listings & recent sales</div>
+          <div className="flex items-center justify-between mb-2">
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Nearby listings & recent sales</div>
+            {isSeller && (
+              <button
+                onClick={() => setLocationEditOpen(true)}
+                className="text-xs font-semibold"
+                style={{ fontFamily: FONT.sans, color: C.forest }}
+              >
+                Edit location
+              </button>
+            )}
+          </div>
           <NeighboringListingsMap listing={listing} />
+          {isSeller && (
+            <Suspense fallback={null}>
+              <LocationEditModal
+                open={locationEditOpen}
+                onClose={() => setLocationEditOpen(false)}
+                initialLat={listing.coordinates?.lat ?? null}
+                initialLng={listing.coordinates?.lng ?? null}
+                title="Edit plot location"
+                saving={updateLocation.isPending}
+                onSave={({ lat, lng, placeName, formattedAddress, source }) => {
+                  updateLocation.mutate(
+                    { listingId: listing.id, location: { lat, lng }, placeName, formattedAddress, locationSource: source },
+                    {
+                      onSuccess: () => {
+                        setLocationEditOpen(false)
+                        showToast({ title: 'Location updated', tone: 'success' })
+                      },
+                      onError: (err) => showToast({ title: 'Could not update location', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }),
+                    }
+                  )
+                }}
+              />
+            </Suspense>
+          )}
         </div>
 
         {/* Document verification */}
@@ -764,6 +804,7 @@ export function CreateListingScreen() {
         description: form.description,
         docs: [],
         documentStatuses: [],
+        coordinates: null,
       })
       setListingId(created.id)
       setStep('documents')

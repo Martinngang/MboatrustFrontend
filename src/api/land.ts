@@ -2,9 +2,20 @@ import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tansta
 import { api } from './client'
 import { fetchRatingSummary } from './reputation'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { LandListing } from '../context'
+import type { LandListing, LocationDetails } from '../context'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=400&h=250&fit=crop&auto=format'
+
+interface BackendLocationDetails {
+  placeName?: string
+  formattedAddress?: string
+  source?: string
+}
+
+function mapLocationDetails(d: BackendLocationDetails | null | undefined): LocationDetails | null {
+  if (!d || (!d.placeName && !d.formattedAddress)) return null
+  return { placeName: d.placeName || null, formattedAddress: d.formattedAddress || null, source: (d.source as LocationDetails['source']) || null }
+}
 
 interface BackendDocument { type: string; fileUrl: string; verificationStatus: string }
 interface BackendLandListing {
@@ -18,6 +29,7 @@ interface BackendLandListing {
   sizeSqm: number
   price: number
   location: { lat: number | null; lng: number | null }
+  locationDetails?: BackendLocationDetails | null
   documents: BackendDocument[]
   verificationStatus: string
   disputeFlag: boolean
@@ -52,6 +64,10 @@ function mapListing(doc: BackendLandListing, sellerRating: number): LandListing 
     description: doc.description || '',
     docs: doc.documents.map((d) => d.type),
     documentStatuses: doc.documents.map((d) => ({ type: d.type, verificationStatus: d.verificationStatus })),
+    // The backend has always sent this — it was just never read here (see
+    // projects.ts's mapProject, which had the identical gap fixed earlier).
+    coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
+    locationDetails: mapLocationDetails(doc.locationDetails),
   }
 }
 
@@ -66,6 +82,24 @@ export function useLandListingsQuery() {
       return data.data.map((l, i) => mapListing(l, ratings[i].average ?? NEW_SELLER_RATING))
     },
     staleTime: 10_000,
+  })
+}
+
+/** A seller's own listings, filtered server-side. The seller dashboard used
+ * to filter useLandListingsQuery's result (the platform's newest page of
+ * listings, every seller's) client-side, so a seller whose listings weren't
+ * on that one page saw an empty "My listings". Skips the per-listing seller
+ * rating fetch — every row is the caller's own. */
+export function useMyLandListingsQuery(sellerId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['landListings', 'mine', sellerId],
+    queryFn: async (): Promise<LandListing[]> => {
+      const { data } = await api.get<{ data: BackendLandListing[] }>('/land-listings', { params: { sellerId, limit: 100 } })
+      return data.data.map((l) => mapListing(l, NEW_SELLER_RATING))
+    },
+    enabled: Boolean(sellerId),
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
   })
 }
 
@@ -119,6 +153,30 @@ export function useCreateListingMutation() {
         price: l.price,
       })
       return mapListing(data.data, NEW_SELLER_RATING)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
+  })
+}
+
+/** Seller's own pin correction — reuses the same PATCH /land-listings/:id
+ * the admin edit mutation below does; the backend has no status gate on
+ * this endpoint (unlike Project, which needed a dedicated location-only
+ * route — see api/projects.ts's useUpdateProjectLocationMutation), so the
+ * generic update already works for this. */
+export function useUpdateMyListingLocationMutation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ listingId, location, placeName, formattedAddress, locationSource }: {
+      listingId: string
+      location: { lat: number; lng: number }
+      placeName?: string | null
+      formattedAddress?: string | null
+      locationSource?: LocationDetails['source']
+    }) => {
+      const { data } = await api.patch<{ data: BackendLandListing }>(`/land-listings/${listingId}`, { location, placeName, formattedAddress, locationSource })
+      const sellerId = typeof data.data.sellerId === 'object' ? data.data.sellerId._id : data.data.sellerId
+      const rating = await fetchRatingSummary(sellerId)
+      return mapListing(data.data, rating.average ?? NEW_SELLER_RATING)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['landListings'] }),
   })

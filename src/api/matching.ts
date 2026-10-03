@@ -75,6 +75,7 @@ interface BackendNegotiationRound {
   timelineDays: number
   milestones: BackendMilestoneProposal[]
   message: string
+  fundingMode?: 'staged' | 'full_upfront'
   createdAt: string
 }
 interface BackendBidWithScore {
@@ -92,10 +93,11 @@ interface BackendBidWithScore {
   milestones?: BackendMilestoneProposal[]
   rounds?: BackendNegotiationRound[]
   lastProposedBy?: 'funder' | 'contractor'
+  fundingMode?: 'staged' | 'full_upfront'
 }
 
 function mapRound(r: BackendNegotiationRound): BidNegotiationRound {
-  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', createdAt: r.createdAt }
+  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', fundingMode: r.fundingMode ?? 'staged', createdAt: r.createdAt }
 }
 function mapMilestones(ms: BackendMilestoneProposal[] | undefined): BidScheduleMilestone[] {
   return (ms ?? []).map((m) => ({ title: m.title, description: m.description ?? '', amount: m.amount }))
@@ -133,6 +135,7 @@ export function useBidsWithScoresQuery(projectId: string | undefined) {
         milestones: mapMilestones(b.milestones),
         rounds: (b.rounds ?? []).map(mapRound),
         lastProposedBy: b.lastProposedBy ?? 'contractor',
+        fundingMode: b.fundingMode ?? 'staged',
         score: b.score,
         stats: b.stats,
       }))

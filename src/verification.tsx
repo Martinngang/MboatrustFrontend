@@ -5,6 +5,7 @@ import {
   useUpsertVerifierProfileMutation,
   type VerifierProfileRecord,
 } from './api/verifierProfiles'
+import type { VerificationTaskLocationDetails } from './api/reputation'
 
 // ── Evidence metadata (anti-fraud indicators) ──────────────────────────────────
 // Type only — the real values now come from the backend's own evidence
@@ -22,7 +23,7 @@ export interface EvidenceMeta {
 
 // ── Human verifier role ─────────────────────────────────────────────────────────
 export type VerifierTaskStatus = 'pending' | 'in_progress' | 'submitted'
-export type VerifierTaskType = 'milestone' | 'land'
+export type VerifierTaskType = 'milestone' | 'land' | 'location'
 
 export interface VerifierTaskReport {
   match: boolean
@@ -41,6 +42,15 @@ export interface VerifierTask {
   dueDate: string
   status: VerifierTaskStatus
   report?: VerifierTaskReport
+  /** Only meaningful for type 'location' — the project's original
+   * (pre-confirmation) coordinates/place name, for context on what the
+   * verifier is being asked to confirm or correct. */
+  coordinates?: { lat: number; lng: number } | null
+  locationDetails?: VerificationTaskLocationDetails | null
+  /** Only meaningful for type 'location', once submitted — the verifier's
+   * confirmed coordinates/place name. */
+  confirmedLocation?: { lat: number; lng: number } | null
+  confirmedLocationDetails?: VerificationTaskLocationDetails | null
 }
 
 export interface VerifierAssignment {
@@ -66,9 +76,23 @@ export interface Approver {
 // verifier is a trust-elevating role (Phase 0's role-escalation fix made it
 // admin-grant-only), so registerVerifier submits a real application for
 // admin review rather than granting anything itself.
+interface RegisterVerifierInput {
+  specialties: string[]
+  regions: string[]
+  bio?: string
+  file?: File | null
+  /** Already resolved client-side by useLocationCapture — the backend
+   * (verifierProfileController.upsertMine) already accepts and persists
+   * these alongside `location`. */
+  location?: { lat: number; lng: number } | null
+  placeName?: string | null
+  formattedAddress?: string | null
+  locationSource?: string
+}
+
 interface VerificationContextValue {
   verifierProfile: VerifierProfileRecord | null | undefined
-  registerVerifier: (input: { specialties: string[]; regions: string[]; bio?: string; file?: File | null }) => void
+  registerVerifier: (input: RegisterVerifierInput) => void
 }
 
 const VerificationContext = createContext<VerificationContextValue>({} as VerificationContextValue)
@@ -78,7 +102,7 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
   const { data: verifierProfile } = useMyVerifierProfileQuery(isLoggedIn)
   const upsert = useUpsertVerifierProfileMutation()
 
-  const registerVerifier = (input: { specialties: string[]; regions: string[]; bio?: string; file?: File | null }) => {
+  const registerVerifier = (input: RegisterVerifierInput) => {
     upsert.mutate(input)
   }
 

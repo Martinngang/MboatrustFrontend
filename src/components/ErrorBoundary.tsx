@@ -28,23 +28,39 @@ export class ScreenErrorBoundary extends Component<{ children: ReactNode }, { er
   }
 
   render() {
-    if (this.state.error) {
-      return (
-        <div className="flex min-h-[50vh] w-full flex-col items-center justify-center gap-3 px-6 text-center">
-          <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">Something went wrong loading this page</div>
-          <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="max-w-sm text-sm">
-            Try again, or head back home — the rest of the app is unaffected.
-          </div>
-          <button
-            onClick={() => (window.location.hash = '#/home')}
-            className="mt-2 rounded-full px-5 py-2.5 text-sm font-semibold"
-            style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
-          >
-            Go to Home
-          </button>
-        </div>
-      )
-    }
+    if (this.state.error) return <CrashNotice />
     return this.props.children
   }
+}
+
+/** The "this page crashed" message — shared by ScreenErrorBoundary (crash in a
+ * screen's content) and RouteErrorBoundary (crash in a screen's own body,
+ * which renders inside the app shell so the sidebar stays put). */
+export function CrashNotice() {
+  return (
+    <div className="flex min-h-[50vh] w-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-lg font-bold">Something went wrong loading this page</div>
+      <div style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="max-w-sm text-sm">
+        Try again, or head back home — the rest of the app is unaffected.
+      </div>
+      <button
+        onClick={() => (window.location.hash = '#/home')}
+        className="mt-2 rounded-full px-5 py-2.5 text-sm font-semibold"
+        style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
+      >
+        Go to Home
+      </button>
+    </div>
+  )
+}
+
+/** Best-effort crash report, swallowed on failure — a report must never itself
+ * crash or block the fallback UI. Unauthenticated on the backend
+ * (POST /system-events) since a crash can happen before login. */
+export function reportCrash(source: string, error: Error, componentStack?: string) {
+  api.post('/system-events', {
+    type: 'frontend_crash',
+    source,
+    detail: { message: error.message, stack: error.stack?.slice(0, 2000), componentStack: componentStack?.slice(0, 2000), path: window.location.hash },
+  }).catch(() => {})
 }

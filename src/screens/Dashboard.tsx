@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useApp, fmt } from '../context'
-import { useMyFundedProjectsQuery } from '../api/projects'
+import { useDashboardQuery, formatRating } from '../api/dashboard'
+import { useMyLandListingsQuery } from '../api/land'
 import { useMaterials } from '../materials'
 import { useVerification } from '../verification'
 import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, DashboardShell, DashboardHero, QuickActionsGrid } from '../components/MobileLayout'
@@ -62,36 +63,39 @@ function DashboardSkeleton() {
   )
 }
 
+/** Renders "—" until the real number arrives, never a misleading 0. */
+function statValue<T>(data: T | undefined, pick: (d: T) => string): string {
+  return data ? pick(data) : '—'
+}
+
 // ── Funder dashboard ──────────────────────────────────────────────────────────
+// Every figure comes from GET /dashboard/funder (backend
+// dashboardStatsService.funder), computed for the signed-in user only:
+// - Total funded: this funder's OWN completed payments into escrow. It used
+//   to sum each funded project's platform-wide `raised`, and it only ever
+//   looked at retired 'funding' projects — so every real funder (who funds
+//   tenders) saw XAF 0.
+// - Active projects: projects they paid into or own, funded/in progress.
+// - Pending reviews: milestones awaiting THIS user's decision as owner or
+//   co-signer — not every under-review milestone on anything they paid into.
 function FunderHome() {
   const nav = useNavigate()
-  const { name, devUserId } = useApp()
-  // GET /projects with no filter is the public browse catalog (every
-  // funder's projects, by design — see BrowseProjectsScreen). Home's own
-  // totals/list need to be scoped to what THIS funder actually paid into,
-  // which the backend can only answer via the funderId filter (matched
-  // against Escrow.funderId, since a funder never owns the project they
-  // fund) — without it, "Total funded" and "Active projects" here were
-  // silently summing every funder's contributions across the platform.
-  const { data: projects = [] } = useMyFundedProjectsQuery(devUserId ?? undefined)
-  const active = projects.filter((p) => p.status === 'active')
-  const totalFunded = projects.reduce((s, p) => s + p.raised, 0)
-  const pendingMilestones = projects.flatMap((p) => p.milestones).filter((m) => m.status === 'under_review').length
+  const { name } = useApp()
+  const { data } = useDashboardQuery('funder')
+  const pendingReviews = data?.stats.pendingReviews ?? 0
   const [projectFilter, setProjectFilter] = useState('All')
-  const visibleActive = projectFilter === 'Needs my attention'
-    ? active.filter((p) => p.milestones.some((m) => m.status === 'under_review'))
-    : active
+  const activeProjects = data?.activeProjects ?? []
+  const visibleActive = projectFilter === 'Needs my attention' ? activeProjects.filter((p) => p.needsMyReview) : activeProjects
 
-  const attentionItems: AttentionItem[] = projects.flatMap((p) =>
-    p.milestones.filter((m) => m.status === 'under_review').map((m): AttentionItem => ({
-      icon: 'hourglass', label: `${m.title} — ${p.title}`, sub: `${fmt(m.amount)} awaiting your review`,
-      onClick: () => nav(`/funder/review/${p.id}`),
-    }))
-  )
+  const attentionItems: AttentionItem[] = (data?.pendingReviews ?? []).map((m): AttentionItem => ({
+    icon: 'hourglass', label: `${m.milestoneTitle} — ${m.projectTitle}`, sub: `${fmt(m.amount)} awaiting your review`,
+    onClick: () => nav(`/funder/review/${m.projectId}`),
+  }))
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
     { id: 'activity', title: 'Recent activity', render: () => <RecentActivityWidget /> },
   ]
+  const newProjects = data?.newBrowsableProjectsThisWeek ?? 0
 
   return (
     <DeferredReveal skeleton={<DashboardSkeleton />}>
@@ -99,12 +103,12 @@ function FunderHome() {
       <DashboardShell>
         <DashboardHero
           eyebrow="Welcome back"
-          title={name || 'Marie-Claire N.'}
+          title={name || 'Welcome'}
           subtitle="Track your funded projects, review milestones and keep every investment moving with confidence."
           stats={[
-            { label: 'Total funded', value: fmt(totalFunded) },
-            { label: 'Active projects', value: String(active.length) },
-            { label: 'Pending reviews', value: String(pendingMilestones) },
+            { label: 'Total funded', value: statValue(data, (d) => fmt(d.stats.totalFunded)) },
+            { label: 'Active projects', value: statValue(data, (d) => String(d.stats.activeProjects)) },
+            { label: 'Pending reviews', value: statValue(data, (d) => String(d.stats.pendingReviews)) },
           ]}
         />
 
@@ -121,7 +125,7 @@ function FunderHome() {
               ]} />
             </div>
 
-            {pendingMilestones > 0 && (
+            {pendingReviews > 0 && (
               <button
                 onClick={() => nav('/funder/review')}
                 className="flex w-full items-center gap-4 rounded-[24px] border p-4 text-left"
@@ -135,7 +139,7 @@ function FunderHome() {
                   </svg>
                 </div>
                 <div className="flex-1">
-                  <div style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm font-semibold">{pendingMilestones} milestone{pendingMilestones > 1 ? 's' : ''} waiting for your review</div>
+                  <div style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-sm font-semibold">{pendingReviews} milestone{pendingReviews > 1 ? 's' : ''} waiting for your review</div>
                   <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="mt-1 text-[10px] uppercase tracking-[0.25em]">Tap to review proof</div>
                 </div>
               </button>
@@ -144,38 +148,45 @@ function FunderHome() {
             <div>
               <div className="mb-3 flex items-center justify-between">
                 <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Active projects</p>
-                <button onClick={() => nav('/funder/browse')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">See all</button>
+                <button onClick={() => nav('/workspace/jobs')} style={{ fontFamily: FONT.sans, color: C.forest }} className="text-xs font-semibold">See all</button>
               </div>
               <div className="mb-3">
                 <ChipGroup options={['All', 'Needs my attention']} value={projectFilter} onChange={(v) => setProjectFilter(v as string)} />
               </div>
-              <StaggerList className="space-y-3">
-                {visibleActive.map((p) => {
-                  const pct = Math.round((p.raised / p.totalAmount) * 100)
-                  const milestone = p.milestones.find((m) => m.status !== 'released') ?? p.milestones[p.milestones.length - 1]
-                  return (
-                    <StaggerItem key={p.id}>
-                      <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
-                        <div className="p-4">
-                          <div className="mb-3 flex items-start justify-between gap-2">
-                            <div className="flex-1">
-                              <div style={{ fontFamily: FONT.serif }} className="text-sm font-bold">{p.title}</div>
-                              <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-0.5 text-[10px] uppercase tracking-[0.25em]">{p.location}</div>
+              {data && visibleActive.length === 0 ? (
+                <Card>
+                  <div className="p-4 text-center text-sm" style={{ fontFamily: FONT.sans, color: C.inkMuted }}>
+                    {projectFilter === 'Needs my attention' ? "You're all caught up — nothing is waiting on your review." : 'No active projects yet. Fund a tender to see it here.'}
+                  </div>
+                </Card>
+              ) : (
+                <StaggerList className="space-y-3">
+                  {visibleActive.map((p) => {
+                    const pct = p.totalAmount > 0 ? Math.min(100, Math.round((p.raised / p.totalAmount) * 100)) : 0
+                    return (
+                      <StaggerItem key={p.id}>
+                        <Card variant="interactive" onClick={() => nav(`/funder/project/${p.id}`)}>
+                          <div className="p-4">
+                            <div className="mb-3 flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <div style={{ fontFamily: FONT.serif }} className="text-sm font-bold">{p.title}</div>
+                                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mt-0.5 text-[10px] uppercase tracking-[0.25em]">{p.location}</div>
+                              </div>
+                              {p.currentMilestone && <StatusBadge status={p.currentMilestone.status} />}
                             </div>
-                            {milestone && <StatusBadge status={milestone.status} />}
+                            <ProgressBar pct={pct} />
+                            <div className="mt-2 flex justify-between">
+                              <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{fmt(p.fundedAmount ?? p.raised)} funded · {fmt(p.unfundedAmount ?? 0)} to fund</span>
+                              <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{pct}%</span>
+                            </div>
+                            {p.currentMilestone && <div className="mt-2 text-[10px]" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>Current: {p.currentMilestone.title}</div>}
                           </div>
-                          <ProgressBar pct={pct} />
-                          <div className="mt-2 flex justify-between">
-                            <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{fmt(p.raised)} raised</span>
-                            <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">{pct}%</span>
-                          </div>
-                          {milestone && <div className="mt-2 text-[10px]" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>Current: {milestone.title}</div>}
-                        </div>
-                      </Card>
-                    </StaggerItem>
-                  )
-                })}
-              </StaggerList>
+                        </Card>
+                      </StaggerItem>
+                    )
+                  })}
+                </StaggerList>
+              )}
             </div>
           </div>
 
@@ -184,17 +195,19 @@ function FunderHome() {
               <img src="https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=600&h=200&fit=crop&auto=format" alt="Community projects" className="absolute inset-0 h-full w-full object-cover" />
               <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.7)' }} />
               <div className="relative px-5">
-                <div style={{ fontFamily: FONT.mono, color: C.amber }} className="mb-1 text-[10px] uppercase tracking-[0.3em]">New</div>
+                {newProjects > 0 && <div style={{ fontFamily: FONT.mono, color: C.amber }} className="mb-1 text-[10px] uppercase tracking-[0.3em]">New</div>}
                 <div style={{ fontFamily: FONT.serif }} className="text-base font-bold text-white">Browse community projects</div>
-                <div style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.72)' }} className="mt-1 text-sm">3 new projects added this week</div>
+                <div style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.72)' }} className="mt-1 text-sm">
+                  {newProjects > 0 ? `${newProjects} new project${newProjects === 1 ? '' : 's'} added this week` : 'Explore verified projects across Cameroon'}
+                </div>
               </div>
             </button>
 
             <Card variant="glass">
               <div className="p-5">
-                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">Portfolio insight</div>
-                <div style={{ fontFamily: FONT.serif }} className="mt-2 text-lg font-semibold">Balanced, verified, and ready to scale</div>
-                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">Every active project, milestone, and dispute in one place — verified before your money ever moves.</p>
+                <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-[0.3em]">How your money moves</div>
+                <div style={{ fontFamily: FONT.serif }} className="mt-2 text-lg font-semibold">Verified before it's released</div>
+                <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="mt-2 text-sm leading-relaxed">Every milestone payout waits in escrow until you approve the contractor's proof — nothing is released without your decision.</p>
               </div>
             </Card>
           </div>
@@ -211,20 +224,26 @@ function FunderHome() {
 }
 
 // ── Contractor dashboard ───────────────────────────────────────────────────────
+// Same four tiles as mobile, from GET /dashboard/contractor. The "Verified
+// contractor" badge used to be hardcoded onto every contractor; it now only
+// shows once the account's KYC is actually verified. "Matching your trade"
+// is only claimed when the tender really matches one of their categories.
 function ContractorHome() {
   const nav = useNavigate()
-  const { name, jobs, bids, contractors, devUserId } = useApp()
-  const featured = jobs[0]
-  const pendingBids = bids.filter((b) => b.status === 'pending')
-  // A brand-new contractor has no ContractorProfile document yet (created
-  // lazily on first profile-setup save) — jobs/rating both read as 0/— in
-  // that case rather than falling back to someone else's stats.
-  const myProfile = contractors.find((c) => c.id === devUserId)
+  const { name } = useApp()
+  const { data } = useDashboardQuery('contractor')
+  const featured = data?.featuredTender ?? null
+  const openBids = data?.openBids ?? []
 
-  const attentionItems: AttentionItem[] = pendingBids.length > 0
-    ? pendingBids.map((b): AttentionItem => ({ icon: 'clipboard', label: `Bid pending — ${b.jobTitle}`, sub: fmt(b.price), onClick: () => nav('/contractor/bids') }))
+  const attentionItems: AttentionItem[] = openBids.length > 0
+    ? openBids.map((b): AttentionItem => ({
+        icon: 'clipboard',
+        label: b.awaitingMyResponse ? `Counter-offer to respond to — ${b.projectTitle}` : `Bid pending — ${b.projectTitle}`,
+        sub: fmt(b.price),
+        onClick: () => nav('/contractor/bids'),
+      }))
     : featured
-      ? [{ icon: 'search', label: `New tender matching your trade: ${featured.title}`, sub: `${fmt(featured.budget)} · ${featured.location}`, onClick: () => nav(`/contractor/job/${featured.id}`) }]
+      ? [{ icon: 'search', label: `${featured.matchesTrade ? 'New tender matching your trade' : 'Latest open tender'}: ${featured.title}`, sub: `${fmt(featured.budget)} · ${featured.location}`, onClick: () => nav(`/contractor/job/${featured.id}`) }]
       : []
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
@@ -237,9 +256,9 @@ function ContractorHome() {
       <DashboardShell>
         <DashboardHero
           eyebrow="Contractor"
-          title={name || 'Fon Ayuk Const.'}
+          title={name || 'Welcome'}
           background={`linear-gradient(135deg, ${C.steel} 0%, #2A4E77 100%)`}
-          action={
+          action={data?.isKycVerified ? (
             <div className="flex items-center gap-1.5 rounded-full px-3 py-2 text-xs" style={{ background: 'rgba(255,255,255,0.14)' }}>
               <div className="w-4 h-4 rounded-full flex items-center justify-center" style={{ background: C.forest }}>
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
@@ -248,11 +267,12 @@ function ContractorHome() {
               </div>
               <span style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.85)' }}>Verified contractor</span>
             </div>
-          }
+          ) : undefined}
           stats={[
-            { label: 'Active bids', value: String(pendingBids.length) },
-            { label: 'Completed jobs', value: String(myProfile?.jobs ?? 0) },
-            { label: 'Rating', value: myProfile ? myProfile.rating.toFixed(1) : '—' },
+            { label: 'Active bids', value: statValue(data, (d) => String(d.stats.activeBids)) },
+            { label: 'Completed jobs', value: statValue(data, (d) => String(d.stats.completedJobs)) },
+            { label: 'Rating', value: statValue(data, (d) => formatRating(d.stats.rating, d.stats.ratingCount)) },
+            { label: 'Available payout', value: statValue(data, (d) => fmt(d.stats.availablePayout)) },
           ]}
         />
 
@@ -274,20 +294,19 @@ function ContractorHome() {
           <div className="space-y-6">
             {featured && (
               <div>
-                <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">New job matching your trade</p>
+                <p style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-3">
+                  {featured.matchesTrade ? 'New job matching your trade' : 'Latest open tender'}
+                </p>
                 <Card variant="interactive" onClick={() => nav(`/contractor/job/${featured.id}`)}>
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div style={{ fontFamily: FONT.serif }} className="font-bold text-sm">{featured.title}</div>
                       <span style={{ fontFamily: FONT.mono, color: 'var(--status-info-text)', background: 'var(--status-info-bg)' }} className="text-[9px] uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap">
-                        {featured.bids} bids
+                        {featured.bidCount} bid{featured.bidCount === 1 ? '' : 's'}
                       </span>
                     </div>
                     <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{featured.location}</div>
-                    <div className="flex items-center justify-between">
-                      <div style={{ fontFamily: FONT.serif }} className="text-base font-bold">{fmt(featured.budget)}</div>
-                      <span style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-[10px]">Due {featured.deadline}</span>
-                    </div>
+                    <div style={{ fontFamily: FONT.serif }} className="text-base font-bold">{fmt(featured.budget)}</div>
                   </div>
                 </Card>
               </div>
@@ -306,17 +325,21 @@ function ContractorHome() {
 }
 
 // ── Seller dashboard ────────────────────────────────────────────────────────────
+// Tiles from GET /dashboard/seller; the "My listings" list from a
+// server-side sellerId filter. Both used to be derived from the platform's
+// newest page of listings (every seller's), filtered client-side.
 function SellerHome() {
   const nav = useNavigate()
-  const { name, landListings, offers, devUserId } = useApp()
-  const mine = landListings.filter((l) => l.sellerId && l.sellerId === devUserId)
-  const pendingOffers = offers.filter((o) => o.status === 'pending' && mine.some((l) => l.id === o.listingId))
-  const unverified = mine.find((l) => !l.verified)
+  const { name, devUserId } = useApp()
+  const { data } = useDashboardQuery('seller')
+  const { data: mine = [] } = useMyLandListingsQuery(devUserId)
+  const pendingOffers = data?.pendingOffers ?? []
+  const unverified = data?.firstUnverifiedListing ?? null
 
   const attentionItems: AttentionItem[] = pendingOffers.length > 0
-    ? pendingOffers.map((o): AttentionItem => ({ icon: 'handshake', label: `New offer: ${fmt(o.amount)}`, sub: o.message || 'Awaiting your response', onClick: () => nav(`/land/listing/${o.listingId}`) }))
+    ? pendingOffers.map((o): AttentionItem => ({ icon: 'handshake', label: `New offer: ${fmt(o.amount)} — ${o.listingTitle}`, sub: o.message || 'Awaiting your response', onClick: () => nav(`/land/listing/${o.listingId}`) }))
     : unverified
-      ? [{ icon: 'clock', label: `Verification pending — ${unverified.title}`, sub: unverified.titleType, onClick: () => nav(`/land/listing/${unverified.id}`) }]
+      ? [{ icon: 'clock', label: `Verification pending — ${unverified.title}`, sub: unverified.titleType || unverified.verificationStatus, onClick: () => nav(`/land/listing/${unverified.id}`) }]
       : []
   const widgets: WidgetDef[] = [
     { id: 'attention', title: 'Needs your attention', render: () => <NeedsAttentionWidget items={attentionItems} /> },
@@ -329,11 +352,12 @@ function SellerHome() {
       <DashboardShell>
         <DashboardHero
           eyebrow="Land seller"
-          title={name || 'Christophe Essama'}
+          title={name || 'Welcome'}
           background={`linear-gradient(135deg, ${C.moss} 0%, ${C.forest} 100%)`}
           stats={[
-            { label: 'Active listings', value: String(mine.length) },
-            { label: 'Verified listings', value: String(mine.filter((l) => l.verified).length) },
+            { label: 'Listings', value: statValue(data, (d) => String(d.stats.listings)) },
+            { label: 'Verified', value: statValue(data, (d) => String(d.stats.verifiedListings)) },
+            { label: 'Pending offers', value: statValue(data, (d) => String(d.stats.pendingOffers)) },
           ]}
         />
 
@@ -363,6 +387,7 @@ function SellerHome() {
                         <div style={{ fontFamily: FONT.serif, color: C.ink }} className="font-bold text-sm leading-tight mb-1">{l.title}</div>
                         <div style={{ fontFamily: FONT.serif, color: C.forest }} className="font-bold text-sm">{fmt(l.price)}</div>
                       </div>
+                      <StatusBadge status={l.verified ? 'verified' : 'unverified'} />
                     </div>
                   </Card>
                 </StaggerItem>

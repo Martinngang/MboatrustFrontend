@@ -5,7 +5,6 @@ import { C, FONT, AppShell, Card, StatusBadge, ProgressBar, Stars, PillButton, H
 import { ActivityTimeline, type TimelineEvent } from '../components/ActivityTimeline'
 import { ApprovalStatusList } from '../components/ApprovalStatusList'
 import { CurrencyConverterWidget } from '../components/CurrencyConverterWidget'
-import { FeeBreakdown } from '../components/FeeBreakdown'
 import { useTransactionsQuery, type Transaction } from '../api/transactions'
 import { useVideoSessionsQuery, useRequestVideoSessionMutation, useScheduleVideoSessionMutation } from '../api/videoVerification'
 import { useVerificationTasksQuery } from '../api/reputation'
@@ -24,7 +23,9 @@ import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
 import { MaterialOrderCard } from '../components/MaterialOrderCard'
 import { useToast } from '../components/Toast'
 import { apiErrorMessage } from '../api/client'
-import { useProjectsInfiniteQuery, useProjectQuery, useProjectFundingSummaryQuery } from '../api/projects'
+import { useProjectsInfiniteQuery, useProjectQuery, useProjectFundingSummaryQuery, useUpdateProjectLocationMutation, useFundingQuoteQuery } from '../api/projects'
+import { FundingBreakdown } from '../components/FundingBreakdown'
+import { RequestVerifierPanel, ViewPlanDocumentButton } from '../components/RequestVerifierPanel'
 import { useRefreshEscrowStatusMutation } from '../api/escrow'
 import { PROJECT_CATEGORIES } from '../inventoryTaxonomy'
 // Leaflet (pulled in by ProjectMap.tsx) is ~170KB and would push the main
@@ -36,6 +37,9 @@ const ProjectLocationSection = lazy(() =>
 )
 const LocationMapModal = lazy(() =>
   import('../components/ProjectMap').then((m) => ({ default: m.LocationMapModal }))
+)
+const LocationEditModal = lazy(() =>
+  import('../components/ProjectMap').then((m) => ({ default: m.LocationEditModal }))
 )
 import { useContractorProfilesInfiniteQuery } from '../api/contractors'
 import { PaymentMethodSelector, type PaymentMethodId } from '../components/PaymentMethodSelector'
@@ -168,6 +172,10 @@ export function ProjectDetailScreen() {
   const nav = useNavigate()
   const { id } = useParams()
   const { projects } = useApp()
+  const [locationEditOpen, setLocationEditOpen] = useState(false)
+  const updateLocation = useUpdateProjectLocationMutation()
+  const [verifierPanelOpen, setVerifierPanelOpen] = useState(false)
+  const { show: showLocationToast } = useToast()
   // id undefined (no specific project requested) falls back to projects[0]
   // as before. An id not in `projects` used to be treated as "not found"
   // outright — but `projects` (useProjectsQuery) only ever holds
@@ -297,8 +305,70 @@ export function ProjectDetailScreen() {
         </section>
 
         <Suspense fallback={<SkeletonCard />}>
-          <ProjectLocationSection locationName={p.location} coordinates={p.coordinates} />
+          <ProjectLocationSection
+            locationName={p.location}
+            coordinates={p.coordinates}
+            locationDetails={p.locationDetails}
+            milestones={p.milestones}
+            onEditLocation={() => setLocationEditOpen(true)}
+          />
+          <LocationEditModal
+            open={locationEditOpen}
+            onClose={() => setLocationEditOpen(false)}
+            initialLat={p.coordinates?.lat ?? null}
+            initialLng={p.coordinates?.lng ?? null}
+            title="Edit project location"
+            saving={updateLocation.isPending}
+            onSave={({ lat, lng, placeName, formattedAddress, source }) => {
+              updateLocation.mutate(
+                { projectId: p.id, location: { lat, lng }, placeName, formattedAddress, locationSource: source },
+                {
+                  onSuccess: () => {
+                    setLocationEditOpen(false)
+                    showLocationToast({ title: 'Location updated', tone: 'success' })
+                  },
+                  onError: (err) => showLocationToast({ title: 'Could not update location', description: apiErrorMessage(err, 'Please try again'), tone: 'error' }),
+                }
+              )
+            }}
+          />
         </Suspense>
+
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div className="flex items-center justify-between mb-1">
+            <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">Project plan</div>
+            {p.hasPlanDocument && <ViewPlanDocumentButton projectId={p.id} />}
+          </div>
+          {!p.hasPlanDocument && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">
+              {p.hasExistingPlan ? 'A plan was indicated at creation but has not finished uploading yet.' : 'No existing project plan was provided.'}
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Location verification</div>
+          {p.locationVerificationStatus === 'confirmed' && (
+            <p style={{ fontFamily: FONT.sans, color: 'var(--status-success-text)' }} className="text-xs font-semibold">Confirmed by an independent Verifier.</p>
+          )}
+          {p.locationVerificationStatus === 'requested' && (
+            <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs">Awaiting confirmation from the assigned Verifier.</p>
+          )}
+          {p.locationVerificationStatus === 'not_requested' && (
+            <>
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mb-2">
+                You haven't requested independent confirmation of the exact site location.
+              </p>
+              {!verifierPanelOpen ? (
+                <button onClick={() => setVerifierPanelOpen(true)} className="text-xs font-semibold" style={{ fontFamily: FONT.sans, color: C.forest }}>
+                  Request a Verifier →
+                </button>
+              ) : (
+                <RequestVerifierPanel projectId={p.id} onAssigned={() => setVerifierPanelOpen(false)} />
+              )}
+            </>
+          )}
+        </div>
 
         {/* ── The ledger ────────────────────────────────────────────────────
             Milestones as entries in a bound ledger: numbered in the ruled
@@ -412,6 +482,12 @@ export function FundProjectScreen() {
   const { data: fundingSummary } = useProjectFundingSummaryQuery(state.projectId)
   const existing = state.projectId && directProject ? { ...directProject, raised: fundingSummary?.raised ?? 0 } : undefined
   const fallback = projects[0]
+  // Staged funding: the funder chooses how much of the contract to put into
+  // escrow now — the next milestone, everything still unfunded, or a custom
+  // amount. `netAmount` is what gets CREDITED to escrow (contract value
+  // basis); the backend quotes the gross to pay on top of it (fee on top).
+  const [amountMode, setAmountMode] = useState<'next' | 'all' | 'custom'>('next')
+  const [customAmount, setCustomAmount] = useState('')
 
   // Unset residenceCountry defaults to the local order — safest assumption
   // for an account that hasn't finished onboarding/profile setup yet.
@@ -439,11 +515,22 @@ export function FundProjectScreen() {
   const [stripeEscrowId, setStripeEscrowId] = useState<string | undefined>(undefined)
   const refreshEscrowStatus = useRefreshEscrowStatusMutation()
 
-  const amount = existing
-    ? Math.max(0, existing.totalAmount - existing.raised)
-    : 1400000
+  const remainingToFund = fundingSummary?.remainingToFund ?? 0
+  const suggested = fundingSummary?.suggestedFundingAmount ?? 0
+  const hasNextMilestone = Boolean(fundingSummary?.nextMilestoneToFund) && fundingSummary?.fundingMode === 'staged'
+  // A full-upfront contract (or one with no separate next milestone) only
+  // ever offers "everything still unfunded" and a custom amount.
+  const effectiveMode = amountMode === 'next' && !hasNextMilestone ? 'all' : amountMode
+  const rawNet = effectiveMode === 'next' ? suggested : effectiveMode === 'all' ? remainingToFund : Number(customAmount) || 0
+  const netAmount = Math.max(0, Math.min(rawNet, remainingToFund))
+  const currency = foreignCurrency ? 'EUR' : 'XAF'
+  const targetProjectIdForQuote = existing?.id ?? fallback?.id
+  const { data: quote, isFetching: quoteLoading } = useFundingQuoteQuery(targetProjectIdForQuote, netAmount, currency)
+  // What is actually charged (gross, incl. the funding fee) — 0 until quoted.
+  const amount = quote?.grossAmount ?? 0
   const title = existing?.title ?? fallback.title
   const { blocked: kycBlocked } = useKycGate(amount)
+  const amountReady = netAmount > 0 && !!quote && !quoteLoading && quote.creditedNet > 0
 
   // Reached only with an existing project id — funding a new project draft
   // was a separate, now-retired creation flow (see the deleted
@@ -484,7 +571,7 @@ export function FundProjectScreen() {
       setStripeClientSecret(res.clientSecret)
       setStripeEscrowId(res._id)
       setStripeEscrowStarted(true)
-      setPaidAmount(amount)
+      setPaidAmount(netAmount)
       setStep('stripe_card')
     } catch (err) {
       showToast({ title: 'Could not start card payment', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -520,7 +607,7 @@ export function FundProjectScreen() {
 
   const confirmPayment = async () => {
     setSubmitting(true)
-    setPaidAmount(amount)
+    setPaidAmount(netAmount)
     try {
       const targetProjectId = await resolveTargetProjectId()
 
@@ -564,10 +651,10 @@ export function FundProjectScreen() {
           </div>
           <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-2">Funds secured in escrow</h1>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed mb-2">
-            {fmt(paidAmount ?? amount)} is now held in escrow for <strong>{title}</strong>.
+            {fmt(paidAmount ?? netAmount)} was credited to escrow for <strong>{title}</strong>.
           </p>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed mb-8">
-            Funds will be released to the contractor only when milestone proof is verified and you approve.
+            Escrow is funded milestone by milestone. Funds are released to the contractor only when milestone proof is verified and you approve — top up before each next milestone starts.
           </p>
           <div className="rounded-2xl border p-4 w-full mb-8" style={{ borderColor: C.parchmentDark, background: C.parchment }}>
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-1">Transaction reference</div>
@@ -586,8 +673,8 @@ export function FundProjectScreen() {
       <div className="px-5 py-5 space-y-4 overflow-y-auto sm:mx-auto sm:max-w-2xl">
         {/* Amount card */}
         <div className="rounded-2xl p-5 text-center" style={{ background: C.forest }}>
-          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Amount to escrow</div>
-          <div style={{ fontFamily: FONT.serif }} className="text-4xl font-bold text-white">{fmt(amount)}</div>
+          <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-xs uppercase tracking-widest mb-1">Credited to escrow</div>
+          <div style={{ fontFamily: FONT.serif }} className="text-4xl font-bold text-white">{fmt(netAmount)}</div>
           <div style={{ fontFamily: FONT.sans, color: 'rgba(255,255,255,0.7)' }} className="text-sm mt-2">{title}</div>
           <div className="mt-3 px-3 py-1.5 rounded-full inline-flex items-center gap-1.5" style={{ background: 'rgba(232,160,32,0.2)' }}>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
@@ -598,7 +685,62 @@ export function FundProjectScreen() {
           </div>
         </div>
 
-        <FeeBreakdown result={fees.projectFunding(amount)} />
+        {fundingSummary && <FundingBreakdown funding={fundingSummary} title="Contract funding" />}
+
+        {/* How much to fund now */}
+        <div className="rounded-2xl border p-4 space-y-2" style={{ borderColor: C.parchmentDark, background: C.white }}>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest">How much to fund now</div>
+          {([
+            hasNextMilestone && fundingSummary?.nextMilestoneToFund
+              ? { id: 'next' as const, label: `Next milestone — ${fundingSummary.nextMilestoneToFund.name}`, value: suggested }
+              : null,
+            { id: 'all' as const, label: 'Everything still unfunded', value: remainingToFund },
+            { id: 'custom' as const, label: 'A custom amount', value: null },
+          ].filter(Boolean) as { id: 'next' | 'all' | 'custom'; label: string; value: number | null }[]).map((opt) => (
+            <button
+              key={opt.id}
+              onClick={() => setAmountMode(opt.id)}
+              className="w-full flex items-center justify-between rounded-xl border-2 px-3 py-2.5 text-left"
+              style={{ borderColor: effectiveMode === opt.id ? C.forest : C.parchmentDark, background: effectiveMode === opt.id ? 'var(--status-success-bg)' : C.white }}
+            >
+              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-medium">{opt.label}</span>
+              {opt.value != null && <span style={{ fontFamily: FONT.mono, color: C.ink }} className="text-xs font-bold">{fmt(opt.value)}</span>}
+            </button>
+          ))}
+          {effectiveMode === 'custom' && (
+            <div>
+              <input
+                type="number"
+                min={0}
+                value={customAmount}
+                onChange={(e) => setCustomAmount(e.target.value)}
+                placeholder={`Up to ${remainingToFund}`}
+                className="w-full border-2 rounded-xl px-4 py-3 outline-none text-sm focus:border-[var(--color-forest)]"
+                style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.ink, background: C.white }}
+              />
+              {Number(customAmount) > remainingToFund && (
+                <p style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs mt-1">
+                  That is more than the remaining {fmt(remainingToFund)} — it will be capped.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Fee on top: what you pay vs what reaches escrow */}
+        <div className="rounded-xl border p-3.5 space-y-1.5" style={{ background: C.parchment, borderColor: C.parchmentDark }}>
+          <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+            <span>Credited to escrow</span><span style={{ color: C.ink }}>{fmt(netAmount)}</span>
+          </div>
+          <div className="flex justify-between text-xs" style={{ fontFamily: FONT.mono, color: C.inkSubtle }}>
+            <span>Funding fee{quote && quote.feeRate > 0 ? ` (${+(quote.feeRate * 100).toFixed(2)}%)` : ''}</span>
+            <span style={{ color: C.ink }}>{quote ? `+${quote.currency === 'XAF' ? fmt(quote.feeAmount) : `${quote.feeAmount} ${quote.currency}`}` : '…'}</span>
+          </div>
+          <div className="flex justify-between text-sm pt-1.5 border-t" style={{ fontFamily: FONT.mono, color: C.ink, borderColor: C.parchmentDark }}>
+            <span className="font-semibold">You pay</span>
+            <span className="font-bold">{quote ? (quote.currency === 'XAF' ? fmt(quote.grossAmount) : `${quote.grossAmount} ${quote.currency}`) : '…'}</span>
+          </div>
+        </div>
 
         {/* Payment method selector */}
         <PaymentMethodSelector selected={method} onChange={setMethod} availableMethods={availableMethods} />
@@ -652,9 +794,9 @@ export function FundProjectScreen() {
         </div>
         {foreignCurrency && (
           <div className="rounded-2xl border p-4" style={{ borderColor: C.parchmentDark, background: C.white }}>
-            <CurrencyConverterWidget defaultAmount={Math.round(amount / fees.config.foreignCurrencies[0].xafRate)} />
+            <CurrencyConverterWidget defaultAmount={Math.round(netAmount / fees.config.foreignCurrencies[0].xafRate)} />
             <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-3 leading-relaxed">
-              Send enough to cover {fmt(amount)} plus the conversion fee shown above. Escrow is always held in XAF.
+              Send enough to cover {fmt(netAmount)} plus the fees shown above. Escrow is always held in XAF.
             </p>
           </div>
         )}
@@ -672,7 +814,7 @@ export function FundProjectScreen() {
 
       {step !== 'stripe_card' && (
         <div className="px-5 pb-8 pt-4 border-t backdrop-blur-xl" style={{ borderColor: C.glassBorder, background: C.glassBg, boxShadow: C.shadowLg }}>
-          <PillButton onClick={() => step === 'select' ? handleNext() : confirmPayment()} fullWidth disabled={kycBlocked || submitting}>
+          <PillButton onClick={() => step === 'select' ? handleNext() : confirmPayment()} fullWidth disabled={kycBlocked || submitting || !amountReady}>
             {submitting ? 'Processing…' : step === 'select' ? `Proceed with ${method === 'mtn_momo' ? 'MTN MoMo' : method === 'orange_money' ? 'Orange Money' : method === 'stripe' ? 'Card' : 'Flutterwave'}` : 'Confirm Payment'}
           </PillButton>
         </div>
@@ -701,7 +843,7 @@ export function MilestoneReviewScreen() {
     ? directProject
     : (projects.find((p) => p.milestones.some((m) => m.status === 'under_review')) ?? projects[0])
   const milestone = project?.milestones.find((m) => m.status === 'under_review') ?? project?.milestones[0]
-  const [decision, setDecision] = useState<'approve' | 'dispute' | 'changes' | null>(null)
+  const [decision, setDecision] = useState<'approve' | 'awaiting' | 'dispute' | 'changes' | null>(null)
   const [approving, setApproving] = useState(false)
   // Bumped on a failed release to remount (and so un-press) the wax seal.
   const [sealAttempt, setSealAttempt] = useState(0)
@@ -727,6 +869,10 @@ export function MilestoneReviewScreen() {
   const { payeeType, payoutLabel } = resolveMilestonePayee(materialOrder)
 
   const { data: videoSessions = [] } = useVideoSessionsQuery(project?.id, milestone?.id)
+  // Escrow cover for THIS milestone (backend waterfall) — approving releases
+  // money only if escrow actually holds the milestone's amount.
+  const { data: fundingSummary } = useProjectFundingSummaryQuery(project?.id)
+  const milestoneFunding = fundingSummary?.milestones.find((m) => m.id === milestone?.id)
 
   // Every hook above has now been called unconditionally regardless of
   // whether project/milestone actually resolved — safe to bail out below,
@@ -772,6 +918,10 @@ export function MilestoneReviewScreen() {
       const result = await approveMilestone(project.id, milestone.id)
       if (result.releasedEscrow) {
         setDecision('approve')
+      } else if (result.awaitingFunds) {
+        // Approved, but escrow is short: nothing was released or guaranteed.
+        // The payment goes out automatically the moment escrow is topped up.
+        setDecision('awaiting')
       } else {
         showToast({ title: 'Your approval is recorded', description: 'Waiting on the other required approver before funds release.', tone: 'success' })
       }
@@ -807,6 +957,32 @@ export function MilestoneReviewScreen() {
     )
   }
 
+  if (decision === 'awaiting') {
+    const shortfall = milestoneFunding?.unfundedAmount ?? 0
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <div className="w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{ background: C.amber }}>
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <path d="M18 9V19L24 23" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+          </div>
+          <h1 style={{ fontFamily: FONT.serif }} className="text-2xl font-bold mb-3">Approved — awaiting funding</h1>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-2">
+            You approved "{milestone.title}", but escrow doesn't hold its full {fmt(milestone.amount)} yet{shortfall > 0 ? ` (${fmt(shortfall)} short)` : ''}. No money has been released.
+          </p>
+          <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm mb-8">
+            Add the missing funds and the payment is released to the contractor automatically.
+          </p>
+          <div className="w-full space-y-2">
+            <PillButton onClick={() => nav('/funder/fund', { state: { projectId: project.id } })} fullWidth>Fund escrow now</PillButton>
+            <PillButton onClick={() => nav(project.projectType === 'tender' ? `/funder/tender/${project.id}/bids` : `/funder/project/${project.id}`)} variant="secondary" fullWidth>Back to project</PillButton>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
   if (decision === 'dispute') {
     return <DisputeForm projectId={project.id} milestoneId={milestone.id} onBack={() => setDecision(null)} onDone={() => nav('/home')} />
   }
@@ -825,6 +1001,24 @@ export function MilestoneReviewScreen() {
           <div style={{ fontFamily: FONT.mono, color: 'var(--status-warning-text)' }} className="text-[10px] uppercase tracking-widest mb-1">Awaiting your review</div>
           <div style={{ fontFamily: FONT.serif }} className="font-bold">{milestone.title}</div>
           <div style={{ fontFamily: FONT.mono, color: C.inkMuted }} className="text-xs mt-0.5">{fmt(milestone.amount)} to be released upon approval</div>
+          {milestoneFunding && milestoneFunding.fundingStatus !== 'funded' && milestoneFunding.fundingStatus !== 'released' && (
+            <div className="mt-3 rounded-xl p-3" style={{ background: 'var(--status-error-bg)' }}>
+              <div style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs font-semibold">
+                Escrow is short by {fmt(milestoneFunding.unfundedAmount)} for this milestone
+                {milestoneFunding.proceedAtRisk ? ' — the contractor chose to work on it at their own risk' : ''}.
+              </div>
+              <div style={{ fontFamily: FONT.sans, color: 'var(--status-error-text)' }} className="text-xs mt-1 leading-relaxed">
+                Approving records your decision but releases nothing until escrow covers it; the payment then goes out automatically.
+              </div>
+              <button
+                onClick={() => nav('/funder/fund', { state: { projectId: project.id } })}
+                className="mt-2 text-xs font-semibold"
+                style={{ fontFamily: FONT.sans, color: C.forest }}
+              >
+                Fund escrow →
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Multi-signature approval status */}
@@ -875,21 +1069,35 @@ export function MilestoneReviewScreen() {
           </div>
         )}
 
-        {/* Proof photos */}
+        {/* Proof photos & video */}
         <div>
-          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submitted photo evidence</div>
+          <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Submitted evidence</div>
           {milestone.evidence.length === 0 ? (
-            <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No photo evidence submitted yet.</div>
+            <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="text-xs italic">No evidence submitted yet.</div>
           ) : (
             <div className="grid grid-cols-2 gap-2">
               {milestone.evidence.map((e, i) => (
                 <div key={e.id} className="relative rounded-xl overflow-hidden aspect-video">
-                  <img src={e.fileUrl} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
+                  {e.type === 'video' ? (
+                    <video src={e.fileUrl} className="w-full h-full object-cover" controls playsInline />
+                  ) : (
+                    <img src={e.fileUrl} alt={`Proof ${i + 1}`} className="w-full h-full object-cover" />
+                  )}
                   <div className="absolute bottom-0 left-0 right-0 px-2 py-1" style={{ background: 'rgba(0,0,0,0.6)' }}>
                     <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.7)' }} className="text-[9px]">
-                      Photo {i + 1}{e.submittedByName ? ` · Submitted by ${e.submittedByName}` : ''}
+                      {e.type === 'video' ? 'Video' : 'Photo'} {i + 1}{e.submittedByName ? ` · ${e.submittedByName}` : ''}
                     </div>
+                    {e.capturedAt && (
+                      <div style={{ fontFamily: FONT.mono, color: 'rgba(255,255,255,0.6)' }} className="text-[8px]">
+                        {new Date(e.capturedAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
                   </div>
+                  {e.captureSource === 'ar_camera' && (
+                    <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded" style={{ background: C.forest }}>
+                      <div style={{ fontFamily: FONT.mono, color: '#fff' }} className="text-[8px] font-bold">AR Capture</div>
+                    </div>
+                  )}
                   {e.duplicateFlag && (
                     <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded" style={{ background: 'var(--status-error-bg)' }}>
                       <div style={{ fontFamily: FONT.mono, color: 'var(--status-error-text)' }} className="text-[8px] font-semibold">Flagged</div>

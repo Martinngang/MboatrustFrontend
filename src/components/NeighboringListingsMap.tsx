@@ -1,50 +1,31 @@
-import { useNavigate } from 'react-router-dom'
+import { lazy, Suspense } from 'react'
 import { useApp, type LandListing } from '../context'
-import { C, FONT } from './MobileLayout'
+import { SkeletonCard } from './Skeleton'
+import type { MapMarker } from './ProjectMap'
 
-const PIN_POSITIONS = [{ x: '28%', y: '38%' }, { x: '68%', y: '28%' }, { x: '58%', y: '68%' }]
+// Code-split for the same reason ProjectMap's own consumers do — Leaflet is
+// ~170KB and shouldn't be in the main bundle for screens that never render
+// a map.
+const InlineMap = lazy(() => import('./ProjectMap').then((m) => ({ default: m.InlineMap })))
 
-/** Mini map showing nearby verified listings and a mock recently-completed sale, for context on where a listing sits relative to the local market. */
+/** Real map showing this listing's own pin plus other real, geocoded
+ * listings nearby — replaces the previous static background-image mockup
+ * (fixed percentage pin positions, not tied to any real coordinate).
+ * Degrades to InlineMap's own "Map unavailable" state when this listing has
+ * no coordinates yet (created before geocoding existed, or never
+ * successfully resolved) rather than showing a misleading fake map. */
 export function NeighboringListingsMap({ listing }: { listing: LandListing }) {
-  const nav = useNavigate()
   const { landListings } = useApp()
-  const others = landListings.filter((l) => l.id !== listing.id).slice(0, 2)
-  const mockSoldPrice = Math.round((listing.price * 0.9) / 100000) * 100000
+  const others = landListings.filter((l) => l.id !== listing.id && l.coordinates).slice(0, 8)
 
-  const pins: { key: string; label: string; onClick?: () => void; color: string; textColor: string }[] = [
-    ...others.map((l) => ({ key: l.id, label: `${(l.price / 1000000).toFixed(0)}M`, onClick: () => nav(`/land/listing/${l.id}`), color: l.verified ? C.forest : C.amber, textColor: l.verified ? '#fff' : C.forestDark })),
-    { key: 'sold', label: `${(mockSoldPrice / 1000000).toFixed(1)}M · Sold`, color: C.inkSubtle, textColor: '#fff' },
+  const markers: MapMarker[] = [
+    ...(listing.coordinates ? [{ id: listing.id, lat: listing.coordinates.lat, lng: listing.coordinates.lng, label: listing.title }] : []),
+    ...others.map((l) => ({ id: l.id, lat: l.coordinates!.lat, lng: l.coordinates!.lng, label: `${l.title} — ${(l.price / 1000000).toFixed(1)}M`, kind: 'default' as const })),
   ]
 
   return (
-    <div className="relative rounded-2xl overflow-hidden" style={{ minHeight: '220px', background: '#E8F0E9' }}>
-      <img
-        src="https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=600&h=300&fit=crop&auto=format"
-        alt="Map context"
-        className="absolute inset-0 h-full w-full object-cover"
-      />
-      <div className="absolute inset-0" style={{ background: 'rgba(15,27,20,0.3)' }} />
-
-      <div className="absolute flex flex-col items-center" style={{ left: '45%', top: '52%', transform: 'translate(-50%, -100%)' }}>
-        <div className="rounded-full px-2.5 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: C.seal, color: '#fff', fontFamily: FONT.mono }}>
-          This listing
-        </div>
-        <div className="w-3 h-3 rounded-full border-2" style={{ background: C.seal, borderColor: C.white }} />
-      </div>
-
-      {pins.map((p, i) => (
-        <button
-          key={p.key}
-          onClick={p.onClick}
-          className="absolute flex flex-col items-center"
-          style={{ left: PIN_POSITIONS[i].x, top: PIN_POSITIONS[i].y, transform: 'translate(-50%, -100%)', cursor: p.onClick ? 'pointer' : 'default' }}
-        >
-          <div className="rounded-full px-2 py-1 text-[9px] font-bold mb-1 whitespace-nowrap" style={{ background: p.color, color: p.textColor, fontFamily: FONT.mono }}>
-            {p.label}
-          </div>
-          <div className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-        </button>
-      ))}
-    </div>
+    <Suspense fallback={<SkeletonCard />}>
+      <InlineMap markers={markers} heightClassName="h-56" />
+    </Suspense>
   )
 }

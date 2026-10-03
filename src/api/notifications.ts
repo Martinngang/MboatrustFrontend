@@ -68,6 +68,34 @@ function describe(n: BackendNotification): Described {
         stat: { label: fmt(Number(p.amount) || 0), tone: 'success' },
         path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
       }
+    case 'milestone_funded':
+      return {
+        icon: 'lock', category: 'funding', title: 'Milestone funded',
+        body: typeof p.milestoneName === 'string' ? `"${p.milestoneName}" is now fully held in escrow — you can start work on it.` : 'A milestone is now fully held in escrow — you can start work on it.',
+        stat: { label: fmt(Number(p.amount) || 0), tone: 'success' },
+        path: p.projectId ? `/contractor/submit/${p.projectId}` : undefined,
+      }
+    case 'funding_needed':
+      return {
+        icon: 'lock', category: 'funding', title: 'Fund the next milestone',
+        body: typeof p.milestoneName === 'string' ? `"${p.milestoneName}" is not funded yet — add funds so the contractor can start it.` : 'The next milestone is not funded yet — add funds so the contractor can start it.',
+        stat: { label: fmt(Number(p.amount) || 0), tone: 'warning' },
+        path: p.projectId ? `/funder/fund` : undefined,
+      }
+    case 'milestone_awaiting_funds':
+      return {
+        icon: 'clock', category: 'funding', title: 'Approved — awaiting funding',
+        body: 'A milestone was approved but escrow is short. The payment is released automatically as soon as escrow is topped up.',
+        stat: { label: fmt(Number(p.shortfall) || 0), tone: 'warning' },
+        path: p.projectId ? `/funder/tender/${p.projectId}/bids` : undefined,
+      }
+    case 'milestone_proceed_at_risk':
+      return {
+        icon: 'flag', category: 'funding', title: 'Contractor proceeding without full escrow',
+        body: typeof p.milestoneName === 'string' ? `The contractor started "${p.milestoneName}" without full escrow cover. Payment is not guaranteed until you fund it.` : 'The contractor started a milestone without full escrow cover. Payment is not guaranteed until you fund it.',
+        stat: { label: fmt(Number(p.unfundedAmount) || 0) + ' unsecured', tone: 'error' },
+        path: p.projectId ? `/funder/tender/${p.projectId}/bids` : undefined,
+      }
     case 'milestone_evidence_submitted':
       return {
         icon: 'camera', category: 'milestones', title: 'Proof submitted',

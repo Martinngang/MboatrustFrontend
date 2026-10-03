@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import { C, FONT } from '../MobileLayout'
 import { AppIcon } from '../icons'
 import { ADMIN_NAV } from './adminNav'
+import { resolveActiveId, type NavMatch } from './navActive'
 import { useMyAdminPermissionsQuery } from '../../api/session'
 
 const COLLAPSE_KEY = 'mboatrust-admin-sidebar-collapsed'
@@ -15,31 +16,52 @@ const COLLAPSE_KEY = 'mboatrust-admin-sidebar-collapsed'
  * that renders admin nav items rather than two copies drifting apart.
  * `onNavigate` fires after every nav — the mobile drawer uses it to close
  * itself; the desktop sidebar passes a no-op. */
+/** The admin nav item that owns `pathname`. Longest-prefix-wins over the whole
+ * ADMIN_NAV (see navActive.ts), so `/admin` (Dashboard) only claims `/admin`
+ * itself and any admin page nothing else owns — it used to match every
+ * `/admin/...` route and stay highlighted alongside the real page. */
+export function resolveActiveAdminKey(pathname: string): string | null {
+  const targets: NavMatch[] = ADMIN_NAV.flatMap((g) => g.items).map((i) => ({ id: i.key, paths: [i.path] }))
+  return resolveActiveId(pathname, targets)
+}
+
 export function AdminNavList({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
   const springTransition = reduceMotion ? { duration: 0 } : { type: 'spring' as const, stiffness: 380, damping: 32 }
+  const rootRef = useRef<HTMLDivElement>(null)
+  const activeKey = resolveActiveAdminKey(loc.pathname)
 
   // null = unrestricted (see useMyAdminPermissionsQuery) — every section
   // shows. A restricted admin only sees sections whose items intersect
   // their granted keys; this is cosmetic only, requireAdminPermission on
-  // the backend is the actual enforcement.
+  // the backend is the actual enforcement. The page being viewed is always
+  // kept in the list even if its permission isn't granted (e.g. opened by
+  // URL): the nav must never drop the item for the page you're looking at.
   const { data: permissions } = useMyAdminPermissionsQuery(true)
   const visibleSections = permissions == null
     ? ADMIN_NAV
-    : ADMIN_NAV.map((group) => ({ ...group, items: group.items.filter((item) => permissions.includes(item.key)) })).filter((group) => group.items.length > 0)
+    : ADMIN_NAV.map((group) => ({ ...group, items: group.items.filter((item) => permissions.includes(item.key) || item.key === activeKey) })).filter((group) => group.items.length > 0)
+
+  // The nav lives in its own scroll region (desktop sidebar) or a drawer, and
+  // has 9+ items across 8 sections — bring the active one into view whenever
+  // the page (or the drawer that renders this list) changes.
+  useEffect(() => {
+    const el = rootRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
+    el?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [activeKey, collapsed, reduceMotion])
 
   return (
-    <div className="space-y-6">
+    <div ref={rootRef} className="space-y-6">
       {visibleSections.map((group) => (
         <div key={group.section}>
           {!collapsed && (
             <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="mb-2 px-2 text-[9px] uppercase tracking-[0.25em]">{group.section}</div>
           )}
-          <nav className="space-y-1">
+          <nav aria-label={group.section} className="space-y-1">
             {group.items.map((item) => {
-              const active = loc.pathname === item.path || loc.pathname.startsWith(item.path + '/')
+              const active = item.key === activeKey
               return (
                 <motion.button
                   key={item.key}
@@ -47,21 +69,27 @@ export function AdminNavList({ collapsed = false, onNavigate }: { collapsed?: bo
                   whileHover={{ x: collapsed ? 0 : 2 }}
                   whileTap={{ scale: 0.97 }}
                   title={collapsed ? item.label : undefined}
+                  aria-label={collapsed ? item.label : undefined}
+                  aria-current={active ? 'page' : undefined}
                   className={`relative flex w-full items-center gap-3 rounded-xl text-left transition-colors ${collapsed ? 'justify-center px-2 py-2.5' : 'px-2.5 py-2.5'}`}
                   style={{ color: active ? C.forest : C.inkMuted }}
                 >
                   {active && (
-                    <motion.span
-                      layoutId="adminSidebarIndicator"
-                      className="absolute inset-0 z-0 rounded-xl"
-                      style={{ background: C.parchment }}
-                      transition={springTransition}
-                    />
+                    <>
+                      <motion.span
+                        layoutId="adminSidebarIndicator"
+                        className="absolute inset-0 z-0 rounded-xl"
+                        style={{ background: C.parchment }}
+                        transition={springTransition}
+                      />
+                      {/* Sibling of the animated pill so it isn't squashed mid-transition. */}
+                      <span aria-hidden className="absolute left-0 top-1/2 z-10 h-6 w-1 -translate-y-1/2 rounded-r-full" style={{ background: C.forest }} />
+                    </>
                   )}
                   <span className="relative z-10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors" style={{ background: active ? C.forest : 'transparent', color: active ? C.white : C.inkMuted }}>
                     <AppIcon name={item.icon} size={15} />
                   </span>
-                  {!collapsed && <span style={{ fontFamily: FONT.sans }} className="relative z-10 text-sm font-medium">{item.label}</span>}
+                  {!collapsed && <span style={{ fontFamily: FONT.sans }} className={`relative z-10 text-sm ${active ? 'font-semibold' : 'font-medium'}`}>{item.label}</span>}
                 </motion.button>
               )
             })}
@@ -91,6 +119,7 @@ export function AdminSidebar() {
 
   return (
     <aside
+      aria-label="Admin sidebar"
       className={`hidden flex-shrink-0 flex-col overflow-hidden border-r lg:flex transition-[width] duration-200 ${collapsed ? 'w-20' : 'w-64'}`}
       style={{ borderColor: C.parchmentDark, background: C.glassBg }}
     >

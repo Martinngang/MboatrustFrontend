@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { capturePendingReferral, getPendingReferralId, clearPendingReferral } from '../api/pendingReferral'
+import { captureVerifierInviteFromSearchParams, getPendingVerifierInvite, clearPendingVerifierInvite } from '../api/pendingVerifierInvite'
 import { useApp, T, type Role } from '../context'
 import { C, FONT, PillButton } from '../components/MobileLayout'
 import { OnboardingShell } from '../components/OnboardingShell'
@@ -338,6 +339,7 @@ export function SignupScreen() {
 
   useEffect(() => {
     capturePendingReferral(searchParams)
+    captureVerifierInviteFromSearchParams(searchParams)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -775,6 +777,15 @@ export function RoleScreen() {
         if (pendingReferralId) {
           await api.post(`/referrals/${pendingReferralId}/claim`, {}).catch(() => {})
           clearPendingReferral()
+        }
+        // Same best-effort claim as the referral above — a missing/expired/
+        // already-accepted invitation must never block signup. This is the
+        // first point a brand-new signup is guaranteed to have a real
+        // backend User to accept the invitation with.
+        const pendingVerifierInvite = getPendingVerifierInvite()
+        if (pendingVerifierInvite) {
+          await api.post(`/verifier-invitations/${pendingVerifierInvite}/accept`, {}).catch(() => {})
+          clearPendingVerifierInvite()
         }
       } catch (err) {
         showToast({ title: 'Failed to save role', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })

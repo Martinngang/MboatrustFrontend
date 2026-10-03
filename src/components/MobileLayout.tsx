@@ -16,7 +16,10 @@ import type { ReactNode, KeyboardEvent } from 'react'
 import { C, FONT, STATUS_TONE_VARS, type StatusTone } from './tokens'
 export { C, FONT, STATUS_TONE_VARS, type StatusTone }
 import { AppIcon, type IconName } from './icons'
-import { useUpdatePreferredLanguageMutation } from '../api/session'
+import { useUpdatePreferredLanguageMutation, useMyRoleTypesQuery } from '../api/session'
+import { resolveActiveId, type NavMatch } from './shell/navActive'
+import { useMaterials } from '../materials'
+import { useVerification } from '../verification'
 
 const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   released: { tone: 'success', label: 'Released' },
@@ -45,6 +48,12 @@ const STATUS_MAP: Record<string, { tone: StatusTone; label: string }> = {
   cancelled: { tone: 'neutral', label: 'Cancelled' },
   // Inventory item status (see api/inventoryItems.ts) — 'active' above already covers that.
   archived: { tone: 'neutral', label: 'Archived' },
+  // Staged escrow funding (see api/projects.ts MilestoneFunding).
+  funded: { tone: 'success', label: 'Funded' },
+  partially_funded: { tone: 'warning', label: 'Partly funded' },
+  unfunded: { tone: 'neutral', label: 'Unfunded' },
+  awaiting_funds: { tone: 'warning', label: 'Awaiting funds' },
+  at_risk: { tone: 'error', label: 'Proceeding at risk' },
 }
 export function StatusBadge({ status }: { status: string }) {
   const s = STATUS_MAP[status] ?? { tone: 'neutral' as const, label: status }
@@ -297,13 +306,34 @@ export function Header({ title, subtitle, back, onBack, action, children, tone =
 // deserve a permanent slot. Single-shot actions (create a project, submit
 // proof) live as header buttons on the relevant list screen instead of
 // eating a tab; "Menu" is the hub for everything else (see ProfileScreen).
-export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths: string[] }[]> = {
+//
+// `paths[0]` is where tapping the item navigates; `paths` + `owns` together
+// are every route prefix the item is responsible for, so opening ANY
+// sub-page (a project's detail, a bid's negotiation, a listing's offer form…)
+// keeps its parent item highlighted instead of leaving the nav with nothing
+// active. Matching is longest-prefix-wins across the whole surface (see
+// shell/navActive.ts), so a broad prefix like '/funder' only claims what no
+// more specific item already owns. The LAST tab (Menu) is the fallback for
+// anything unowned, so a page inside the shell can never show "no active tab".
+export interface NavTab { icon: ReactNode; label: string; paths: string[]; owns?: string[] }
+
+// Routes every role reaches through the Menu hub rather than a tab of its own.
+const MENU_OWNS = ['/shared', '/compliance', '/account', '/referrals', '/showcase', '/payment']
+
+export const TAB_ROUTES: Record<string, NavTab[]> = {
   funder: [
     { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
-    { icon: <AppIcon name="grid" size={20} />, label: 'Projects', paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/post-job'] },
+    {
+      icon: <AppIcon name="grid" size={20} />, label: 'Projects',
+      paths: ['/workspace/projects', '/funder/browse', '/funder/project', '/funder/post-job'],
+      // Everything a funder does to a project: funding, milestone review,
+      // disputes, tender bids/negotiation/contract, co-signers, recurring
+      // contributions, templates, the tender and team boards, materials.
+      owns: ['/funder', '/workspace', '/negotiation', '/materials'],
+    },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
-    { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
-    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'], owns: ['/funder/transactions'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'], owns: MENU_OWNS },
   ],
   contractor: [
     { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
@@ -311,35 +341,91 @@ export const TAB_ROUTES: Record<string, { icon: ReactNode; label: string; paths:
     // (RequireRole-gated to 'funder' in App.tsx) — it can never be first
     // here, or tapping this tab bounces a contractor straight back to
     // /home via that route guard instead of showing them their jobs.
-    { icon: <AppIcon name="briefcase" size={20} />, label: 'Jobs', paths: ['/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'] },
+    {
+      icon: <AppIcon name="briefcase" size={20} />, label: 'Jobs',
+      paths: ['/contractor/jobs', '/contractor/job', '/contractor/bids', '/contractor/contract'],
+      owns: ['/contractor/bid', '/contractor/submit', '/negotiation', '/materials'],
+    },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="wallet" size={20} />, label: 'Earnings', paths: ['/contractor/earnings'] },
-    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
+    {
+      icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'],
+      owns: [...MENU_OWNS, '/contractor/profile', '/contractor/portfolio', '/contractor/onboarding', '/contractor/certifications', '/contractor/availability'],
+    },
   ],
   seller: [
     { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/home'] },
-    { icon: <AppIcon name="mapPin" size={20} />, label: 'Browse', paths: ['/workspace/land', '/land/browse', '/land/listing'] },
+    {
+      icon: <AppIcon name="mapPin" size={20} />, label: 'Browse',
+      paths: ['/workspace/land', '/land/browse', '/land/listing'],
+      owns: ['/land/contact', '/land/offer', '/land/schedule'],
+    },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="grid" size={20} />, label: 'My Listings', paths: ['/land/my-listings', '/land/create'] },
-    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'], owns: MENU_OWNS },
   ],
   supplier: [
-    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/supplier/dashboard'] },
-    { icon: <AppIcon name="store" size={20} />, label: 'Materials', paths: ['/tools/material-estimator'] },
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/supplier/dashboard'], owns: ['/supplier/register'] },
+    { icon: <AppIcon name="store" size={20} />, label: 'Materials', paths: ['/tools/material-estimator'], owns: ['/supplier/inventory'] },
     { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
     { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
-    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'], owns: [...MENU_OWNS, '/supplier/profile'] },
+  ],
+  // A verifier-only account has no consumer `role` at all (role is null —
+  // see api/session.ts mapBackendRoles), so it used to fall through to the
+  // funder tabs: "Projects" and friends, none of which are a verifier's,
+  // and nothing highlighted anywhere under /verifier/*. Mirrors the mobile
+  // app's verifier tab set (Home / Tasks / Messages / Activity / Menu).
+  verifier: [
+    { icon: <AppIcon name="home" size={20} />, label: 'Home', paths: ['/verifier/dashboard'], owns: ['/verifier/task', '/verifier/report', '/verifier/register'] },
+    { icon: <AppIcon name="message" size={20} />, label: 'Messages', paths: ['/messages'] },
+    { icon: <AppIcon name="receipt" size={20} />, label: 'Activity', paths: ['/activity'] },
+    { icon: <AppIcon name="user" size={20} />, label: 'Menu', paths: ['/shared/profile'], owns: [...MENU_OWNS, '/verifier/profile'] },
   ],
 }
 
 export const FUNDER_TABS = TAB_ROUTES.funder
 
+export type NavRole = 'funder' | 'contractor' | 'seller' | 'supplier' | 'verifier'
+
+/** Which primary-nav set applies to the current visitor. `role` is null for
+ * a verifier-only account AND for a supplier/verifier applicant still awaiting
+ * admin approval (see api/session.ts mapBackendRoles — the role is only
+ * granted on approval), and used to be defaulted straight to 'funder' — so
+ * those accounts saw funder tabs on their own dashboards with nothing
+ * highlighted. When there is no role this uses exactly the signals HomeScreen
+ * (screens/Dashboard.tsx) already routes such accounts by: a supplier
+ * profile → supplier nav, a verifier profile/role → verifier nav; standing
+ * inside /supplier or /verifier counts too, covering the moment before those
+ * queries resolve. */
+export function useNavRole(): NavRole {
+  const { role, devUserId } = useApp()
+  const { mySupplier } = useMaterials()
+  const { verifierProfile } = useVerification()
+  const { pathname } = useLocation()
+  const { data: roleTypes = [] } = useMyRoleTypesQuery(Boolean(devUserId))
+  if (role) return role
+  const inArea = (prefix: string) => pathname === prefix || pathname.startsWith(prefix + '/')
+  if (inArea('/verifier')) return 'verifier'
+  if (inArea('/supplier')) return 'supplier'
+  if (mySupplier || roleTypes.includes('supplier')) return 'supplier'
+  if (verifierProfile || roleTypes.includes('verifier')) return 'verifier'
+  return 'funder'
+}
+
+/** The tab (by label) that owns `pathname` — the last tab (Menu) when no
+ * tab claims it, so a page inside the shell always has an active tab. */
+export function resolveActiveTabLabel(pathname: string, tabs: NavTab[]): string | null {
+  const targets: NavMatch[] = tabs.map((t) => ({ id: t.label, paths: [...t.paths, ...(t.owns ?? [])] }))
+  return resolveActiveId(pathname, targets, tabs[tabs.length - 1]?.label)
+}
+
 // Secondary "Workspace" links — desktop-only, sits below primary nav so
 // frequent-but-not-top-5 destinations don't require a trip through the Menu
-// hub. Same three for every role: broadly useful, not role-exclusive.
-export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[] = [
+// hub. Same set for every role: broadly useful, not role-exclusive.
+export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string; owns?: string[] }[] = [
   { icon: <AppIcon name="receipt" size={18} />, label: 'Activity log', path: '/activity' },
-  { icon: <AppIcon name="users" size={18} />, label: 'Community', path: '/groups/dashboard' },
+  { icon: <AppIcon name="users" size={18} />, label: 'Community', path: '/groups/dashboard', owns: ['/groups'] },
   { icon: <AppIcon name="trophy" size={18} />, label: 'Contractor leaderboard', path: '/contractors/leaderboard' },
   { icon: <AppIcon name="swap" size={18} />, label: 'Currency converter', path: '/tools/currency-converter' },
   { icon: <AppIcon name="settings" size={18} />, label: 'Settings', path: '/shared/settings' },
@@ -350,17 +436,18 @@ export const WORKSPACE_LINKS: { icon: ReactNode; label: string; path: string }[]
 // shown to accounts that actually hold the matching backend role — most
 // accounts hold neither, so this tier is normally invisible, not a
 // standing assumption that every user is staff.
-export const ADMIN_LINKS: { label: string; path: string; requiresRole: 'verifier' | 'admin' }[] = [
-  { label: 'Verifier dashboard', path: '/verifier/dashboard', requiresRole: 'verifier' },
+export const ADMIN_LINKS: { label: string; path: string; requiresRole: 'verifier' | 'admin'; owns?: string[] }[] = [
+  { label: 'Verifier dashboard', path: '/verifier/dashboard', requiresRole: 'verifier', owns: ['/verifier'] },
   { label: 'Admin panel', path: '/admin', requiresRole: 'admin' },
 ]
 
 export function BottomNav() {
-  const { role } = useApp()
   const loc = useLocation()
   const nav = useNavigate()
   const reduceMotion = useReducedMotion()
-  const tabs = TAB_ROUTES[role ?? 'funder'] ?? FUNDER_TABS
+  const navRole = useNavRole()
+  const tabs = TAB_ROUTES[navRole] ?? FUNDER_TABS
+  const activeLabel = resolveActiveTabLabel(loc.pathname, tabs)
 
   return (
     // Literal position:fixed pinned to the viewport edge — the same
@@ -378,37 +465,44 @@ export function BottomNav() {
     // so that invariant holds. z-40 matches the "sticky in-page nav" tier
     // documented in index.css. pad for the home-indicator gesture bar on
     // notched phones so tab labels/press targets aren't flush against it.
-    <div
+    <nav
+      aria-label="Primary"
       className="fixed inset-x-0 bottom-0 z-40 flex border-t lg:hidden"
       style={{ borderColor: C.parchmentDark, background: C.white, boxShadow: C.shadowMd, paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
       {tabs.map((tab) => {
-        const active = tab.paths.some((p) => loc.pathname.startsWith(p))
+        const active = tab.label === activeLabel
         return (
           <button
             key={tab.label}
             onClick={() => nav(tab.paths[0])}
+            aria-current={active ? 'page' : undefined}
             className="relative flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors active:scale-95"
             style={{ color: active ? C.navActive : C.inkSubtle }}
           >
             {active && (
-              <motion.span
-                layoutId="bottomNavIndicator"
-                className="absolute top-0.5 z-0 h-8 w-11 rounded-xl"
-                style={{ background: C.parchment }}
-                transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 30 }}
-              />
+              <>
+                <motion.span
+                  layoutId="bottomNavIndicator"
+                  className="absolute top-0.5 z-0 h-8 w-11 rounded-xl"
+                  style={{ background: C.parchment }}
+                  transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 30 }}
+                />
+                {/* Top accent rule — the pill alone is a low-contrast tint in
+                    dark mode; this makes the current tab unmistakable. */}
+                <span aria-hidden className="absolute inset-x-3 top-0 z-10 h-[3px] rounded-b-full" style={{ background: C.navActive }} />
+              </>
             )}
             <span className="relative z-10 flex flex-col items-center gap-0.5">
               <span className={`${active ? 'scale-110' : ''} transition-transform duration-200`}>{tab.icon}</span>
-              <span style={{ fontFamily: FONT.mono }} className="text-[9px] uppercase tracking-wider">
+              <span style={{ fontFamily: FONT.mono, fontWeight: active ? 700 : 400 }} className="text-[9px] uppercase tracking-wider">
                 {tab.label}
               </span>
             </span>
           </button>
         )
       })}
-    </div>
+    </nav>
   )
 }
 
@@ -621,6 +715,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   )
 }
 
+// Literal class names (Tailwind only generates classes it can see verbatim).
+const HERO_STAT_COLS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-1 sm:grid-cols-3',
+  4: 'grid-cols-2 lg:grid-cols-4',
+}
+
 export function DashboardHero({ eyebrow, title, subtitle, stats, background, action }: {
   eyebrow: string; title: string; subtitle?: string; stats: { label: string; value: string }[]; background?: string; action?: ReactNode
 }) {
@@ -634,7 +736,7 @@ export function DashboardHero({ eyebrow, title, subtitle, stats, background, act
         </div>
         {action}
       </div>
-      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+      <div className={`mt-6 grid gap-3 ${HERO_STAT_COLS[stats.length] ?? 'grid-cols-2 sm:grid-cols-3'}`}>
         {stats.map(({ label, value }) => (
           <div key={label} className="rounded-2xl border border-white/15 bg-white/10 p-4 text-center backdrop-blur">
             <div style={{ fontFamily: FONT.serif }} className="text-xl font-bold text-white">{value}</div>

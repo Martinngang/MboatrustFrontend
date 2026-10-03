@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
+import { mapTaskLocationDetails, type VerificationTaskLocationDetails } from './reputation'
 
 export type VerifierApplicationStatus = 'pending' | 'approved' | 'rejected'
+
+interface BackendLocationDetails {
+  placeName?: string
+  formattedAddress?: string
+  source?: string
+}
 
 export interface VerifierProfileRecord {
   id: string
@@ -13,6 +20,10 @@ export interface VerifierProfileRecord {
   idDocumentUrl: string
   applicationStatus: VerifierApplicationStatus
   isAvailable: boolean
+  /** The verifier's own service-area location, when set — see
+   * verifierProfileController.upsertMine. */
+  coordinates?: { lat: number; lng: number } | null
+  locationDetails?: VerificationTaskLocationDetails | null
 }
 
 interface BackendVerifierProfile {
@@ -24,6 +35,8 @@ interface BackendVerifierProfile {
   idDocumentUrl: string
   applicationStatus: VerifierApplicationStatus
   isAvailable: boolean
+  location?: { lat: number | null; lng: number | null } | null
+  locationDetails?: BackendLocationDetails | null
 }
 
 function mapVerifierProfile(doc: BackendVerifierProfile): VerifierProfileRecord {
@@ -37,6 +50,8 @@ function mapVerifierProfile(doc: BackendVerifierProfile): VerifierProfileRecord 
     idDocumentUrl: doc.idDocumentUrl,
     applicationStatus: doc.applicationStatus,
     isAvailable: doc.isAvailable,
+    coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
+    locationDetails: mapTaskLocationDetails(doc.locationDetails),
   }
 }
 
@@ -52,20 +67,37 @@ export function useMyVerifierProfileQuery(enabled = true) {
   })
 }
 
+export interface UpsertVerifierProfileInput {
+  specialties: string[]
+  regions: string[]
+  bio?: string
+  file?: File | null
+  /** Already resolved client-side by useLocationCapture — never stored
+   * without an accompanying place name/address attempt. */
+  location?: { lat: number; lng: number } | null
+  placeName?: string | null
+  formattedAddress?: string | null
+  locationSource?: string
+}
+
 export function useUpsertVerifierProfileMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ specialties, regions, bio, file }: { specialties: string[]; regions: string[]; bio?: string; file?: File | null }) => {
+    mutationFn: async ({ specialties, regions, bio, file, location, placeName, formattedAddress, locationSource }: UpsertVerifierProfileInput) => {
       let response
       if (file) {
         const form = new FormData()
         form.append('specialties', JSON.stringify(specialties))
         form.append('regions', JSON.stringify(regions))
         if (bio) form.append('bio', bio)
+        if (location) form.append('location', JSON.stringify(location))
+        if (placeName) form.append('placeName', placeName)
+        if (formattedAddress) form.append('formattedAddress', formattedAddress)
+        if (locationSource) form.append('locationSource', locationSource)
         form.append('file', file)
         response = await api.post<{ data: BackendVerifierProfile }>('/verifier-profiles/me', form)
       } else {
-        response = await api.post<{ data: BackendVerifierProfile }>('/verifier-profiles/me', { specialties, regions, bio })
+        response = await api.post<{ data: BackendVerifierProfile }>('/verifier-profiles/me', { specialties, regions, bio, location, placeName, formattedAddress, locationSource })
       }
       return mapVerifierProfile(response.data.data)
     },

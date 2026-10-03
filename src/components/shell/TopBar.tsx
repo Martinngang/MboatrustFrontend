@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useApp } from '../../context'
-import { C, FONT, NotificationBell, ThemeToggle, UserAvatar } from '../MobileLayout'
+import { C, FONT, NotificationBell, ThemeToggle, UserAvatar, useNavRole } from '../MobileLayout'
 import { ConnectivityBar } from '../ConnectivityBar'
 import { InstallButton } from '../InstallButton'
 import { useCommandPalette } from './CommandPalette'
@@ -27,13 +27,17 @@ import { SiteWeatherHeader } from '../SiteWeatherHeader'
  * touch) — nothing else is removed. */
 export function TopBar() {
   const nav = useNavigate()
-  const { role, setLoggedIn, setRole } = useApp()
+  const { setLoggedIn, setRole } = useApp()
+  // navRole (not raw `role`): a verifier-only account has role === null and
+  // used to get the funder's "Post a tender" button. Verifiers have no
+  // quick-create entry, so nothing renders for them.
+  const navRole = useNavRole()
   const { show } = useCommandPalette()
   const { show: showShortcuts } = useShortcutsHelp()
   const { toggle: toggleNotifications } = useNotificationsDrawer()
   const { open: openFeedback } = useFeedbackModal()
   const [menuOpen, setMenuOpen] = useState(false)
-  const quickCreate = QUICK_CREATE_BY_ROLE[role ?? 'funder']
+  const quickCreate = QUICK_CREATE_BY_ROLE[navRole]
 
   const signOut = () => {
     setMenuOpen(false)
@@ -136,13 +140,14 @@ export function TopBar() {
             <AnimatePresence>
               {menuOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                  {/* z-40/z-50, not z-10/z-20: pages render their own sticky headers at z-30 inside <main>, which covered this menu and made "Sign out" unclickable on them. */}
+                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                   <motion.div
                     initial={{ opacity: 0, y: -6, scale: 0.97 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -6, scale: 0.97 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-11 z-20 w-44 overflow-hidden rounded-xl border py-1"
+                    className="absolute right-0 top-11 z-50 w-44 overflow-hidden rounded-xl border py-1"
                     style={{ background: C.white, borderColor: C.parchmentDark, boxShadow: C.shadowLg }}
                   >
                     {[

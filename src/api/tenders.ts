@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { Bid, BidNegotiationRound, BidScheduleMilestone, JobPosting } from '../context'
+import type { Bid, BidNegotiationRound, BidScheduleMilestone, JobPosting, LocationDetails } from '../context'
+
+interface BackendLocationDetails {
+  placeName?: string
+  formattedAddress?: string
+  source?: string
+}
+
+function mapLocationDetails(d: BackendLocationDetails | null | undefined): LocationDetails | null {
+  if (!d || (!d.placeName && !d.formattedAddress)) return null
+  return { placeName: d.placeName || null, formattedAddress: d.formattedAddress || null, source: (d.source as LocationDetails['source']) || null }
+}
 
 interface BackendMilestone { _id: string; name: string; amount: number; status: string }
 interface BackendProject {
@@ -11,6 +22,7 @@ interface BackendProject {
   category: string
   locationName: string
   location?: { lat: number | null; lng: number | null }
+  locationDetails?: BackendLocationDetails | null
   totalAmount: number
   status: string
   deadline: string | null
@@ -27,6 +39,7 @@ interface BackendNegotiationRound {
   timelineDays: number
   milestones: BackendMilestoneProposal[]
   message: string
+  fundingMode?: 'staged' | 'full_upfront'
   createdAt: string
 }
 interface BackendBid {
@@ -42,6 +55,7 @@ interface BackendBid {
   milestones?: BackendMilestoneProposal[]
   rounds?: BackendNegotiationRound[]
   lastProposedBy?: 'funder' | 'contractor'
+  fundingMode?: 'staged' | 'full_upfront'
 }
 
 function mapTenderStatus(status: string): string {
@@ -93,6 +107,7 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     category: doc.category || 'General',
     location: doc.locationName || '',
     coordinates: doc.location?.lat != null && doc.location?.lng != null ? { lat: doc.location.lat, lng: doc.location.lng } : null,
+    locationDetails: mapLocationDetails(doc.locationDetails),
     budget: doc.totalAmount,
     deadline: formatDeadline(doc.deadline),
     bids: bidCount,
@@ -181,6 +196,13 @@ export interface CreateJobInput {
   category: string
   location: string
   coordinates?: { lat: number; lng: number } | null
+  /** Already resolved client-side by LocationEditModal (address search) or
+   * left for the backend to reverse-geocode itself (GPS/manual pin) when
+   * omitted — either way `coordinates` never ends up without an attempt to
+   * resolve a place name. */
+  placeName?: string | null
+  formattedAddress?: string | null
+  locationSource?: LocationDetails['source']
   budget: number
   deadline: string
   milestoneCount: number
@@ -190,6 +212,11 @@ export interface CreateJobInput {
    * work description. Falls back to an even auto-split across
    * milestoneCount when omitted, the original PostJobScreen behavior. */
   milestoneSchedule?: { title: string; amount: number; description: string }[]
+  /** The funder's yes/no answer to "do you already have a project plan?" —
+   * the file itself (if yes) is a separate follow-up call to
+   * useUploadPlanDocumentMutation (api/projects.ts) once this returns a
+   * real project id, since this endpoint stays plain JSON. */
+  hasExistingPlan?: boolean
 }
 
 // Every new tender starts contractor-managed (Project.materialsManagedBy's
@@ -218,9 +245,10 @@ export function useCreateJobMutation() {
         description: j.description,
         category: j.category,
         locationName: j.location,
-        ...(j.coordinates ? { location: j.coordinates } : {}),
+        ...(j.coordinates ? { location: j.coordinates, placeName: j.placeName, formattedAddress: j.formattedAddress, locationSource: j.locationSource } : {}),
         totalAmount: j.budget,
         ...(j.deadline ? { deadline: j.deadline } : {}),
+        hasExistingPlan: j.hasExistingPlan ?? false,
         milestones,
       })
       return mapJob(data.data, 0)
@@ -260,7 +288,7 @@ function formatTimelineDays(days: number): string {
 }
 
 function mapRound(r: BackendNegotiationRound): BidNegotiationRound {
-  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', createdAt: r.createdAt }
+  return { proposedBy: r.proposedBy, price: r.price, timelineDays: r.timelineDays, milestones: r.milestones ?? [], message: r.message ?? '', fundingMode: r.fundingMode ?? 'staged', createdAt: r.createdAt }
 }
 
 function mapBid(doc: BackendBid, jobTitle: string): Bid {
@@ -279,6 +307,7 @@ function mapBid(doc: BackendBid, jobTitle: string): Bid {
     milestones: (doc.milestones ?? []).map((m) => ({ title: m.title, description: m.description ?? '', amount: m.amount })),
     rounds: (doc.rounds ?? []).map(mapRound),
     lastProposedBy: doc.lastProposedBy ?? 'contractor',
+    fundingMode: doc.fundingMode ?? 'staged',
   }
 }
 
@@ -342,6 +371,9 @@ export interface CreateBidInput {
   /** An optional opening payment schedule — becomes rounds[0]'s milestones.
    * Empty/omitted means a lump-sum quote, same as before this existed. */
   milestones?: BidScheduleMilestone[]
+  /** How escrow gets funded: 'staged' (default — milestone by milestone) or
+   * 'full_upfront' (whole contract value first). Negotiated per round. */
+  fundingMode?: 'staged' | 'full_upfront'
 }
 
 export function useCreateBidMutation() {
@@ -355,6 +387,7 @@ export function useCreateBidMutation() {
         materialsPlan: b.materials,
         notes: b.notes,
         milestones: b.milestones ?? [],
+        fundingMode: b.fundingMode ?? 'staged',
       })
       return mapBid(data.data, '')
     },
@@ -371,11 +404,11 @@ export function useCreateBidMutation() {
 export function useCounterBidMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ bidId, price, timelineDays, milestones, message }: {
-      bidId: string; price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string
+    mutationFn: async ({ bidId, price, timelineDays, milestones, message, fundingMode }: {
+      bidId: string; price: number; timelineDays: number; milestones?: BidScheduleMilestone[]; message?: string; fundingMode?: 'staged' | 'full_upfront'
     }): Promise<Bid> => {
       const { data } = await api.post<{ data: BackendBid }>(`/bids/${bidId}/counter`, {
-        price, timelineDays, milestones: milestones ?? [], message: message ?? '',
+        price, timelineDays, milestones: milestones ?? [], message: message ?? '', ...(fundingMode ? { fundingMode } : {}),
       })
       return mapBid(data.data, '')
     },
@@ -397,6 +430,9 @@ export function useUpdateBidStatusMutation() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['bids'] })
       qc.invalidateQueries({ queryKey: ['jobs'] })
+      // Accepting creates the contract and locks the negotiated funding mode
+      // + schedule onto the project.
+      for (const key of ['contracts', 'contract', 'projects', 'project', 'projectFundingSummary']) qc.invalidateQueries({ queryKey: [key] })
     },
   })
 }

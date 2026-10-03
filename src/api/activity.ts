@@ -5,7 +5,7 @@ import type { IconName } from '../components/icons'
 export type ActivityType =
   | 'milestone_approved' | 'milestone_disputed' | 'milestone_submitted'
   | 'project_funded' | 'project_created' | 'project_status_changed'
-  | 'bid_placed' | 'listing_created' | 'offer_made'
+  | 'bid_placed' | 'listing_created' | 'offer_made' | 'milestone_proceed_at_risk'
 
 export interface ActivityEvent {
   id: string
@@ -61,6 +61,7 @@ const TITLES: Record<ActivityType, string> = {
   bid_placed: 'Bid placed',
   listing_created: 'Land listing created',
   offer_made: 'Offer made',
+  milestone_proceed_at_risk: 'Proceeding without full escrow',
 }
 
 function mapEvent(e: BackendActivityEvent, index: number): ActivityEvent {
@@ -71,6 +72,7 @@ function mapEvent(e: BackendActivityEvent, index: number): ActivityEvent {
     : e.type === 'milestone_submitted' ? 'camera'
     : e.type === 'milestone_approved' ? 'checkCircle'
     : e.type === 'milestone_disputed' ? 'flag'
+    : e.type === 'milestone_proceed_at_risk' ? 'flag'
     : e.type === 'bid_placed' ? 'clipboard'
     : e.type === 'listing_created' ? 'home'
     : 'bell'
@@ -79,6 +81,7 @@ function mapEvent(e: BackendActivityEvent, index: number): ActivityEvent {
   if (e.type === 'project_funded') detail = e.projectTitle ? `${fmt(e.amount ?? 0, e.currency)} moved into escrow for ${e.projectTitle}` : fmt(e.amount ?? 0, e.currency)
   else if (e.type === 'milestone_approved') detail = e.projectTitle && e.milestoneName ? `${e.milestoneName} — ${e.projectTitle} · ${fmt(e.amount ?? 0, e.currency)} released` : undefined
   else if (e.type === 'milestone_submitted') detail = e.projectTitle && e.milestoneName ? `${e.milestoneName} — ${e.projectTitle}` : undefined
+  else if (e.type === 'milestone_proceed_at_risk') detail = e.projectTitle && e.milestoneName ? `${e.milestoneName} — ${e.projectTitle} · ${fmt(e.amount ?? 0, e.currency)} unsecured` : e.projectTitle
   else if (e.type === 'milestone_disputed') detail = e.projectTitle ? `${e.reason} — ${e.projectTitle}` : e.reason
   else if (e.type === 'bid_placed') detail = e.projectTitle ? `${fmt(e.amount ?? 0, e.currency)} for ${e.projectTitle}` : fmt(e.amount ?? 0, e.currency)
   else detail = e.projectTitle

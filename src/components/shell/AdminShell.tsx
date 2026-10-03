@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useApp } from '../../context'
 import { C, FONT, UserAvatar, ThemeToggle, LanguageToggle } from '../MobileLayout'
 import { AppIcon } from '../icons'
 import { Drawer } from './Drawer'
-import { AdminSidebar, AdminNavList } from './AdminSidebar'
+import { AdminSidebar, AdminNavList, resolveActiveAdminKey } from './AdminSidebar'
+import { ADMIN_NAV } from './adminNav'
 
 /** Chrome for the admin dashboard — deliberately its own thing, not a reuse
  * of AppShell with the role left null. AppShell's Sidebar/TopBar/BottomNav
@@ -21,8 +22,11 @@ import { AdminSidebar, AdminNavList } from './AdminSidebar'
  * more than a 5-tab bottom bar comfortably fits). */
 export function AdminShell({ children }: { children: ReactNode }) {
   const nav = useNavigate()
+  const { pathname } = useLocation()
   const { name, logout } = useApp()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const activeKey = resolveActiveAdminKey(pathname)
+  const activeItem = ADMIN_NAV.flatMap((g) => g.items).find((i) => i.key === activeKey)
 
   const signOut = async () => {
     await logout()
@@ -47,11 +51,22 @@ export function AdminShell({ children }: { children: ReactNode }) {
             <AppIcon name="menu" size={17} />
           </button>
 
-          <button onClick={() => nav('/admin')} className="flex items-center gap-2.5 lg:hidden">
+          <button onClick={() => nav('/admin')} className="flex items-center gap-2.5 lg:hidden" aria-label="Admin dashboard">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl" style={{ background: C.forest, color: C.white }}>
               <AppIcon name="shield" size={18} strokeWidth={2} />
             </div>
           </button>
+
+          {/* Below lg the sidebar is a drawer, closed by default — so the
+              header itself names the current section, keeping "where am I"
+              answerable without opening the menu. Same resolver the sidebar
+              highlights with, so the two can't disagree. */}
+          {activeItem && (
+            <div className="flex min-w-0 items-center gap-2 lg:hidden" aria-live="polite">
+              <AppIcon name={activeItem.icon} size={14} />
+              <span style={{ fontFamily: FONT.sans, color: C.ink }} className="truncate text-sm font-semibold">{activeItem.label}</span>
+            </div>
+          )}
 
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             {/* Language + theme, same controls and same persistence the
