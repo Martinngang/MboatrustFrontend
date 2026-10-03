@@ -82,6 +82,11 @@ export default defineConfig(({ mode }) => {
           // above), not something every installing user should have to
           // download upfront just to have the app work offline.
           globIgnores: ['**/location-data-*.js'],
+          // The main bundle outgrew Workbox's 2 MiB default (2.3 MB), which
+          // made the whole production build fail. It must stay precached —
+          // offline evidence capture needs the app shell — so raise the cap
+          // rather than excluding it.
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         },
       }),
     ],

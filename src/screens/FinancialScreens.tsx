@@ -170,6 +170,17 @@ export function InviteCoFunderScreen() {
     }
   }
 
+  if (!project) {
+    return (
+      <AppShell>
+        <Header title="Invite a Co-funder" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="handshake" title="Choose a project first" description="Open one of your projects and start from there — this page needs a project to work with." action={<PillButton onClick={() => nav('/funder/browse')}>Browse projects</PillButton>} />
+        </div>
+      </AppShell>
+    )
+  }
+
   if (invited) {
     return (
       <AppShell noNav>
@@ -300,6 +311,17 @@ export function RecurringContributionSetupScreen() {
     } catch (err) {
       showToast({ title: 'Failed to set up recurring contribution', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
     }
+  }
+
+  if (!project) {
+    return (
+      <AppShell>
+        <Header title="Recurring Contribution" back />
+        <div className="px-5 py-5">
+          <EmptyState icon="refresh" title="Choose a project first" description="Open one of your projects and start from there — this page needs a project to work with." action={<PillButton onClick={() => nav('/funder/browse')}>Browse projects</PillButton>} />
+        </div>
+      </AppShell>
+    )
   }
 
   if (created) {

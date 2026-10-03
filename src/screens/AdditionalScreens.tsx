@@ -1393,6 +1393,17 @@ export function VerifierTaskDetailScreen() {
   const task = verifierTasks.find((t) => t.id === id) ?? verifierTasks[0]
   const startMutation = useStartVerificationTaskMutation()
 
+  if (!task) {
+    return (
+      <AppShell noNav>
+        <Header title="Verification" back />
+        <div className="px-5 py-10">
+          <EmptyState icon="briefcase" title="Task not found" description="This verification task doesn't exist or isn't assigned to you." action={<PillButton onClick={() => nav('/verifier/dashboard')}>Back to dashboard</PillButton>} illustration="tilt" />
+        </div>
+      </AppShell>
+    )
+  }
+
   const checklist = task.type === 'land'
     ? ['Plot boundaries match the survey plan', 'No visible encroachments or disputes', 'Access road and neighbouring plots confirmed']
     : task.type === 'location'
@@ -1549,6 +1560,17 @@ export function VerifierReportScreen() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (!task) {
+    return (
+      <AppShell noNav>
+        <Header title="Verification" back />
+        <div className="px-5 py-10">
+          <EmptyState icon="briefcase" title="Task not found" description="This verification task doesn't exist or isn't assigned to you." action={<PillButton onClick={() => nav('/verifier/dashboard')}>Back to dashboard</PillButton>} illustration="tilt" />
+        </div>
+      </AppShell>
+    )
   }
 
   if (submitted) {

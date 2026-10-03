@@ -528,9 +528,19 @@ export function FundProjectScreen() {
   const { data: quote, isFetching: quoteLoading } = useFundingQuoteQuery(targetProjectIdForQuote, netAmount, currency)
   // What is actually charged (gross, incl. the funding fee) — 0 until quoted.
   const amount = quote?.grossAmount ?? 0
-  const title = existing?.title ?? fallback.title
+  const title = existing?.title ?? fallback?.title ?? ''
   const { blocked: kycBlocked } = useKycGate(amount)
   const amountReady = netAmount > 0 && !!quote && !quoteLoading && quote.creditedNet > 0
+
+  if (!existing && !fallback) {
+    return (
+      <AppShell noNav>
+        <div className="flex flex-col items-center justify-center h-full px-8 text-center">
+          <EmptyState icon="wallet" title="Choose a project to fund" description="Open one of your projects or tenders and start from there — this page needs a project to work with." action={<PillButton onClick={() => nav('/funder/browse')}>Browse projects</PillButton>} />
+        </div>
+      </AppShell>
+    )
+  }
 
   // Reached only with an existing project id — funding a new project draft
   // was a separate, now-retired creation flow (see the deleted
