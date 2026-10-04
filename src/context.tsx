@@ -40,6 +40,19 @@ export interface LocationDetails {
   source: 'manual_pin' | 'gps' | 'geocoded_search' | 'auto_detected' | 'verifier_confirmed' | null
 }
 
+/** The funder's stated supplier/material-sourcing need on a tender, shown
+ * publicly so contractors know before they bid. 'need_supplier' never carries
+ * a supplier — one is only attached when the funder explicitly selects it. */
+export type SupplierRequirement = 'none' | 'have_supplier' | 'need_supplier'
+
+/** Public summary of the funder-selected supplier (business-facing fields
+ * only — never the supplier owner's contact details). */
+export interface SupplierSummary {
+  id: string
+  businessName: string
+  region: string
+}
+
 export interface MilestoneEvidence {
   id: string
   type: string
@@ -140,6 +153,8 @@ export interface Project {
    * requester to pick a store from scratch. */
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  supplierRequirement?: SupplierRequirement
+  supplier?: SupplierSummary | null
   /** The funder's yes/no answer at creation to "do you already have a
    * project plan?" — distinct from hasPlanDocument: a funder can answer
    * yes and not have finished uploading the file yet. */
@@ -181,6 +196,8 @@ export interface JobPosting {
   ownerId?: string
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  supplierRequirement?: SupplierRequirement
+  supplier?: SupplierSummary | null
 }
 
 export interface LandListing {
@@ -374,6 +391,9 @@ export interface AppState {
   addJob: (j: Omit<JobPosting, 'id' | 'locationDetails'> & {
     milestoneSchedule?: { title: string; amount: number; description: string }[]
     hasExistingPlan?: boolean
+    /** Supplier option chosen at posting time (see PostJobScreen). */
+    supplierRequirement?: SupplierRequirement
+    supplierId?: string | null
     /** Already resolved client-side by LocationEditModal, or left for the
      * backend to reverse-geocode itself when omitted. */
     placeName?: string | null
@@ -673,7 +693,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addJob: AppState['addJob'] = async (j) => {
     const created = await createJobMutation.mutateAsync({
       title: j.title, category: j.category, location: j.location, coordinates: j.coordinates,
-      placeName: j.placeName, formattedAddress: j.formattedAddress, locationSource: j.locationSource, budget: j.budget,
+      placeName: j.placeName, formattedAddress: j.formattedAddress, locationSource: j.locationSource,
+      supplierRequirement: j.supplierRequirement, supplierId: j.supplierId, budget: j.budget,
       deadline: j.deadline === 'TBD' ? '' : j.deadline, milestoneCount: j.milestones, description: j.description,
       milestoneSchedule: j.milestoneSchedule, hasExistingPlan: j.hasExistingPlan,
     })

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { Bid, BidNegotiationRound, BidScheduleMilestone, JobPosting, LocationDetails } from '../context'
+import type { Bid, BidNegotiationRound, BidScheduleMilestone, JobPosting, LocationDetails, SupplierRequirement, SupplierSummary } from '../context'
 
 interface BackendLocationDetails {
   placeName?: string
@@ -31,6 +31,8 @@ interface BackendProject {
   ownerId: { _id: string; fullName: string } | string
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  supplierRequirement?: SupplierRequirement
+  supplier?: { id: string; businessName: string; region: string } | null
 }
 interface BackendMilestoneProposal { title: string; description: string; amount: number }
 interface BackendNegotiationRound {
@@ -123,6 +125,8 @@ function mapJob(doc: BackendProject, bidCount: number): JobPosting {
     ownerId: typeof doc.ownerId === 'object' ? doc.ownerId._id : doc.ownerId,
     materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
     preferredSupplierId: doc.preferredSupplierId ?? null,
+    supplierRequirement: doc.supplierRequirement ?? 'none',
+    supplier: doc.supplier ? ({ id: doc.supplier.id, businessName: doc.supplier.businessName, region: doc.supplier.region } satisfies SupplierSummary) : null,
   }
 }
 
@@ -217,6 +221,10 @@ export interface CreateJobInput {
    * useUploadPlanDocumentMutation (api/projects.ts) once this returns a
    * real project id, since this endpoint stays plain JSON. */
   hasExistingPlan?: boolean
+  /** "Supplier required for this project": none / I already have a Supplier
+   * (needs supplierId) / I need a Supplier. Never auto-assigned. */
+  supplierRequirement?: SupplierRequirement
+  supplierId?: string | null
 }
 
 // Every new tender starts contractor-managed (Project.materialsManagedBy's
@@ -249,6 +257,8 @@ export function useCreateJobMutation() {
         totalAmount: j.budget,
         ...(j.deadline ? { deadline: j.deadline } : {}),
         hasExistingPlan: j.hasExistingPlan ?? false,
+        supplierRequirement: j.supplierRequirement ?? 'none',
+        ...(j.supplierRequirement === 'have_supplier' && j.supplierId ? { preferredSupplierId: j.supplierId } : {}),
         milestones,
       })
       return mapJob(data.data, 0)

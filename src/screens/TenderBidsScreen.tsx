@@ -168,15 +168,24 @@ function SupplierAssignPanel({ job, projectId }: { job: JobPosting | undefined; 
   const assignMutation = useAssignSupplierMutation()
   const [browsing, setBrowsing] = useState(false)
   const verified = suppliers.filter((s) => s.verificationStatus === 'verified')
-  const assigned = job?.materialsManagedBy === 'supplier' && job.preferredSupplierId
+  const assignedFromDirectory = job?.materialsManagedBy === 'supplier' && job.preferredSupplierId
     ? suppliers.find((s) => s.id === job.preferredSupplierId)
     : null
+  // The tender itself carries a public summary of the selected supplier, so
+  // fall back to that when the directory hasn't loaded (or the supplier
+  // isn't in this funder's directory view).
+  const assigned = assignedFromDirectory
+    ?? (job?.supplier ? { id: job.supplier.id, businessName: job.supplier.businessName, address: '', region: job.supplier.region } : null)
+  const needsSupplier = job?.supplierRequirement === 'need_supplier' && !assigned
 
-  const assign = async (supplierId: string | null) => {
+  const assign = async (supplierId: string | null, requirement?: 'none' | 'need_supplier') => {
     if (!projectId) return
     try {
-      await assignMutation.mutateAsync({ projectId, supplierId })
-      showToast({ title: supplierId ? 'Supplier assigned' : 'Supplier unassigned', tone: 'success' })
+      await assignMutation.mutateAsync({ projectId, supplierId, supplierRequirement: requirement })
+      showToast({
+        title: supplierId ? 'Supplier assigned' : requirement === 'need_supplier' ? 'Marked as needing a supplier' : 'Supplier requirement cleared',
+        tone: 'success',
+      })
       setBrowsing(false)
     } catch (err) {
       showToast({ title: 'Failed to update supplier', description: apiErrorMessage(err, 'Please try again'), tone: 'error' })
@@ -214,13 +223,39 @@ function SupplierAssignPanel({ job, projectId }: { job: JobPosting | undefined; 
           </div>
         </Card>
       ) : !browsing ? (
-        <button
-          onClick={() => setBrowsing(true)}
-          className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
-          style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
-        >
-          Find & assign a supplier →
-        </button>
+        <div className="space-y-2">
+          {needsSupplier && (
+            <div className="rounded-xl border p-3" style={{ borderColor: 'var(--status-warning-text)', background: 'var(--status-warning-bg)' }}>
+              <p style={{ fontFamily: FONT.sans, color: 'var(--status-warning-text)' }} className="text-xs font-semibold">Marked as "I need a Supplier"</p>
+              <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs mt-0.5">Contractors can see this tender needs supplier coordination. No supplier is attached until you pick one.</p>
+              <button
+                disabled={assignMutation.isPending}
+                onClick={() => assign(null, 'none')}
+                className="mt-2 text-xs font-semibold disabled:opacity-50"
+                style={{ fontFamily: FONT.sans, color: C.inkMuted }}
+              >
+                No supplier required after all
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => setBrowsing(true)}
+            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border-2 border-dashed text-sm font-semibold"
+            style={{ borderColor: C.forest, color: C.forest, fontFamily: FONT.sans }}
+          >
+            Find & assign a supplier →
+          </button>
+          {!needsSupplier && (
+            <button
+              disabled={assignMutation.isPending}
+              onClick={() => assign(null, 'need_supplier')}
+              className="w-full text-xs font-semibold py-1 disabled:opacity-50"
+              style={{ fontFamily: FONT.sans, color: C.inkMuted }}
+            >
+              Mark this tender as "I need a Supplier"
+            </button>
+          )}
+        </div>
       ) : verified.length === 0 ? (
         <EmptyState
           icon="store"

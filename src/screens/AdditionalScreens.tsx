@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, lazy, Suspense, type ReactNode } from 'react'
 import { useQueries } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useApp, fmt, type LocationDetails } from '../context'
+import { useApp, fmt, type LocationDetails, type SupplierRequirement } from '../context'
+import { SupplierRequirementPicker } from '../components/SupplierRequirement'
 import { useLocationCapture } from '../hooks/useLocationCapture'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
 import { AdminShell } from '../components/shell/AdminShell'
@@ -286,6 +287,9 @@ export function PostJobScreen() {
   const [exactLocationModalOpen, setExactLocationModalOpen] = useState(false)
 
   const [hasPlan, setHasPlan] = useState<'yes' | 'no'>('no')
+  // "Supplier required for this project" — nothing is auto-assigned: a supplier
+  // is only attached when the funder explicitly picks one.
+  const [supplierChoice, setSupplierChoice] = useState<{ requirement: SupplierRequirement; supplierId: string | null }>({ requirement: 'none', supplierId: null })
   const [planFile, setPlanFile] = useState<File | null>(null)
   const uploadPlanDocument = useUploadPlanDocumentMutation()
   const [planUploadFailed, setPlanUploadFailed] = useState(false)
@@ -299,6 +303,7 @@ export function PostJobScreen() {
   const canSubmit = form.title.trim() !== '' && form.category !== '' && form.region !== '' && form.town !== '' && budgetNumber > 0
     && scheduleRowsValid(milestones) && scheduleTotal(milestones) === budgetNumber
     && (hasPlan === 'no' || planFile !== null)
+    && (supplierChoice.requirement !== 'have_supplier' || supplierChoice.supplierId !== null)
 
   const submit = async () => {
     setSubmitting(true)
@@ -323,6 +328,8 @@ export function PostJobScreen() {
         description: form.description,
         status: 'open',
         hasExistingPlan: hasPlan === 'yes',
+        supplierRequirement: supplierChoice.requirement,
+        supplierId: supplierChoice.supplierId,
       })
       setCreatedJobId(created.id)
       if (hasPlan === 'yes' && planFile) {
@@ -469,6 +476,12 @@ export function PostJobScreen() {
             />
           </Suspense>
         </div>
+
+        <SupplierRequirementPicker
+          value={supplierChoice.requirement}
+          supplierId={supplierChoice.supplierId}
+          onChange={setSupplierChoice}
+        />
 
         <div>
           <label style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest block mb-1.5">

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { api } from './client'
 import { getNextPageParam, type PageMeta } from './pagination'
-import type { LocationDetails, Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
+import type { LocationDetails, SupplierRequirement, Milestone, MilestoneApprover, MilestoneEvidence, Project } from '../context'
 import type { RecommendedVerifier } from './reputation'
 
 const DEFAULT_IMAGE = 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=400&h=220&fit=crop&auto=format'
@@ -85,6 +85,8 @@ interface BackendProject {
   coSignerId: { _id: string; fullName: string } | string | null
   materialsManagedBy?: 'contractor' | 'supplier'
   preferredSupplierId?: string | null
+  supplierRequirement?: SupplierRequirement
+  supplier?: { id: string; businessName: string; region: string } | null
   hasExistingPlan?: boolean
   hasPlanDocument?: boolean
   locationVerificationStatus?: 'not_requested' | 'requested' | 'confirmed'
@@ -221,6 +223,8 @@ function mapProject(doc: BackendProject, funding: FundingSummary | undefined): P
     coSignerName: doc.coSignerId && typeof doc.coSignerId === 'object' ? doc.coSignerId.fullName : undefined,
     materialsManagedBy: doc.materialsManagedBy ?? 'contractor',
     preferredSupplierId: doc.preferredSupplierId ?? null,
+    supplierRequirement: doc.supplierRequirement ?? 'none',
+    supplier: doc.supplier ?? null,
     hasExistingPlan: doc.hasExistingPlan ?? false,
     hasPlanDocument: doc.hasPlanDocument ?? false,
     locationVerificationStatus: doc.locationVerificationStatus ?? 'not_requested',
@@ -537,8 +541,8 @@ export function useAddCoSignerMutation() {
 export function useAssignSupplierMutation() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ projectId, supplierId }: { projectId: string; supplierId: string | null }) => {
-      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/assign-supplier`, { supplierId })
+    mutationFn: async ({ projectId, supplierId, supplierRequirement }: { projectId: string; supplierId?: string | null; supplierRequirement?: 'none' | 'need_supplier' }) => {
+      const { data } = await api.post<{ data: BackendProject }>(`/projects/${projectId}/assign-supplier`, { supplierId, supplierRequirement })
       return mapProject(data.data, undefined)
     },
     onSuccess: (_data, { projectId }) => {

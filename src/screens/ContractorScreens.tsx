@@ -22,6 +22,7 @@ import {
   MilestoneScheduleEditor, makeDefaultSchedule, scheduleTotal, scheduleRowsValid, type DraftScheduleMilestone,
 } from '../components/MilestoneScheduleEditor'
 import { useOfflineQueue } from '../offlineQueue'
+import { SupplierRequirementChip, SupplierRequirementNotice } from '../components/SupplierRequirement'
 import { useLocationCapture } from '../hooks/useLocationCapture'
 import { LocationCaptureCard } from '../components/LocationCaptureCard'
 import { useMaterialOrdersForMilestoneQuery } from '../api/materialOrders'
@@ -124,6 +125,9 @@ export function BrowseJobsScreen() {
                 </div>
                 <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-wider mb-3">{job.location} · {job.category}</div>
                 <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-xs leading-relaxed mb-3 line-clamp-2">{job.description}</p>
+                {job.supplierRequirement && job.supplierRequirement !== 'none' && (
+                  <div className="mb-3"><SupplierRequirementChip requirement={job.supplierRequirement} supplier={job.supplier} /></div>
+                )}
                 <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: C.parchmentDark }}>
                   <div>
                     <div style={{ fontFamily: FONT.serif, color: C.ink }} className="text-base font-bold">{fmt(job.budget)}</div>
@@ -242,6 +246,8 @@ export function JobDetailScreen() {
           <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[10px] uppercase tracking-widest mb-2">Description</div>
           <p style={{ fontFamily: FONT.sans, color: C.inkMuted }} className="text-sm leading-relaxed">{job.description}</p>
         </div>
+
+        <SupplierRequirementNotice requirement={job.supplierRequirement} supplier={job.supplier} />
 
         {/* Milestone breakdown */}
         <div>
