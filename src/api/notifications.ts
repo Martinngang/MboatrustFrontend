@@ -3,6 +3,7 @@ import { api } from './client'
 import type { AppNotification, NotifCategory } from '../context'
 import type { StatusTone } from '../components/tokens'
 import type { IconName } from '../components/icons'
+import { catalogEntry } from './notificationCatalog'
 
 // Avoids importing `fmt` from context.tsx here — context.tsx itself imports
 // this module's hooks, and a real (non-type-only) import back would create
@@ -149,8 +150,8 @@ function describe(n: BackendNotification): Described {
       }
     case 'new_message':
       return {
-        icon: 'message', category: 'messages', title: 'New message',
-        body: 'You have a new message.',
+        icon: 'message', category: 'messages', title: typeof p.senderName === 'string' && p.senderName ? `New message from ${p.senderName}` : 'New message',
+        body: typeof p.preview === 'string' && p.preview ? (p.preview.length > 120 ? `${p.preview.slice(0, 117)}...` : p.preview) : 'You have a new message.',
         path: p.conversationId ? `/messages/${p.conversationId}` : undefined,
       }
     case 'dispute_raised':
@@ -167,9 +168,30 @@ function describe(n: BackendNotification): Described {
         stat: { label: statusLabel(p.status), tone: statusTone(p.status) },
         path: p.projectId ? `/funder/project/${p.projectId}` : undefined,
       }
-    default:
+    default: {
+      const entry = catalogEntry(n.type, p)
+      if (entry) return { icon: entry.icon, category: entry.category, title: entry.title, body: entry.body, stat: undefined, path: entry.path }
       return { icon: 'bell', ...fallbackDescribe(n.type) }
+    }
   }
+}
+
+/** Tone for the types handled by describe()'s own switch (the catalog covers
+ * the rest with its own `tone`). */
+const SWITCH_TONE: Record<string, StatusTone> = {
+  project_funded: 'success', milestone_funded: 'success', funding_needed: 'warning', milestone_awaiting_funds: 'warning',
+  milestone_proceed_at_risk: 'warning', milestone_evidence_submitted: 'info', bid_received: 'info', bid_countered: 'info',
+  milestone_changes_requested: 'warning', land_purchase_started: 'info', verification_assigned: 'info', new_message: 'info',
+  dispute_raised: 'error', dispute_resolved: 'info',
+}
+
+/** What a real-time toast says for a notification — same wording as the
+ * notification center (both read describe()/the catalog), plus a tone. */
+export function toastContentFor(type: string, payload: Record<string, unknown>): { title: string; description: string; tone: StatusTone; path?: string } {
+  const entry = catalogEntry(type, payload)
+  const d = describe({ _id: '', type, payload, read: false, createdAt: new Date().toISOString() })
+  const tone: StatusTone = entry?.tone ?? d.stat?.tone ?? SWITCH_TONE[type] ?? 'info'
+  return { title: d.title, description: d.body, tone, path: d.path }
 }
 
 // The backend fires ~41 notification types; only the dozen above have
@@ -220,6 +242,8 @@ export function useMarkNotificationReadMutation() {
       const { data } = await api.patch(`/notifications/${id}/read`)
       return data.data
     },
+    // Background nicety: a failure shouldn't raise the global failure toast.
+    meta: { silent: true },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
 }

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react'
+import { toast } from './components/Toast'
 import { useApp } from './context'
 import {
   useTeamMembersQuery,
@@ -52,17 +53,20 @@ export function TeamProvider({ children }: { children: ReactNode }) {
 
   const inviteMember = (m: { name: string; email: string; role: TeamRole; permissions?: TeamPermission[] }) => {
     if (m.role === 'owner') return // owner is auto-created, never invited
-    invite.mutate({ email: m.email, name: m.name, role: m.role, permissions: m.permissions })
+    invite.mutate(
+      { email: m.email, name: m.name, role: m.role, permissions: m.permissions },
+      { onSuccess: () => toast.success('Invitation sent', `${m.name || m.email} was invited to your team.`) }
+    )
   }
   const updateMemberRole = (id: string, role: TeamRole) => {
     if (role === 'owner') return
-    updateRole.mutate({ id, role })
+    updateRole.mutate({ id, role }, { onSuccess: () => toast.success('Role updated') })
   }
   const updateMemberPermissions = (id: string, permissions: TeamPermission[]) => {
-    updateRole.mutate({ id, permissions })
+    updateRole.mutate({ id, permissions }, { onSuccess: () => toast.success('Permissions updated') })
   }
   const removeMember = (id: string) => {
-    remove.mutate(id)
+    remove.mutate(id, { onSuccess: () => toast.success('Team member removed') })
   }
 
   return (

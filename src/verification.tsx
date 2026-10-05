@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
+import { toast } from './components/Toast'
 import { useApp } from './context'
 import {
   useMyVerifierProfileQuery,
@@ -103,7 +104,9 @@ export function VerificationProvider({ children }: { children: ReactNode }) {
   const upsert = useUpsertVerifierProfileMutation()
 
   const registerVerifier = (input: RegisterVerifierInput) => {
-    upsert.mutate(input)
+    upsert.mutate(input, {
+      onSuccess: () => toast.success('Verifier application submitted', 'An admin will review it before you can receive assignments.'),
+    })
   }
 
   return (

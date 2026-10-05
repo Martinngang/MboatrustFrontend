@@ -9,12 +9,49 @@ export interface ToastOptions {
   description?: string
   tone?: StatusTone
   duration?: number
+  /** Optional call-to-action (View, Retry...). Clicking runs onClick and
+   * dismisses the toast. */
+  action?: { label: string; onClick: () => void }
+  /** Toasts sharing a key collapse into one while it is still showing or
+   * was shown in the last few seconds - how one backend event that reaches
+   * the user through two paths (an action's own toast AND its real-time
+   * notification) only ever produces a single toast. Defaults to
+   * tone+title+description. */
+  dedupeKey?: string
 }
 interface ToastItem extends ToastOptions {
   id: string
 }
 
 const DEFAULT_DURATION = 3200
+/** Actionable toasts stay a little longer so there is time to use the button. */
+const ACTION_DURATION = 6000
+const MAX_VISIBLE = 3
+const DEDUPE_WINDOW_MS = 2500
+
+type Handler = (opts: ToastOptions) => void
+let handler: Handler | null = null
+const pendingBeforeMount: ToastOptions[] = []
+let lastErrorToastAt = 0
+
+/** The one toast service. Components use useToast(); everything that lives
+ * outside React (the socket listener, the global mutation-failure net) uses
+ * this same module-level API, so there is exactly one place toasts are
+ * queued, deduplicated and rendered. */
+export const toast = {
+  show(opts: ToastOptions) {
+    if (opts.tone === 'error') lastErrorToastAt = Date.now()
+    if (handler) handler(opts)
+    else pendingBeforeMount.push(opts)
+  },
+  success: (title: string, description?: string, extra?: Partial<ToastOptions>) => toast.show({ title, description, tone: 'success', ...extra }),
+  error: (title: string, description?: string, extra?: Partial<ToastOptions>) => toast.show({ title, description, tone: 'error', duration: 5000, ...extra }),
+  warning: (title: string, description?: string, extra?: Partial<ToastOptions>) => toast.show({ title, description, tone: 'warning', duration: 4500, ...extra }),
+  info: (title: string, description?: string, extra?: Partial<ToastOptions>) => toast.show({ title, description, tone: 'info', ...extra }),
+  /** When an error toast was last shown - lets the global failure net stay
+   * quiet if the screen already told the user what went wrong. */
+  lastErrorAt: () => lastErrorToastAt,
+}
 
 const ToastContext = createContext<{ show: (opts: ToastOptions) => void } | null>(null)
 
@@ -33,18 +70,44 @@ const TONE_ICON: Record<StatusTone, IconName> = {
  * hover-pausable auto-dismiss countdown — see ToastRow. */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
+  const [queue, setQueue] = useState<ToastItem[]>([])
   const counter = useRef(0)
+  const recent = useRef(new Map<string, number>())
 
   const remove = useCallback((id: string) => {
     setItems((list) => list.filter((t) => t.id !== id))
   }, [])
 
+  // Promote queued toasts as visible slots free up.
+  useEffect(() => {
+    if (queue.length === 0 || items.length >= MAX_VISIBLE) return
+    const [next, ...rest] = queue
+    setQueue(rest)
+    setItems((list) => [next, ...list])
+  }, [queue, items])
+
   const show = useCallback((opts: ToastOptions) => {
+    const key = opts.dedupeKey ?? `${opts.tone ?? 'neutral'}|${opts.title}|${opts.description ?? ''}`
+    const now = Date.now()
+    const seenAt = recent.current.get(key)
+    if (seenAt !== undefined && now - seenAt < DEDUPE_WINDOW_MS) return
+    recent.current.set(key, now)
+    for (const [k, t] of recent.current) if (now - t > 30_000) recent.current.delete(k)
     const id = `t${counter.current++}`
-    // Newest first — the stack is top-anchored, so the most recent toast
-    // should sit closest to that edge rather than pile up at the end.
-    setItems((list) => [{ id, tone: 'neutral', duration: DEFAULT_DURATION, ...opts }, ...list])
+    const item: ToastItem = { id, tone: 'neutral', duration: opts.action ? ACTION_DURATION : DEFAULT_DURATION, ...opts }
+    // Every toast goes through the queue; the effect above promotes it as
+    // soon as there is a free slot (max MAX_VISIBLE on screen, newest first
+    // so the stack is top-anchored), instead of flooding the screen.
+    setQueue((q) => [...q, item])
   }, [])
+
+  useEffect(() => {
+    handler = show
+    for (const opts of pendingBeforeMount.splice(0)) show(opts)
+    return () => {
+      if (handler === show) handler = null
+    }
+  }, [show])
 
   return (
     <ToastContext.Provider value={{ show }}>
@@ -63,8 +126,12 @@ export function useToast() {
 function Toaster({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id: string) => void }) {
   return createPortal(
     <div
-      className="pointer-events-none fixed inset-x-0 top-4 z-[1100] flex flex-col items-center gap-2 px-4 lg:top-6 lg:items-end lg:px-6"
+      // Below the sticky top bar on desktop (about 64px tall) so toasts never
+      // cover the search/notification controls; safe-area aware on phones.
+      className="pointer-events-none fixed inset-x-0 top-4 z-[1100] flex flex-col items-center gap-2 px-4 lg:top-[76px] lg:items-end lg:px-6"
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      aria-live="polite"
+      aria-atomic="false"
     >
       <AnimatePresence>
         {items.map((t) => (
@@ -132,10 +199,9 @@ function ToastRow({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: stri
       className="pointer-events-auto relative w-full max-w-sm overflow-hidden rounded-2xl border"
       style={{ background: C.white, borderColor: C.parchmentDark, boxShadow: C.shadowLg }}
       role={tone === 'error' ? 'alert' : 'status'}
-      // Deliberately no onClick/onKeyDown dismiss handler — the countdown
-      // (paused/resumed only by hover, see pause/resume above) is the one
-      // and only way a toast goes away. Clicking, tapping, or pressing keys
-      // must never skip it early.
+      // Body clicks never dismiss (a stray tap should not hide a message the
+      // user is mid-read) - it goes away by countdown or the explicit close
+      // button above. Hovering pauses the countdown.
       onMouseEnter={pause}
       onMouseLeave={resume}
     >
@@ -146,12 +212,31 @@ function ToastRow({ toast, onDismiss }: { toast: ToastItem; onDismiss: (id: stri
         >
           <AppIcon name={TONE_ICON[tone]} size={13} strokeWidth={2.25} />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div style={{ fontFamily: FONT.sans, color: C.ink }} className="text-sm font-semibold">{toast.title}</div>
           {toast.description && (
             <div style={{ fontFamily: FONT.sans, color: C.inkSubtle }} className="mt-0.5 text-xs">{toast.description}</div>
           )}
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => { toast.action?.onClick(); onDismiss(toast.id) }}
+              className="mt-1.5 text-xs font-semibold underline-offset-2 hover:underline"
+              style={{ fontFamily: FONT.sans, color: C.forest }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
+        <button
+          type="button"
+          aria-label="Dismiss notification"
+          onClick={() => onDismiss(toast.id)}
+          className="-mr-1 -mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+          style={{ color: C.inkSubtle }}
+        >
+          <AppIcon name="close" size={12} strokeWidth={2.25} />
+        </button>
       </div>
 
       {/* Auto-dismiss countdown — full width at mount, shrinks to nothing

@@ -17,6 +17,7 @@ import { useLandOffersQuery } from './api/landOffers'
 import { useContractorProfilesQuery } from './api/contractors'
 import { useNotificationsQuery, useMarkNotificationReadMutation, useMarkAllNotificationsReadMutation } from './api/notifications'
 import { useGlobalRealtime } from './api/realtime'
+import { toast } from './components/Toast'
 import { disconnectSocket } from './api/socket'
 
 export type Role = 'funder' | 'contractor' | 'seller' | 'supplier' | null
@@ -725,7 +726,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     markNotificationReadMutation.mutate(id)
   }
   const markAllNotificationsRead = () => {
-    markAllNotificationsReadMutation.mutate()
+    markAllNotificationsReadMutation.mutate(undefined, {
+      onSuccess: () => toast.success('All notifications marked as read', undefined, { dedupeKey: 'notifications:read-all' }),
+    })
   }
   // Real unreadCount from the backend (a true total, not just this page's
   // count) when logged in and loaded; falls back to counting the mock list.

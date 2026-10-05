@@ -53,7 +53,13 @@ function RecommendedForYouRow() {
             className="flex-shrink-0 w-48 text-left rounded-xl overflow-hidden border"
             style={{ borderColor: C.parchmentDark, background: C.cream }}
           >
-            <img src={r.imageUrl} alt={r.title} className="w-full h-24 object-cover" />
+            {r.imageUrl ? (
+              <img src={r.imageUrl} alt={r.title} className="w-full h-24 object-cover" />
+            ) : (
+              <div className="w-full h-24 flex items-center justify-center" style={{ background: C.parchment }}>
+                <AppIcon name="home" size={22} style={{ color: C.inkSubtle }} />
+              </div>
+            )}
             <div className="p-2.5">
               <div style={{ fontFamily: FONT.serif }} className="font-bold text-xs truncate">{r.title}</div>
               <div style={{ fontFamily: FONT.mono, color: C.inkSubtle }} className="text-[9px] uppercase tracking-wider mt-0.5">{r.city}, {r.region}</div>

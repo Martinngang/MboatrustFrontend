@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApp, fmt, type LocationDetails, type SupplierRequirement } from '../context'
 import { SupplierRequirementPicker } from '../components/SupplierRequirement'
 import { useLocationCapture } from '../hooks/useLocationCapture'
+import { toast as toastBus } from '../components/Toast'
 import { C, FONT, AppShell, Card, StatusBadge, PillButton, Header, StepIndicator, DashboardShell, DashboardHero } from '../components/MobileLayout'
 import { AdminShell } from '../components/shell/AdminShell'
 import { Drawer } from '../components/shell/Drawer'
@@ -1855,10 +1856,10 @@ export function AdminPanelScreen() {
   const { data: platformStats, isError: statsError } = usePlatformStatsQuery()
   const { data: certifications = [] } = useAllCertificationsQuery()
   const decideCertificationMutation = useDecideCertificationMutation()
-  const decideCertification = (certId: string, status: 'verified' | 'rejected') => decideCertificationMutation.mutate({ certId, status })
+  const decideCertification = (certId: string, status: 'verified' | 'rejected') => decideCertificationMutation.mutate({ certId, status }, { onSuccess: () => toastBus.success(`Certification ${status}`) })
   const { data: verifierApplications = [] } = useVerifierApplicationsQuery()
   const decideVerifierApplicationMutation = useDecideVerifierApplicationMutation()
-  const decideVerifierApplication = (id: string, decision: 'approve' | 'reject') => decideVerifierApplicationMutation.mutate({ id, decision })
+  const decideVerifierApplication = (id: string, decision: 'approve' | 'reject') => decideVerifierApplicationMutation.mutate({ id, decision }, { onSuccess: () => toastBus.success(decision === 'approve' ? 'Verifier application approved' : 'Verifier application rejected') })
   const { data: openDisputes = [] } = useDisputesQuery({ status: 'open' })
   const { data: systemHealth } = useSystemHealthQuery()
   const [tab, setTab] = useState<'overview' | 'verifications' | 'disputes' | 'users' | 'health'>('overview')
@@ -2060,14 +2061,14 @@ export function AdminPanelScreen() {
                   <StatusBadge status={u.isActive ? 'verified' : 'rejected'} />
                   {u.isActive ? (
                     <button
-                      onClick={() => deactivateUser.mutate(u.id)}
+                      onClick={() => deactivateUser.mutate(u.id, { onSuccess: () => toastBus.success('Account deactivated', u.email || u.phoneNumber || undefined) })}
                       disabled={deactivateUser.isPending}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold border flex-shrink-0"
                       style={{ borderColor: 'var(--status-error-bg)', color: 'var(--status-error-text)', fontFamily: FONT.sans }}
                     >Deactivate</button>
                   ) : (
                     <button
-                      onClick={() => reactivateUser.mutate(u.id)}
+                      onClick={() => reactivateUser.mutate(u.id, { onSuccess: () => toastBus.success('Account reactivated', u.email || u.phoneNumber || undefined) })}
                       disabled={reactivateUser.isPending}
                       className="px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0"
                       style={{ background: C.forest, color: '#fff', fontFamily: FONT.sans }}
@@ -2711,7 +2712,7 @@ function AdminTicketDrawer({ ticket }: { ticket: SupportTicket | undefined }) {
             </p>
             {ticket.assignedToId === devUserId ? (
               <button
-                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: null })}
+                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: null }, { onSuccess: () => toastBus.success('Ticket released') })}
                 disabled={assignMutation.isPending}
                 className="rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
                 style={{ borderColor: C.parchmentDark, fontFamily: FONT.sans, color: C.inkMuted }}
@@ -2720,7 +2721,7 @@ function AdminTicketDrawer({ ticket }: { ticket: SupportTicket | undefined }) {
               </button>
             ) : (
               <button
-                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: devUserId ?? null })}
+                onClick={() => assignMutation.mutate({ ticketId: ticket.id, assignedTo: devUserId ?? null }, { onSuccess: () => toastBus.success('Ticket assigned to you') })}
                 disabled={assignMutation.isPending || !devUserId}
                 className="rounded-lg border px-2.5 py-1 text-xs font-semibold disabled:opacity-50"
                 style={{ borderColor: C.forest, fontFamily: FONT.sans, color: C.forest }}

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MutationCache, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import axios from 'axios'
+import { apiErrorMessage } from './api/client'
 import { AppProvider, useApp, type Role } from './context'
 import { TemplatesProvider } from './templates'
 import { MaterialsProvider } from './materials'
@@ -13,7 +15,8 @@ import { ThemeProvider } from './theme'
 import { OfflineQueueProvider } from './offlineQueue'
 import { PWAInstallProvider } from './pwaInstall'
 import { C } from './components/MobileLayout'
-import { ToastProvider } from './components/Toast'
+import { ToastProvider, toast } from './components/Toast'
+import { NotificationToastBridge } from './components/NotificationToastBridge'
 import { CommandPaletteProvider } from './components/shell/CommandPalette'
 import { KeyboardShortcutsProvider } from './components/shell/KeyboardShortcuts'
 import { NotificationsDrawerProvider } from './components/NotificationsDrawer'
@@ -91,6 +94,7 @@ function WebFrame({ children }: { children: ReactNode }) {
             <CommandPaletteProvider>
               <KeyboardShortcutsProvider>
                 {children}
+                <NotificationToastBridge />
                 <InstallModal />
               </KeyboardShortcutsProvider>
             </CommandPaletteProvider>
@@ -172,7 +176,29 @@ function AuthGate({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/** Safety net so a failed action can never be silent: when ANY mutation
+ * fails and the screen has not already shown its own error toast, show a
+ * generic one with the real server message. Screens keep their specific
+ * messages (they run within milliseconds of the failure, which suppresses
+ * this); a mutation that is meant to fail quietly opts out with
+ * `meta: { silent: true }`. */
+const mutationCache = new MutationCache({
+  onError: (error, _variables, _context, mutation) => {
+    if (mutation.meta?.silent) return
+    const failedAt = Date.now()
+    window.setTimeout(() => {
+      if (toast.lastErrorAt() >= failedAt) return
+      const offline = axios.isAxiosError(error) && !error.response
+      toast.error(
+        offline ? 'You appear to be offline' : 'That did not go through',
+        offline ? 'Check your connection and try again.' : apiErrorMessage(error, 'Please try again.')
+      )
+    }, 450)
+  },
+})
+
 const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 })
 

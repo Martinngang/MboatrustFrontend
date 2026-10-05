@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react'
+import { toast } from './components/Toast'
 import { useApp } from './context'
 import {
   useProjectTemplatesQuery,
@@ -33,10 +34,10 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
   const remove = useDeleteProjectTemplateMutation()
 
   const addTemplate = (t: Omit<ProjectTemplate, 'id'>) => {
-    create.mutate(t)
+    create.mutate(t, { onSuccess: () => toast.success('Template saved', 'You can reuse it when posting your next tender.') })
   }
   const deleteTemplate = (id: string) => {
-    remove.mutate(id)
+    remove.mutate(id, { onSuccess: () => toast.success('Template deleted') })
   }
 
   return (
